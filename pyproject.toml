@@ -1,0 +1,12 @@
+[project]
+name = "bancas-back"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "alembic>=1.18.5",
+    "fastapi>=0.139.2",
+    "pydantic-settings>=2.14.2",
+    "pymysql>=1.2.0",
+    "sqlalchemy>=2.0.51",
+    "uvicorn[standard]>=0.51.0",
+]
