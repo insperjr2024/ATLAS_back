@@ -1,0 +1,12 @@
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Cargo:
+    id: Optional[int] = None
+    nome: str = ""
+    categoria_banca: str = ""
+    pode_definir_formulario: bool = False
+    pode_agendar_banca: bool = False
+    pode_gerenciar_cargos: bool = False
