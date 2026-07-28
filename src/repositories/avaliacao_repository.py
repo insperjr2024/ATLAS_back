@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from src.models.avaliacao_model import AvaliacaoModel
 from typing import List, Optional
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
+from src.utils.exceptions import ResourceInUseError
 
 
 class AvaliacaoRepository:
@@ -29,3 +31,25 @@ class AvaliacaoRepository:
 
     def get_all(self) -> List[AvaliacaoModel]:
         return self.db.query(AvaliacaoModel).all()
+
+    def update(self, avaliacao_id: int, **kwargs) -> Optional[AvaliacaoModel]:
+        avaliacao = self.get_by_id(avaliacao_id)
+        if not avaliacao:
+            return None
+        for key, value in kwargs.items():
+            setattr(avaliacao, key, value)
+        self.db.commit()
+        self.db.refresh(avaliacao)
+        return avaliacao
+
+    def delete(self, avaliacao_id: int) -> bool:
+        avaliacao = self.get_by_id(avaliacao_id)
+        if not avaliacao:
+            return False
+        try:
+            self.db.delete(avaliacao)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()

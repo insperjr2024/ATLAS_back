@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from src.models.candidatura_model import CandidaturaModel
 from typing import List, Optional
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
+from src.utils.exceptions import ResourceInUseError
 
 
 class CandidaturaRepository:
@@ -27,3 +29,25 @@ class CandidaturaRepository:
 
     def get_all(self) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).all()
+
+    def update(self, candidatura_id: int, **kwargs) -> Optional[CandidaturaModel]:
+        candidatura = self.get_by_id(candidatura_id)
+        if not candidatura:
+            return None
+        for key, value in kwargs.items():
+            setattr(candidatura, key, value)
+        self.db.commit()
+        self.db.refresh(candidatura)
+        return candidatura
+
+    def delete(self, candidatura_id: int) -> bool:
+        candidatura = self.get_by_id(candidatura_id)
+        if not candidatura:
+            return False
+        try:
+            self.db.delete(candidatura)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()

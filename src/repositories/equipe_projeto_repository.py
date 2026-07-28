@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from src.models.equipe_projeto_model import EquipeProjetoModel
 from typing import List, Optional
+from sqlalchemy.exc import IntegrityError
+from src.utils.exceptions import ResourceInUseError
 
 
 class EquipeProjetoRepository:
@@ -22,3 +24,25 @@ class EquipeProjetoRepository:
 
     def get_all(self) -> List[EquipeProjetoModel]:
         return self.db.query(EquipeProjetoModel).all()
+
+    def update(self, equipe_id: int, **kwargs) -> Optional[EquipeProjetoModel]:
+        equipe = self.get_by_id(equipe_id)
+        if not equipe:
+            return None
+        for key, value in kwargs.items():
+            setattr(equipe, key, value)
+        self.db.commit()
+        self.db.refresh(equipe)
+        return equipe
+
+    def delete(self, equipe_id: int) -> bool:
+        equipe = self.get_by_id(equipe_id)
+        if not equipe:
+            return False
+        try:
+            self.db.delete(equipe)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()

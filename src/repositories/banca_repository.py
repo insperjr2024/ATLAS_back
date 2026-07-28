@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from src.models.banca_model import BancaModel
 from typing import List, Optional
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
+from src.utils.exceptions import ResourceInUseError
 
 
 class BancaRepository:
@@ -27,3 +29,25 @@ class BancaRepository:
 
     def get_all(self) -> List[BancaModel]:
         return self.db.query(BancaModel).all()
+
+    def update(self, banca_id: int, **kwargs) -> Optional[BancaModel]:
+        banca = self.get_by_id(banca_id)
+        if not banca:
+            return None
+        for key, value in kwargs.items():
+            setattr(banca, key, value)
+        self.db.commit()
+        self.db.refresh(banca)
+        return banca
+
+    def delete(self, banca_id: int) -> bool:
+        banca = self.get_by_id(banca_id)
+        if not banca:
+            return False
+        try:
+            self.db.delete(banca)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()

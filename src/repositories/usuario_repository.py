@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from src.models.usuario_model import UsuarioModel
 from typing import List, Optional
+from sqlalchemy.exc import IntegrityError
+from src.utils.exceptions import ResourceInUseError
 
 
 class UsuarioRepository:
@@ -24,3 +26,25 @@ class UsuarioRepository:
 
     def get_all(self) -> List[UsuarioModel]:
         return self.db.query(UsuarioModel).all()
+
+    def update(self, usuario_id: int, **kwargs) -> Optional[UsuarioModel]:
+        usuario = self.get_by_id(usuario_id)
+        if not usuario:
+            return None
+        for key, value in kwargs.items():
+            setattr(usuario, key, value)
+        self.db.commit()
+        self.db.refresh(usuario)
+        return usuario
+
+    def delete(self, usuario_id: int) -> bool:
+        usuario = self.get_by_id(usuario_id)
+        if not usuario:
+            return False
+        try:
+            self.db.delete(usuario)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()

@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from src.models.avaliacao_nota_model import AvaliacaoNotaModel
 from typing import List, Optional
 from decimal import Decimal
+from sqlalchemy.exc import IntegrityError
+from src.utils.exceptions import ResourceInUseError
 
 
 class AvaliacaoNotaRepository:
@@ -26,3 +28,25 @@ class AvaliacaoNotaRepository:
 
     def get_all(self) -> List[AvaliacaoNotaModel]:
         return self.db.query(AvaliacaoNotaModel).all()
+
+    def update(self, avaliacao_nota_id: int, **kwargs) -> Optional[AvaliacaoNotaModel]:
+        avaliacao_nota = self.get_by_id(avaliacao_nota_id)
+        if not avaliacao_nota:
+            return None
+        for key, value in kwargs.items():
+            setattr(avaliacao_nota, key, value)
+        self.db.commit()
+        self.db.refresh(avaliacao_nota)
+        return avaliacao_nota
+
+    def delete(self, avaliacao_nota_id: int) -> bool:
+        avaliacao_nota = self.get_by_id(avaliacao_nota_id)
+        if not avaliacao_nota:
+            return False
+        try:
+            self.db.delete(avaliacao_nota)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()
