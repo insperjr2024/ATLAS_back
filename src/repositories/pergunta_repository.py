@@ -1,8 +1,6 @@
 from sqlalchemy.orm import Session
 from src.models.pergunta_model import PerguntaModel
 from typing import List, Optional
-from sqlalchemy.exc import IntegrityError
-from src.utils.exceptions import ResourceInUseError
 
 
 class PerguntaRepository:
@@ -28,6 +26,14 @@ class PerguntaRepository:
     def get_all(self) -> List[PerguntaModel]:
         return self.db.query(PerguntaModel).all()
 
+    def get_by_formulario(self, formulario_id: int) -> List[PerguntaModel]:
+        return (
+            self.db.query(PerguntaModel)
+            .filter(PerguntaModel.formulario_id == formulario_id)
+            .order_by(PerguntaModel.ordem)
+            .all()
+        )
+
     def update(self, pergunta_id: int, **kwargs) -> Optional[PerguntaModel]:
         pergunta = self.get_by_id(pergunta_id)
         if not pergunta:
@@ -42,10 +48,6 @@ class PerguntaRepository:
         pergunta = self.get_by_id(pergunta_id)
         if not pergunta:
             return False
-        try:
-            self.db.delete(pergunta)
-            self.db.commit()
-            return True
-        except IntegrityError:
-            self.db.rollback()
-            raise ResourceInUseError()
+        self.db.delete(pergunta)
+        self.db.commit()
+        return True

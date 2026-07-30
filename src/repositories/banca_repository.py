@@ -2,8 +2,6 @@ from sqlalchemy.orm import Session
 from src.models.banca_model import BancaModel
 from typing import List, Optional
 from datetime import datetime
-from sqlalchemy.exc import IntegrityError
-from src.utils.exceptions import ResourceInUseError
 
 
 class BancaRepository:
@@ -11,12 +9,11 @@ class BancaRepository:
         self.db = db
 
     def create(self, nome_projeto: str, escopo_id: int, coordenador_id: int,
-               status: str, data_hora: Optional[datetime] = None) -> BancaModel:
+               data_hora: datetime) -> BancaModel:
         banca = BancaModel(
             nome_projeto=nome_projeto,
             escopo_id=escopo_id,
             coordenador_id=coordenador_id,
-            status=status,
             data_hora=data_hora
         )
         self.db.add(banca)
@@ -44,10 +41,6 @@ class BancaRepository:
         banca = self.get_by_id(banca_id)
         if not banca:
             return False
-        try:
-            self.db.delete(banca)
-            self.db.commit()
-            return True
-        except IntegrityError:
-            self.db.rollback()
-            raise ResourceInUseError()
+        self.db.delete(banca)
+        self.db.commit()
+        return True

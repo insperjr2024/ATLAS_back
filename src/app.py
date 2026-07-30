@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.utils.exceptions import ResourceInUseError
 from fastapi import FastAPI, Depends, HTTPException
+from typing import Optional
 from src.use_cases.cargo.create_cargo import CreateCargoUseCase, CreateCargoRequest
 from src.use_cases.escopo.create_escopo import CreateEscopoUseCase, CreateEscopoRequest
 from src.use_cases.semestre.create_semestre import CreateSemestreUseCase, CreateSemestreRequest
@@ -37,6 +38,7 @@ from src.use_cases.semestre.get_semestre import GetSemestreUseCase, ListSemestre
 from src.use_cases.usuario.get_usuario import GetUsuarioUseCase, ListUsuariosUseCase
 from src.use_cases.formulario.get_formulario import GetFormularioUseCase, ListFormulariosUseCase
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
+from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
 from src.use_cases.pergunta.get_pergunta import GetPerguntaUseCase, ListPerguntasUseCase
 from src.use_cases.candidatura.get_candidatura import GetCandidaturaUseCase, ListCandidaturasUseCase
 from src.use_cases.avaliacao.get_avaliacao import GetAvaliacaoUseCase, ListAvaliacoesUseCase
@@ -45,6 +47,15 @@ from src.use_cases.frente.get_frente import GetFrenteUseCase, ListFrentesUseCase
 from src.use_cases.equipe_projeto.get_equipe_projeto import GetEquipeProjetoUseCase, ListEquipesProjetoUseCase
 from src.use_cases.usuario_frente.get_usuario_frente import GetUsuarioFrenteUseCase, ListUsuariosFrentesUseCase
 from src.use_cases.banca_frente.get_banca_frente import GetBancaFrenteUseCase, ListBancasFrentesUseCase
+from src.use_cases.configuracao.get_configuracao import GetConfiguracaoUseCase
+from src.use_cases.configuracao.update_configuracao import UpdateConfiguracaoUseCase, UpdateConfiguracaoRequest
+from src.use_cases.banca.get_bancas_para_avaliar import GetBancasParaAvaliarUseCase
+from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
+from src.use_cases.usuario.get_desempenho import GetDesempenhoUseCase
+from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
+from src.use_cases.formulario.get_formulario_ativo import GetFormularioAtivoUseCase
+from src.use_cases.formulario.create_nova_versao_formulario import CreateNovaVersaoFormularioUseCase, CreateNovaVersaoFormularioRequest
+from src.utils.exceptions import ResourceInUseError, RegraDeNegocioError
 
 
 app = FastAPI(title="API BANCAS I")
@@ -88,12 +99,37 @@ def create_usuario(
     return use_case.execute(request)
 
 @app.post("/formularios")
-def create_formulario(
-    request: CreateFormularioRequest,
-    db: Session = Depends(get_db)
-):
+def create_formulario(request: CreateFormularioRequest, db: Session = Depends(get_db)):
     use_case = CreateFormularioUseCase(db)
     return use_case.execute(request)
+
+
+@app.get("/formularios/ativo")
+def get_formulario_ativo(db: Session = Depends(get_db)):
+    result = GetFormularioAtivoUseCase(db).execute()
+    if not result:
+        raise HTTPException(status_code=404, detail="Nenhum formulário ativo encontrado")
+    return result
+
+
+@app.post("/formularios/nova-versao")
+def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, db: Session = Depends(get_db)):
+    try:
+        return CreateNovaVersaoFormularioUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/formularios")
+def list_formularios(db: Session = Depends(get_db)):
+    return ListFormulariosUseCase(db).execute()
+
+@app.get("/formularios/{formulario_id}")
+def get_formulario(formulario_id: int, db: Session = Depends(get_db)):
+    result = GetFormularioUseCase(db).execute(formulario_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Formulário não encontrado")
+    return result 
 
 @app.post("/bancas")
 def create_banca(
@@ -114,12 +150,11 @@ def create_pergunta(
 
 
 @app.post("/candidaturas")
-def create_candidatura(
-    request: CreateCandidaturaRequest,
-    db: Session = Depends(get_db)
-):
-    use_case = CreateCandidaturaUseCase(db)
-    return use_case.execute(request)
+def create_candidatura(request: CreateCandidaturaRequest, db: Session = Depends(get_db)):
+    try:
+        return CreateCandidaturaUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.post("/avaliacoes")
@@ -132,12 +167,11 @@ def create_avaliacao(
 
 
 @app.post("/avaliacoes-notas")
-def create_avaliacao_nota(
-    request: CreateAvaliacaoNotaRequest,
-    db: Session = Depends(get_db)
-):
-    use_case = CreateAvaliacaoNotaUseCase(db)
-    return use_case.execute(request)
+def create_avaliacao_nota(request: CreateAvaliacaoNotaRequest, db: Session = Depends(get_db)):
+    try:
+        return CreateAvaliacaoNotaUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 @app.post("/frentes")
 def create_frente(
@@ -311,8 +345,8 @@ def update_candidatura(candidatura_id: int, request: UpdateCandidaturaRequest, d
 def delete_candidatura(candidatura_id: int, db: Session = Depends(get_db)):
     try:
         deleted = DeleteCandidaturaUseCase(db).execute(candidatura_id)
-    except ResourceInUseError:
-        raise HTTPException(status_code=409, detail="Não é possível excluir: existem registros vinculados a esta candidatura")
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not deleted:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
     return None
@@ -338,7 +372,10 @@ def delete_avaliacao(avaliacao_id: int, db: Session = Depends(get_db)):
 
 @app.patch("/avaliacoes-notas/{avaliacao_nota_id}")
 def update_avaliacao_nota(avaliacao_nota_id: int, request: UpdateAvaliacaoNotaRequest, db: Session = Depends(get_db)):
-    result = UpdateAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id, request)
+    try:
+        result = UpdateAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Nota de avaliação não encontrada")
     return result
@@ -471,19 +508,7 @@ def get_usuario(usuario_id: int, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return result
-
-
-@app.get("/formularios")
-def list_formularios(db: Session = Depends(get_db)):
-    return ListFormulariosUseCase(db).execute()
-
-@app.get("/formularios/{formulario_id}")
-def get_formulario(formulario_id: int, db: Session = Depends(get_db)):
-    result = GetFormularioUseCase(db).execute(formulario_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Formulário não encontrado")
-    return result
-
+    
 
 @app.get("/bancas")
 def list_bancas(db: Session = Depends(get_db)):
@@ -591,3 +616,42 @@ def get_banca_frente(banca_frente_id: int, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
     return result
+
+@app.get("/bancas/{banca_id}/notas-por-pergunta")
+def get_notas_por_pergunta(banca_id: int, db: Session = Depends(get_db)):
+    return GetNotasPorPerguntaUseCase(db).execute(banca_id)
+
+@app.get("/configuracao")
+def get_configuracao(db: Session = Depends(get_db)):
+    return GetConfiguracaoUseCase(db).execute()
+
+
+@app.patch("/configuracao")
+def update_configuracao(request: UpdateConfiguracaoRequest, db: Session = Depends(get_db)):
+    return UpdateConfiguracaoUseCase(db).execute(request)
+
+@app.get("/usuarios/{usuario_id}/bancas-para-avaliar")
+def get_bancas_para_avaliar(usuario_id: int, db: Session = Depends(get_db)):
+    return GetBancasParaAvaliarUseCase(db).execute(usuario_id)
+
+
+@app.get("/avaliacoes-pendentes")
+def get_avaliacoes_pendentes(db: Session = Depends(get_db)):
+    return GetAvaliacoesPendentesUseCase(db).execute()
+
+@app.get("/usuarios/{usuario_id}/desempenho")
+def get_desempenho(usuario_id: int, semestre_id: Optional[int] = None, db: Session = Depends(get_db)):
+    result = GetDesempenhoUseCase(db).execute(usuario_id, semestre_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Semestre não encontrado")
+    return result
+
+@app.get("/historico-bancas")
+def get_historico_bancas(
+    consultor_id: Optional[int] = None,
+    coordenador_id: Optional[int] = None,
+    escopo_id: Optional[int] = None,
+    semestre_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    return GetHistoricoBancasUseCase(db).execute(consultor_id, coordenador_id, escopo_id, semestre_id)

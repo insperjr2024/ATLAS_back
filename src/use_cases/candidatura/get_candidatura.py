@@ -14,7 +14,6 @@ class GetCandidaturaUseCase:
             "id": candidatura.id,
             "banca_id": candidatura.banca_id,
             "usuario_id": candidatura.usuario_id,
-            "categoria": candidatura.categoria,
             "criado_em": candidatura.criado_em,
             "confirmado": candidatura.confirmado
         }
@@ -31,7 +30,6 @@ class ListCandidaturasUseCase:
                 "id": c.id,
                 "banca_id": c.banca_id,
                 "usuario_id": c.usuario_id,
-                "categoria": c.categoria,
                 "criado_em": c.criado_em,
                 "confirmado": c.confirmado
             }

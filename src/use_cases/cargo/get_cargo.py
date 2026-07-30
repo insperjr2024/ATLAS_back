@@ -13,7 +13,6 @@ class GetCargoUseCase:
         return {
             "id": cargo.id,
             "nome": cargo.nome,
-            "categoria_banca": cargo.categoria_banca,
             "pode_definir_formulario": cargo.pode_definir_formulario,
             "pode_agendar_banca": cargo.pode_agendar_banca,
             "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos
@@ -30,7 +29,6 @@ class ListCargosUseCase:
             {
                 "id": c.id,
                 "nome": c.nome,
-                "categoria_banca": c.categoria_banca,
                 "pode_definir_formulario": c.pode_definir_formulario,
                 "pode_agendar_banca": c.pode_agendar_banca,
                 "pode_gerenciar_cargos": c.pode_gerenciar_cargos

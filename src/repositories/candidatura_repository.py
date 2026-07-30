@@ -1,21 +1,20 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from src.models.candidatura_model import CandidaturaModel
+from src.utils.exceptions import ResourceInUseError
 from typing import List, Optional
 from datetime import datetime
-from sqlalchemy.exc import IntegrityError
-from src.utils.exceptions import ResourceInUseError
 
 
 class CandidaturaRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, banca_id: int, usuario_id: int, categoria: str,
+    def create(self, banca_id: int, usuario_id: int,
                criado_em: datetime, confirmado: bool = False) -> CandidaturaModel:
         candidatura = CandidaturaModel(
             banca_id=banca_id,
             usuario_id=usuario_id,
-            categoria=categoria,
             criado_em=criado_em,
             confirmado=confirmado
         )
@@ -29,6 +28,12 @@ class CandidaturaRepository:
 
     def get_all(self) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).all()
+
+    def get_by_banca(self, banca_id: int) -> List[CandidaturaModel]:
+        return self.db.query(CandidaturaModel).filter(CandidaturaModel.banca_id == banca_id).all()
+
+    def get_by_usuario(self, usuario_id: int) -> List[CandidaturaModel]:
+        return self.db.query(CandidaturaModel).filter(CandidaturaModel.usuario_id == usuario_id).all()
 
     def update(self, candidatura_id: int, **kwargs) -> Optional[CandidaturaModel]:
         candidatura = self.get_by_id(candidatura_id)

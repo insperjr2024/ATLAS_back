@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from src.repositories.banca_repository import BancaRepository
+from src.utils.banca_status import calcular_status_banca
 from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime
 
 
@@ -9,8 +9,7 @@ class CreateBancaRequest(BaseModel):
     nome_projeto: str
     escopo_id: int
     coordenador_id: int
-    status: str
-    data_hora: Optional[datetime] = None
+    data_hora: datetime
 
 
 class CreateBancaUseCase:
@@ -22,7 +21,6 @@ class CreateBancaUseCase:
             nome_projeto=request.nome_projeto,
             escopo_id=request.escopo_id,
             coordenador_id=request.coordenador_id,
-            status=request.status,
             data_hora=request.data_hora
         )
         return {
@@ -30,6 +28,7 @@ class CreateBancaUseCase:
             "nome_projeto": banca.nome_projeto,
             "escopo_id": banca.escopo_id,
             "coordenador_id": banca.coordenador_id,
-            "status": banca.status,
-            "data_hora": banca.data_hora
+            "data_hora": banca.data_hora,
+            "status": calcular_status_banca(banca.data_hora),
+            "nota_final": None
         }

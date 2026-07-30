@@ -6,7 +6,6 @@ from src.repositories.cargo_repository import CargoRepository
 
 class UpdateCargoRequest(BaseModel):
     nome: Optional[str] = None
-    categoria_banca: Optional[str] = None
     pode_definir_formulario: Optional[bool] = None
     pode_agendar_banca: Optional[bool] = None
     pode_gerenciar_cargos: Optional[bool] = None
@@ -24,7 +23,6 @@ class UpdateCargoUseCase:
         return {
             "id": cargo.id,
             "nome": cargo.nome,
-            "categoria_banca": cargo.categoria_banca,
             "pode_definir_formulario": cargo.pode_definir_formulario,
             "pode_agendar_banca": cargo.pode_agendar_banca,
             "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos

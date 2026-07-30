@@ -9,11 +9,10 @@ class CargoRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, nome: str, categoria_banca: str, pode_definir_formulario: bool,
+    def create(self, nome: str, pode_definir_formulario: bool,
                pode_agendar_banca: bool, pode_gerenciar_cargos: bool) -> CargoModel:
         cargo = CargoModel(
             nome=nome,
-            categoria_banca=categoria_banca,
             pode_definir_formulario=pode_definir_formulario,
             pode_agendar_banca=pode_agendar_banca,
             pode_gerenciar_cargos=pode_gerenciar_cargos

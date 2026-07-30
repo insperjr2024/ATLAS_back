@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from src.models.avaliacao_model import AvaliacaoModel
+from src.utils.exceptions import ResourceInUseError
 from typing import List, Optional
 from datetime import datetime
-from sqlalchemy.exc import IntegrityError
-from src.utils.exceptions import ResourceInUseError
 
 
 class AvaliacaoRepository:
@@ -31,6 +31,9 @@ class AvaliacaoRepository:
 
     def get_all(self) -> List[AvaliacaoModel]:
         return self.db.query(AvaliacaoModel).all()
+
+    def get_by_avaliador(self, avaliador_id: int) -> List[AvaliacaoModel]:
+        return self.db.query(AvaliacaoModel).filter(AvaliacaoModel.avaliador_id == avaliador_id).all()
 
     def update(self, avaliacao_id: int, **kwargs) -> Optional[AvaliacaoModel]:
         avaliacao = self.get_by_id(avaliacao_id)

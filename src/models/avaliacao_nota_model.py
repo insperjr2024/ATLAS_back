@@ -6,7 +6,7 @@ class AvaliacaoNotaModel(Base):
     __tablename__ = "avaliacao_nota"
 
     id = Column(Integer, primary_key=True, index=True)
-    avaliacao_id = Column(Integer, ForeignKey("avaliacao.id"), nullable=False)
+    avaliacao_id = Column(Integer, ForeignKey("avaliacao.id", ondelete="CASCADE"), nullable=False)
     pergunta_id = Column(Integer, ForeignKey("pergunta.id"), nullable=False)
     nota = Column(Numeric(2, 1), nullable=True)
     resposta_texto = Column(String(1000), nullable=True)
