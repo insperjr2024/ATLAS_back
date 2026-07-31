@@ -6,3 +6,4 @@ from typing import Optional
 class Configuracao:
     id: Optional[int] = None
     vagas_por_banca: int = 5
+    cargo_padrao_id: Optional[int] = None

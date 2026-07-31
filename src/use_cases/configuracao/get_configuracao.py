@@ -12,5 +12,6 @@ class GetConfiguracaoUseCase:
             configuracao = self.repository.criar_padrao()
         return {
             "id": configuracao.id,
-            "vagas_por_banca": configuracao.vagas_por_banca
+            "vagas_por_banca": configuracao.vagas_por_banca,
+            "cargo_padrao_id": configuracao.cargo_padrao_id
         }

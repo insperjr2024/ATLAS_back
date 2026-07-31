@@ -7,5 +7,6 @@ class Usuario:
     id: Optional[int] = None
     nome: str = ""
     email_insper: str = ""
+    senha_hash: str = ""
     cargo_id: Optional[int] = None
     ativo: bool = True
