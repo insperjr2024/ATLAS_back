@@ -25,7 +25,9 @@ from src.use_cases.avaliacao.update_avaliacao import UpdateAvaliacaoUseCase, Upd
 from src.use_cases.avaliacao_nota.update_avaliacao_nota import UpdateAvaliacaoNotaUseCase, UpdateAvaliacaoNotaRequest, DeleteAvaliacaoNotaUseCase
 from src.use_cases.frente.update_frente import UpdateFrenteUseCase, UpdateFrenteRequest, DeleteFrenteUseCase
 from src.use_cases.equipe_projeto.update_equipe_projeto import UpdateEquipeProjetoUseCase, UpdateEquipeProjetoRequest, DeleteEquipeProjetoUseCase
+from src.use_cases.equipe_projeto.create_equipe_projeto import CreateEquipeProjetoUseCase, CreateEquipeProjetoRequest
 from src.use_cases.banca_frente.update_banca_frente import UpdateBancaFrenteUseCase, UpdateBancaFrenteRequest, DeleteBancaFrenteUseCase
+from src.use_cases.banca_frente.create_banca_frente import CreateBancaFrenteUseCase, CreateBancaFrenteRequest
 from src.use_cases.cargo.get_cargo import GetCargoUseCase, ListCargosUseCase
 from src.use_cases.escopo.get_escopo import GetEscopoUseCase, ListEscoposUseCase
 from src.use_cases.semestre.get_semestre import GetSemestreUseCase, ListSemestresUseCase
@@ -402,6 +404,10 @@ def update_equipe_projeto(equipe_id: int, request: UpdateEquipeProjetoRequest, _
         raise HTTPException(status_code=404, detail="Registro de equipe não encontrado")
     return result
 
+@router.post("/equipes-projeto")
+def create_equipe_projeto(request: CreateEquipeProjetoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+    return CreateEquipeProjetoUseCase(db).execute(request)
+
 @router.delete("/equipes-projeto/{equipe_id}", status_code=204)
 def delete_equipe_projeto(equipe_id: int, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
     deleted = DeleteEquipeProjetoUseCase(db).execute(equipe_id)
@@ -436,6 +442,10 @@ def update_banca_frente(banca_frente_id: int, request: UpdateBancaFrenteRequest,
     if not result:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
     return result
+
+@router.post("/bancas-frentes")
+def create_banca_frente(request: CreateBancaFrenteRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+    return CreateBancaFrenteUseCase(db).execute(request)
 
 @router.delete("/bancas-frentes/{banca_frente_id}", status_code=204)
 def delete_banca_frente(banca_frente_id: int, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
