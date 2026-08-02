@@ -130,9 +130,9 @@ def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_
 
 
 @router.post("/candidaturas")
-def create_candidatura(request: CreateCandidaturaRequest, db: Session = Depends(get_db)):
+def create_candidatura(request: CreateCandidaturaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        return CreateCandidaturaUseCase(db).execute(request)
+        return CreateCandidaturaUseCase(db).execute(request, usuario_id=current_user.id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -140,14 +140,20 @@ def create_candidatura(request: CreateCandidaturaRequest, db: Session = Depends(
 @router.post("/avaliacoes")
 def create_avaliacao(
     request: CreateAvaliacaoRequest,
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     use_case = CreateAvaliacaoUseCase(db)
-    return use_case.execute(request)
+    return use_case.execute(request, avaliador_id=current_user.id)
 
 
 @router.post("/avaliacoes-notas")
-def create_avaliacao_nota(request: CreateAvaliacaoNotaRequest, db: Session = Depends(get_db)):
+def create_avaliacao_nota(request: CreateAvaliacaoNotaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    avaliacao = GetAvaliacaoUseCase(db).execute(request.avaliacao_id)
+    if not avaliacao:
+        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
+    if avaliacao["avaliador_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+        raise HTTPException(status_code=403, detail="Você só pode adicionar notas às suas próprias avaliações")
     try:
         return CreateAvaliacaoNotaUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -283,14 +289,24 @@ def delete_pergunta(pergunta_id: int, _=Depends(require_pode_definir_formulario)
 
 
 @router.patch("/candidaturas/{candidatura_id}")
-def update_candidatura(candidatura_id: int, request: UpdateCandidaturaRequest, db: Session = Depends(get_db)):
+def update_candidatura(candidatura_id: int, request: UpdateCandidaturaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    existente = GetCandidaturaUseCase(db).execute(candidatura_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Candidatura não encontrada")
+    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+        raise HTTPException(status_code=403, detail="Você só pode editar suas próprias candidaturas")
     result = UpdateCandidaturaUseCase(db).execute(candidatura_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
     return result
 
 @router.delete("/candidaturas/{candidatura_id}", status_code=204)
-def delete_candidatura(candidatura_id: int, db: Session = Depends(get_db)):
+def delete_candidatura(candidatura_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    existente = GetCandidaturaUseCase(db).execute(candidatura_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Candidatura não encontrada")
+    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+        raise HTTPException(status_code=403, detail="Você só pode remover suas próprias candidaturas")
     try:
         deleted = DeleteCandidaturaUseCase(db).execute(candidatura_id)
     except RegraDeNegocioError as e:
@@ -301,14 +317,24 @@ def delete_candidatura(candidatura_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/avaliacoes/{avaliacao_id}")
-def update_avaliacao(avaliacao_id: int, request: UpdateAvaliacaoRequest, db: Session = Depends(get_db)):
+def update_avaliacao(avaliacao_id: int, request: UpdateAvaliacaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    existente = GetAvaliacaoUseCase(db).execute(avaliacao_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
+    if existente["avaliador_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+        raise HTTPException(status_code=403, detail="Você só pode editar suas próprias avaliações")
     result = UpdateAvaliacaoUseCase(db).execute(avaliacao_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
     return result
 
 @router.delete("/avaliacoes/{avaliacao_id}", status_code=204)
-def delete_avaliacao(avaliacao_id: int, db: Session = Depends(get_db)):
+def delete_avaliacao(avaliacao_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    existente = GetAvaliacaoUseCase(db).execute(avaliacao_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
+    if existente["avaliador_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+        raise HTTPException(status_code=403, detail="Você só pode remover suas próprias avaliações")
     try:
         deleted = DeleteAvaliacaoUseCase(db).execute(avaliacao_id)
     except ResourceInUseError:
@@ -319,7 +345,13 @@ def delete_avaliacao(avaliacao_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/avaliacoes-notas/{avaliacao_nota_id}")
-def update_avaliacao_nota(avaliacao_nota_id: int, request: UpdateAvaliacaoNotaRequest, db: Session = Depends(get_db)):
+def update_avaliacao_nota(avaliacao_nota_id: int, request: UpdateAvaliacaoNotaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    nota_existente = GetAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id)
+    if not nota_existente:
+        raise HTTPException(status_code=404, detail="Nota de avaliação não encontrada")
+    avaliacao = GetAvaliacaoUseCase(db).execute(nota_existente["avaliacao_id"])
+    if not avaliacao or (avaliacao["avaliador_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos")):
+        raise HTTPException(status_code=403, detail="Você só pode editar notas das suas próprias avaliações")
     try:
         result = UpdateAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id, request)
     except RegraDeNegocioError as e:
@@ -329,7 +361,13 @@ def update_avaliacao_nota(avaliacao_nota_id: int, request: UpdateAvaliacaoNotaRe
     return result
 
 @router.delete("/avaliacoes-notas/{avaliacao_nota_id}", status_code=204)
-def delete_avaliacao_nota(avaliacao_nota_id: int, db: Session = Depends(get_db)):
+def delete_avaliacao_nota(avaliacao_nota_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    nota_existente = GetAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id)
+    if not nota_existente:
+        raise HTTPException(status_code=404, detail="Nota de avaliação não encontrada")
+    avaliacao = GetAvaliacaoUseCase(db).execute(nota_existente["avaliacao_id"])
+    if not avaliacao or (avaliacao["avaliador_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos")):
+        raise HTTPException(status_code=403, detail="Você só pode remover notas das suas próprias avaliações")
     try:
         deleted = DeleteAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id)
     except ResourceInUseError:

@@ -7,7 +7,6 @@ from datetime import datetime
 
 class CreateAvaliacaoRequest(BaseModel):
     banca_id: int
-    avaliador_id: int
     formulario_id: int
     status: str = "rascunho"
     comentario_feedback: Optional[str] = None
@@ -18,10 +17,10 @@ class CreateAvaliacaoUseCase:
     def __init__(self, db: Session):
         self.repository = AvaliacaoRepository(db)
 
-    def execute(self, request: CreateAvaliacaoRequest):
+    def execute(self, request: CreateAvaliacaoRequest, avaliador_id: int):
         avaliacao = self.repository.create(
             banca_id=request.banca_id,
-            avaliador_id=request.avaliador_id,
+            avaliador_id=avaliador_id,
             formulario_id=request.formulario_id,
             status=request.status,
             comentario_feedback=request.comentario_feedback,

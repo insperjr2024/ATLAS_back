@@ -7,7 +7,6 @@ from src.repositories.avaliacao_repository import AvaliacaoRepository
 
 class UpdateAvaliacaoRequest(BaseModel):
     banca_id: Optional[int] = None
-    avaliador_id: Optional[int] = None
     formulario_id: Optional[int] = None
     status: Optional[str] = None
     comentario_feedback: Optional[str] = None

@@ -10,8 +10,6 @@ from src.utils.exceptions import RegraDeNegocioError
 
 class CreateCandidaturaRequest(BaseModel):
     banca_id: int
-    usuario_id: int
-    criado_em: datetime
     confirmado: bool = False
 
 
@@ -21,7 +19,7 @@ class CreateCandidaturaUseCase:
         self.banca_repository = BancaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
 
-    def execute(self, request: CreateCandidaturaRequest):
+    def execute(self, request: CreateCandidaturaRequest, usuario_id: int):
         banca = self.banca_repository.get_by_id(request.banca_id)
         if not banca:
             raise RegraDeNegocioError("Banca não encontrada")
@@ -38,8 +36,8 @@ class CreateCandidaturaUseCase:
 
         candidatura = self.repository.create(
             banca_id=request.banca_id,
-            usuario_id=request.usuario_id,
-            criado_em=request.criado_em,
+            usuario_id=usuario_id,
+            criado_em=datetime.now(),
             confirmado=request.confirmado
         )
         return {

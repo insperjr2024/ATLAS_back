@@ -1,5 +1,4 @@
 from typing import Optional
-from datetime import datetime
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -10,8 +9,6 @@ from src.utils.exceptions import RegraDeNegocioError
 
 class UpdateCandidaturaRequest(BaseModel):
     banca_id: Optional[int] = None
-    usuario_id: Optional[int] = None
-    criado_em: Optional[datetime] = None
     confirmado: Optional[bool] = None
 
 
