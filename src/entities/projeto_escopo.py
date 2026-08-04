@@ -1,0 +1,27 @@
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Optional
+
+
+@dataclass
+class ProjetoEscopo:
+    """O escopo vendido dentro de um projeto (§4, §5.1).
+
+    "Outro" = `escopo_id` vazio + `nome_customizado` preenchido — o use case
+    valida que exatamente um dos dois existe, nunca os dois nem nenhum.
+    """
+
+    id: Optional[int] = None
+    projeto_id: Optional[int] = None
+    escopo_id: Optional[int] = None
+    nome_customizado: Optional[str] = None
+    frente_id: Optional[int] = None
+    dias_uteis_vendidos: int = 0
+    status: str = "nao_iniciado"
+    # ⭐ a contagem do §5.4 só corre com isto preenchido.
+    data_inicio: Optional[date] = None
+    cronograma_oficializado_em: Optional[datetime] = None
+    data_entrega_planejada: Optional[date] = None
+    # Preenchê-la congela a contagem (§5.4) — trava do §5.5 no use case.
+    data_entrega_real: Optional[date] = None
+    tipo_atraso_entrega: Optional[str] = None

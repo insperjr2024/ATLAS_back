@@ -1,0 +1,7 @@
+*.pyc
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.claude/
+.env.bak
