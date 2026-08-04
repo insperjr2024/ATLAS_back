@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, Date, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from src.database.database import Base
 
 
@@ -9,10 +9,15 @@ class ProjetoModel(Base):
     __tablename__ = "projeto"
 
     id = Column(Integer, primary_key=True, index=True)
+    criado_em = Column(DateTime, nullable=False, server_default=func.now())
     nome = Column(String(150), nullable=False)
     cliente = Column(String(150), nullable=False)
     descricao = Column(Text, nullable=True)
     link_proposta = Column(String(255), nullable=True)
+    # A proposta é ou um link, ou um PDF anexado — nunca os dois (ver
+    # UploadAnexoPropostaUseCase, que zera link_proposta ao receber o anexo).
+    anexo_proposta_path = Column(String(255), nullable=True)
+    anexo_proposta_nome = Column(String(255), nullable=True)
     status = Column(
         Enum(
             "vendido",
@@ -37,3 +42,6 @@ class ProjetoModel(Base):
     # Preserva o status de antes de pausar, para o retomar voltar ao lugar certo
     # sem precisar reconsultar o histórico toda vez.
     status_antes_pausa = Column(String(30), nullable=True)
+    # Arquivar não é excluir: some das listagens normais, mas nada é apagado
+    # — banca, avaliação e histórico continuam intactos (ver ArquivarProjetoUseCase).
+    arquivado_em = Column(DateTime, nullable=True)

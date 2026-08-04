@@ -14,7 +14,9 @@ from src.models import *  # noqa: F401,F403  (importa os models para o autogener
 config = context.config
 
 # a URL do banco vem do .env, nao do alembic.ini
-config.set_main_option("sqlalchemy.url", get_settings().DATABASE_URL)
+# `%` precisa ser escapado para `%%` — o ConfigParser do alembic trata `%`
+# como início de interpolação, e a senha do banco tem um `%` nela.
+config.set_main_option("sqlalchemy.url", get_settings().DATABASE_URL.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

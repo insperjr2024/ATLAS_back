@@ -19,6 +19,7 @@ def serializar_projeto_resumo(projeto, frente_repo: ProjetoFrenteRepository, mem
         "id": projeto.id,
         "nome": projeto.nome,
         "cliente": projeto.cliente,
+        "criado_em": projeto.criado_em,
         "status": projeto.status,
         "frente_ids": [f.frente_id for f in frentes],
         "sinergico": len(frentes) > 1,
@@ -26,6 +27,7 @@ def serializar_projeto_resumo(projeto, frente_repo: ProjetoFrenteRepository, mem
         "consultor_ids": [m.usuario_id for m in membros if m.papel == "consultor"],
         "data_kickoff": projeto.data_kickoff,
         "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
+        "arquivado_em": projeto.arquivado_em,
     }
 
 
@@ -44,6 +46,7 @@ def serializar_projeto_completo(
         "escopos": escopos or [],
         "descricao": projeto.descricao,
         "link_proposta": projeto.link_proposta,
+        "anexo_proposta_nome": projeto.anexo_proposta_nome,
         "dias_ambientacao": projeto.dias_ambientacao,
         "data_entrega_cliente": projeto.data_entrega_cliente,
         "dia_reuniao_padrao": projeto.dia_reuniao_padrao,
@@ -84,10 +87,12 @@ class ListProjetosUseCase:
         self.frente_repository = ProjetoFrenteRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
 
-    def execute(self, current_user, frente_id: Optional[int] = None):
+    def execute(self, current_user, frente_id: Optional[int] = None, incluir_arquivados: bool = False):
         from src.middlewares.authorization import aplicar_recorte_visao
 
         query = aplicar_recorte_visao(self.db.query(ProjetoModel), current_user, self.db, frente_id)
+        if not incluir_arquivados:
+            query = query.filter(ProjetoModel.arquivado_em.is_(None))
         projetos = query.all()
         return [
             serializar_projeto_resumo(p, self.frente_repository, self.membro_repository)
