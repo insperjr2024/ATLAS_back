@@ -18,7 +18,7 @@ class TestTransicaoManual:
         assert aplicar_transicao_manual("em_andamento") == "validacao_bancas"
 
     def test_cadeia_completa_ate_finalizado(self):
-        status = "em_andamento"
+        status = "ambientacao"
         sequencia = []
         while True:
             try:
@@ -27,11 +27,19 @@ class TestTransicaoManual:
             except RegraDeNegocioError:
                 break
         assert sequencia == [
+            "em_andamento",
             "validacao_bancas",
             "envio_tep",
             "periodo_ajustes",
             "finalizado",
         ]
+
+    def test_ambientacao_avanca_manualmente(self):
+        """O §4 diz que esta transição é 🤖 automática ao fim dos dias de
+        ambientação — mas o disparador não existe, e sem o caminho manual o
+        projeto fica preso em Ambientação. Também é o caso legítimo de a
+        equipe terminar antes do prazo."""
+        assert aplicar_transicao_manual("ambientacao") == "em_andamento"
 
     def test_finalizado_nao_tem_proxima_transicao(self):
         with pytest.raises(RegraDeNegocioError):
@@ -55,6 +63,7 @@ class TestVoltarEtapa:
         """Ida e volta têm que ser simétricas, ou o projeto fica preso num
         estado que só o banco desfaz."""
         for atual, proximo in [
+            ("ambientacao", "em_andamento"),
             ("em_andamento", "validacao_bancas"),
             ("validacao_bancas", "envio_tep"),
             ("envio_tep", "periodo_ajustes"),

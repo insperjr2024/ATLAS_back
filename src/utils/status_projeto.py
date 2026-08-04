@@ -29,7 +29,18 @@ TRANSICOES_AUTOMATICAS = {
 }
 
 # ✋ Transições manuais — só a próxima da fila; nunca pula etapa.
+#
+# ⚠ `ambientacao → em_andamento` aparece nos DOIS mapas, e é de propósito:
+# o §4 diz que ela é automática ao fim dos dias de ambientação, mas o
+# disparador ainda não existe — e, sem o caminho manual, um projeto que chega
+# em Ambientação fica preso lá para sempre. Com a volta de etapa isso ficou
+# pior: dava para regredir até Ambientação e não ter como sair.
+#
+# Manter o manual também é correto depois que o automático existir: a equipe
+# pode terminar a ambientação antes do prazo, e aí quem decide é a
+# coordenação, não o calendário.
 TRANSICOES_MANUAIS = {
+    "ambientacao": "em_andamento",
     "em_andamento": "validacao_bancas",
     "validacao_bancas": "envio_tep",
     "envio_tep": "periodo_ajustes",
