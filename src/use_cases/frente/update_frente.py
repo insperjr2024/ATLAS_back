@@ -1,11 +1,14 @@
 from typing import Optional
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from src.repositories.frente_repository import FrenteRepository
+from src.use_cases.frente.get_frente import serializar_frente
 
 
 class UpdateFrenteRequest(BaseModel):
     nome: Optional[str] = None
+    ativa: Optional[bool] = None
+    piso_banca: Optional[int] = Field(default=None, ge=0)
 
 
 class UpdateFrenteUseCase:
@@ -13,11 +16,11 @@ class UpdateFrenteUseCase:
         self.repository = FrenteRepository(db)
 
     def execute(self, frente_id: int, request: UpdateFrenteRequest):
-        data = request.dict(exclude_unset=True)
+        data = request.model_dump(exclude_unset=True)
         frente = self.repository.update(frente_id, **data)
         if not frente:
             return None
-        return {"id": frente.id, "nome": frente.nome}
+        return serializar_frente(frente)
 
 
 class DeleteFrenteUseCase:

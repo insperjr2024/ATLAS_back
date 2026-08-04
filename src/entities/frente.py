@@ -6,3 +6,5 @@ from typing import Optional
 class Frente:
     id: Optional[int] = None
     nome: str = ""
+    ativa: bool = True
+    piso_banca: int = 1

@@ -1,10 +1,13 @@
 from sqlalchemy.orm import Session
 from src.repositories.frente_repository import FrenteRepository
-from pydantic import BaseModel
+from src.use_cases.frente.get_frente import serializar_frente
+from pydantic import BaseModel, Field
 
 
 class CreateFrenteRequest(BaseModel):
     nome: str
+    ativa: bool = True
+    piso_banca: int = Field(default=1, ge=0)
 
 
 class CreateFrenteUseCase:
@@ -12,8 +15,9 @@ class CreateFrenteUseCase:
         self.repository = FrenteRepository(db)
 
     def execute(self, request: CreateFrenteRequest):
-        frente = self.repository.create(nome=request.nome)
-        return {
-            "id": frente.id,
-            "nome": frente.nome
-        }
+        frente = self.repository.create(
+            nome=request.nome,
+            ativa=request.ativa,
+            piso_banca=request.piso_banca,
+        )
+        return serializar_frente(frente)

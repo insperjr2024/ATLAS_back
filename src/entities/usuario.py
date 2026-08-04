@@ -9,4 +9,6 @@ class Usuario:
     email_insper: str = ""
     senha_hash: str = ""
     cargo_id: Optional[int] = None
+    posicao: str = "consultor"
+    status: str = "ativo"
     ativo: bool = True

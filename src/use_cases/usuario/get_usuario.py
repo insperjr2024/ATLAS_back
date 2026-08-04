@@ -1,5 +1,20 @@
+from typing import Optional
+
 from sqlalchemy.orm import Session
+
 from src.repositories.usuario_repository import UsuarioRepository
+
+
+def serializar_usuario(usuario):
+    return {
+        "id": usuario.id,
+        "nome": usuario.nome,
+        "email_insper": usuario.email_insper,
+        "cargo_id": usuario.cargo_id,
+        "posicao": usuario.posicao,
+        "status": usuario.status,
+        "ativo": usuario.ativo,
+    }
 
 
 class GetUsuarioUseCase:
@@ -10,28 +25,19 @@ class GetUsuarioUseCase:
         usuario = self.repository.get_by_id(usuario_id)
         if not usuario:
             return None
-        return {
-            "id": usuario.id,
-            "nome": usuario.nome,
-            "email_insper": usuario.email_insper,
-            "cargo_id": usuario.cargo_id,
-            "ativo": usuario.ativo
-        }
+        return serializar_usuario(usuario)
 
 
 class ListUsuariosUseCase:
     def __init__(self, db: Session):
         self.repository = UsuarioRepository(db)
 
-    def execute(self):
-        usuarios = self.repository.get_all()
-        return [
-            {
-                "id": u.id,
-                "nome": u.nome,
-                "email_insper": u.email_insper,
-                "cargo_id": u.cargo_id,
-                "ativo": u.ativo
-            }
-            for u in usuarios
-        ]
+    def execute(self, posicao: Optional[str] = None, apenas_ativos: bool = False):
+        """Quem some da lista: o `desligado` (§10). O `ex_membro` continua
+        aparecendo, porque o histórico dele precisa ficar íntegro."""
+        usuarios = [u for u in self.repository.get_all() if u.status != "desligado"]
+        if posicao:
+            usuarios = [u for u in usuarios if u.posicao == posicao]
+        if apenas_ativos:
+            usuarios = [u for u in usuarios if u.status == "ativo"]
+        return [serializar_usuario(u) for u in usuarios]

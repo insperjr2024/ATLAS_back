@@ -9,3 +9,4 @@ class Semestre:
     nome: str = ""
     inicio: Optional[date] = None
     fim: Optional[date] = None
+    status: str = "ativa"
