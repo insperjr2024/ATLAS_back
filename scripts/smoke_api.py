@@ -76,18 +76,29 @@ st, t2 = call("POST", f"/projetos/{alfa}/tarefas", ana,
               {"titulo": "Rodar entrevistas", "responsavel_id": 6, "prazo": "2026-08-20"})
 checar(st == 200 and t2["vencida"] is False, f"prazo futuro → vencida=False (got {t2.get('vencida')})")
 
-st, _ = call("PATCH", f"/tarefas/{t1['id']}", ana, {"status": "inventado"})
-checar(st == 422, f"status inválido → 422 (got {st})")
+# As colunas do kanban são dados (configuráveis pela diretoria), não ENUM.
+st, colunas = call("GET", "/tarefas-colunas", ana)
+checar(st == 200 and len(colunas) >= 2, f"colunas do kanban vêm da API ({len(colunas)})")
+em_andamento = next(c for c in colunas if c["nome"] == "Em andamento")
+concluido = next(c for c in colunas if c["encerra_tarefa"])
 
-st, movida = call("PATCH", f"/tarefas/{t1['id']}", ana, {"status": "em_andamento"})
-checar(st == 200 and movida["status"] == "em_andamento", "mover no kanban")
+st, _ = call("PATCH", f"/tarefas/{t1['id']}", ana, {"coluna_id": 99999})
+checar(st == 422, f"coluna inexistente → 422 (got {st})")
+
+st, movida = call("PATCH", f"/tarefas/{t1['id']}", ana, {"coluna_id": em_andamento["id"]})
+checar(st == 200 and movida["coluna_id"] == em_andamento["id"], "mover no kanban")
 
 st, so_titulo = call("PATCH", f"/tarefas/{t1['id']}", ana, {"titulo": "Levantar concorrentes v2"})
 checar(so_titulo["movida_em"] == movida["movida_em"],
        "renomear NÃO mexe em movida_em (só mudança de status conta)")
 
-st, concluida = call("PATCH", f"/tarefas/{t1['id']}", ana, {"status": "concluido"})
-checar(concluida["vencida"] is False, "concluída com prazo passado → vencida=False")
+st, concluida = call("PATCH", f"/tarefas/{t1['id']}", ana, {"coluna_id": concluido["id"]})
+checar(concluida["vencida"] is False,
+       "em coluna que ENCERRA, com prazo passado → vencida=False")
+
+# Só a diretoria configura as colunas (§3).
+st, _ = call("POST", "/tarefas-colunas", ana, {"nome": "Teste", "cor": "#8B5CF6"})
+checar(st == 403, f"coordenadora não cria coluna → 403 (got {st})")
 
 print("\n=== F8 · Reuniões ===")
 # Idempotente: limpa as reuniões do Alfa antes, para rodar quantas vezes quiser.

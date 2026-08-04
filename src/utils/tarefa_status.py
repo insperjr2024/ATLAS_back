@@ -18,19 +18,26 @@ no dia em que alguém mexesse só num lado.
 from datetime import date, timedelta
 from typing import Optional
 
-STATUS_TERMINAIS = frozenset({"concluido", "cancelado"})
+def eh_vencida(
+    prazo: Optional[date], coluna_encerra: bool, hoje: Optional[date] = None
+) -> bool:
+    """Prazo passado E tarefa ainda aberta.
 
-
-def eh_vencida(prazo: Optional[date], status: str, hoje: Optional[date] = None) -> bool:
+    ⭐ `coluna_encerra` vem de `tarefa_coluna.encerra_tarefa`, e não de uma
+    lista fixa de status: as colunas do kanban são configuráveis pela
+    diretoria. Quem cria uma coluna diz se ela encerra a tarefa — é o que
+    impede que uma coluna nova ("Arquivado", "Em espera") deixe tudo que cai
+    ali vencido para sempre.
+    """
     if prazo is None:
         return False
     hoje = hoje or date.today()
-    return prazo < hoje and status not in STATUS_TERMINAIS
+    return prazo < hoje and not coluna_encerra
 
 
-def esta_ativa(status: str) -> bool:
-    """Tarefa que ainda conta como trabalho pendente."""
-    return status not in STATUS_TERMINAIS
+def esta_ativa(coluna_encerra: bool) -> bool:
+    """Tarefa que ainda conta como trabalho pendente (§7.2)."""
+    return not coluna_encerra
 
 
 def inicio_semana(dia: Optional[date] = None) -> date:

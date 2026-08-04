@@ -27,6 +27,7 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
+from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
@@ -50,12 +51,19 @@ class _BaseMonitoramento:
         self.usuario_repository = UsuarioRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.semestre_repository = SemestreRepository(db)
+        self.coluna_repository = TarefaColunaRepository(db)
 
     def _projetos_visiveis(self, current_user, frente_id: Optional[int]) -> List[ProjetoModel]:
         query = aplicar_recorte_visao(
             self.db.query(ProjetoModel), current_user, self.db, frente_id
         )
         return query.all()
+
+    def _encerra_por_coluna(self) -> Dict[int, bool]:
+        """`coluna_id → encerra_tarefa`. "Vencida" e "ativa" dependem disto,
+        e não mais de uma lista fixa de status: as colunas do kanban são
+        configuráveis pela diretoria."""
+        return {c.id: c.encerra_tarefa for c in self.coluna_repository.listar()}
 
     def _contexto(self, projetos):
         ids = [p.id for p in projetos]
@@ -250,6 +258,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         tarefas_por_projeto = _agrupar(
             self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
         )
+        encerra = self._encerra_por_coluna()
 
         for p in projetos:
             if p.status == "finalizado":
@@ -286,7 +295,9 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                 )
 
             vencidas = [
-                t for t in tarefas_por_projeto.get(p.id, []) if eh_vencida(t.prazo, t.status, hoje)
+                t
+                for t in tarefas_por_projeto.get(p.id, [])
+                if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
             ]
             if vencidas:
                 itens.append(
@@ -312,6 +323,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
         inicio, fim = janela_semana(hoje)
 
         tarefas_por_projeto = _agrupar(self.tarefa_repository.get_by_projetos(ids), "projeto_id")
+        encerra = self._encerra_por_coluna()
         reunioes = self.reuniao_repository.get_by_projetos_e_janela(ids, inicio, fim)
         reunioes_por_projeto = _agrupar(reunioes, "projeto_id")
 
@@ -328,8 +340,14 @@ class ExecucaoUseCase(_BaseMonitoramento):
                     "projeto_nome": p.nome,
                     "distribuiu_na_semana": len(criadas_na_semana) > 0,
                     "total": len(do_projeto),
-                    "ativas": sum(1 for t in do_projeto if esta_ativa(t.status)),
-                    "vencidas": sum(1 for t in do_projeto if eh_vencida(t.prazo, t.status, hoje)),
+                    "ativas": sum(
+                        1 for t in do_projeto if esta_ativa(encerra.get(t.coluna_id, False))
+                    ),
+                    "vencidas": sum(
+                        1
+                        for t in do_projeto
+                        if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
+                    ),
                     "ultima_movimentacao": max(movimentacoes) if movimentacoes else None,
                 }
             )

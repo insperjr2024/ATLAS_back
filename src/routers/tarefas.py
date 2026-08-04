@@ -5,12 +5,24 @@ e mover tarefa, e registrar reunião, aos **quatro** perfis. A única trava é
 `exigir_acesso_ao_projeto` — que já é o recorte de visão da F2.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import exigir_acesso_ao_projeto
+from src.middlewares.authorization import exigir_acesso_ao_projeto, require_diretor
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.tarefa.colunas import (
+    CreateColunaRequest,
+    CreateColunaUseCase,
+    DeleteColunaUseCase,
+    ListColunasUseCase,
+    ReordenarColunasRequest,
+    ReordenarColunasUseCase,
+    UpdateColunaRequest,
+    UpdateColunaUseCase,
+)
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.use_cases.tarefa.tarefas import (
     CreateReuniaoUseCase,
@@ -28,6 +40,56 @@ from src.use_cases.tarefa.tarefas import (
 from src.utils.exceptions import RegraDeNegocioError
 
 router = APIRouter(tags=["tarefas"], dependencies=[Depends(get_current_user)])
+
+
+# ------------------------------------------------- colunas do kanban
+#
+# 🔒 Escrita só da diretoria (§3: "gerir" é dela). Leitura de todo mundo —
+# o kanban de qualquer projeto precisa das colunas para desenhar o board.
+
+
+@router.get("/tarefas-colunas")
+def list_colunas(db: Session = Depends(get_db)):
+    return ListColunasUseCase(db).execute()
+
+
+@router.post("/tarefas-colunas")
+def create_coluna(request: CreateColunaRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    try:
+        return CreateColunaUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.patch("/tarefas-colunas/{coluna_id}")
+def update_coluna(coluna_id: int, request: UpdateColunaRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    try:
+        result = UpdateColunaUseCase(db).execute(coluna_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Coluna não encontrada")
+    return result
+
+
+@router.put("/tarefas-colunas/ordem")
+def reordenar_colunas(request: ReordenarColunasRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    try:
+        return ReordenarColunasUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/tarefas-colunas/{coluna_id}", status_code=204)
+def delete_coluna(coluna_id: int, mover_para: Optional[int] = None, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    """`?mover_para=` é obrigatório quando a coluna tem tarefas — elas nunca
+    são apagadas junto."""
+    try:
+        apagada = DeleteColunaUseCase(db).execute(coluna_id, mover_para)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not apagada:
+        raise HTTPException(status_code=404, detail="Coluna não encontrada")
 
 
 def _acesso_pela_tarefa(tarefa_id: int, current_user, db: Session):
