@@ -14,7 +14,9 @@ class UpdateKickoffRequest(BaseModel):
 
 
 class UpdateKickoffUseCase:
-    """🤖 Marcar o kickoff dispara Vendido → Ambientação sozinho (§5.2)."""
+    """🤖 A PRIMEIRA marcação do kickoff dispara Vendido → Ambientação sozinha
+    (§5.2). Depois disso, a data fica aberta para correção — vira só um
+    campo, sem mexer no status nem gerar novo histórico."""
 
     def __init__(self, db: Session):
         self.repository = ProjetoRepository(db)
@@ -24,17 +26,22 @@ class UpdateKickoffUseCase:
         projeto = self.repository.get_by_id(projeto_id)
         if not projeto:
             return None
-        if projeto.status != "vendido":
-            raise RegraDeNegocioError("O kickoff só pode ser marcado enquanto o projeto está Vendido")
 
-        self.repository.update(projeto_id, data_kickoff=request.data_kickoff, status="ambientacao")
-        self.historico_repository.create(
-            projeto_id=projeto_id,
-            status_anterior="vendido",
-            status_novo="ambientacao",
-            alterado_por=None,  # 🤖 automático — o kickoff é a causa, não uma pessoa clicando "mudar status"
-        )
-        return {"id": projeto_id, "data_kickoff": request.data_kickoff, "status": "ambientacao"}
+        if projeto.data_kickoff is None:
+            if projeto.status != "vendido":
+                raise RegraDeNegocioError("O kickoff só pode ser marcado enquanto o projeto está Vendido")
+            self.repository.update(projeto_id, data_kickoff=request.data_kickoff, status="ambientacao")
+            self.historico_repository.create(
+                projeto_id=projeto_id,
+                status_anterior="vendido",
+                status_novo="ambientacao",
+                alterado_por=None,  # 🤖 automático — o kickoff é a causa, não uma pessoa clicando "mudar status"
+            )
+            return {"id": projeto_id, "data_kickoff": request.data_kickoff, "status": "ambientacao"}
+
+        # Kickoff já foi marcado antes — isto é só uma correção de data.
+        self.repository.update(projeto_id, data_kickoff=request.data_kickoff)
+        return {"id": projeto_id, "data_kickoff": request.data_kickoff, "status": projeto.status}
 
 
 class UpdateEntregaClienteRequest(BaseModel):

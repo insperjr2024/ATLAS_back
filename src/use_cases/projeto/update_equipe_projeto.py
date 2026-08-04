@@ -35,11 +35,8 @@ class UpdateEquipeProjetoUseCase:
             return None
 
         coordenadores = [m for m in request.equipe if m.papel == "coordenador"]
-        consultores = [m for m in request.equipe if m.papel == "consultor"]
         if len(coordenadores) != 1:
             raise RegraDeNegocioError("O projeto precisa de exatamente 1 coordenador")
-        if not (2 <= len(consultores) <= 3):
-            raise RegraDeNegocioError("O projeto precisa de 2 a 3 consultores")
 
         for membro in request.equipe:
             if not self.usuario_repository.get_by_id(membro.usuario_id):
