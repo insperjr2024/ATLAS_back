@@ -83,8 +83,9 @@ USUARIOS = [
 
 SEMESTRE = ("2026.2", date(2026, 7, 1), date(2026, 12, 20))
 
-# As colunas do kanban (§4). Nascem aqui, mas a diretoria edita em /config —
-# nome, cor, ordem e o "encerra a tarefa" são configuráveis.
+# As colunas do kanban (§4). Nascem aqui, mas a diretoria edita **dentro de
+# cada projeto** — nome, cor, ordem e o "encerra a tarefa" são configuráveis,
+# e um projeto pode ter um fluxo diferente do outro.
 # (chave, nome, cor, ordem, encerra_tarefa)
 COLUNAS_TAREFA = [
     ("a_fazer", "A fazer", "#9CA3AF", 0, False),
@@ -370,13 +371,19 @@ def executar():
                     )
                     criados["banca"] += 1
 
-        # 7 · Colunas do kanban
-        for chave, nome_col, cor, ordem, encerra in COLUNAS_TAREFA:
-            _, novo = obter_ou_criar(
-                db, TarefaColunaModel, {"chave": chave},
-                {"nome": nome_col, "cor": cor, "ordem": ordem, "encerra_tarefa": encerra},
-            )
-            criados["coluna"] += novo
+        # 7 · Colunas do kanban — um conjunto POR PROJETO.
+        #
+        # Varre todos os projetos do banco (não só os recém-criados): um seed
+        # rodado sobre uma base que já existia também precisa dar board a
+        # quem ainda não tem.
+        for projeto in db.query(ProjetoModel).all():
+            for chave, nome_col, cor, ordem, encerra in COLUNAS_TAREFA:
+                _, novo = obter_ou_criar(
+                    db, TarefaColunaModel,
+                    {"projeto_id": projeto.id, "chave": chave},
+                    {"nome": nome_col, "cor": cor, "ordem": ordem, "encerra_tarefa": encerra},
+                )
+                criados["coluna"] += novo
 
         # 8 · Configuração global
         config = db.query(ConfiguracaoModel).first()

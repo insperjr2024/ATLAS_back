@@ -63,7 +63,9 @@ class _BaseMonitoramento:
         """`coluna_id → encerra_tarefa`. "Vencida" e "ativa" dependem disto,
         e não mais de uma lista fixa de status: as colunas do kanban são
         configuráveis pela diretoria."""
-        return {c.id: c.encerra_tarefa for c in self.coluna_repository.listar()}
+        # `listar_todas`, não `listar(projeto_id)`: o monitoramento agrega
+        # vários projetos de uma vez e cada um tem o seu conjunto de colunas.
+        return {c.id: c.encerra_tarefa for c in self.coluna_repository.listar_todas()}
 
     def _contexto(self, projetos):
         ids = [p.id for p in projetos]
@@ -429,8 +431,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
             for u in usuarios.values()
             if entra(u, "consultor") and u.posicao == "consultor"
         ]
-        coordenadores.sort(key=lambda x: -x["total"])
-        consultores.sort(key=lambda x: -x["total"])
+        # As duas tabelas respondem perguntas OPOSTAS, por isso ordenam ao
+        # contrário uma da outra:
+        #   · coordenadores — "quem é o gargalo?" → mais carregado primeiro;
+        #   · consultores   — "quem pega o próximo projeto?" → menos
+        #     carregado primeiro, com os disponíveis (0 projetos) no topo.
+        # O nome é o desempate, senão pessoas com a mesma carga trocam de
+        # lugar a cada refresh (a ordem vinha do dicionário de usuários).
+        coordenadores.sort(key=lambda x: (-x["total"], x["nome"]))
+        consultores.sort(key=lambda x: (x["total"], x["nome"]))
 
         return {
             "coordenadores": coordenadores,

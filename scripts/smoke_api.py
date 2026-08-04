@@ -76,8 +76,9 @@ st, t2 = call("POST", f"/projetos/{alfa}/tarefas", ana,
               {"titulo": "Rodar entrevistas", "responsavel_id": 6, "prazo": "2026-08-20"})
 checar(st == 200 and t2["vencida"] is False, f"prazo futuro → vencida=False (got {t2.get('vencida')})")
 
-# As colunas do kanban são dados (configuráveis pela diretoria), não ENUM.
-st, colunas = call("GET", "/tarefas-colunas", ana)
+# As colunas do kanban são dados (configuráveis pela diretoria), não ENUM —
+# e são DE CADA PROJETO, não uma configuração global.
+st, colunas = call("GET", f"/projetos/{alfa}/tarefas-colunas", ana)
 checar(st == 200 and len(colunas) >= 2, f"colunas do kanban vêm da API ({len(colunas)})")
 em_andamento = next(c for c in colunas if c["nome"] == "Em andamento")
 concluido = next(c for c in colunas if c["encerra_tarefa"])
@@ -97,8 +98,16 @@ checar(concluida["vencida"] is False,
        "em coluna que ENCERRA, com prazo passado → vencida=False")
 
 # Só a diretoria configura as colunas (§3).
-st, _ = call("POST", "/tarefas-colunas", ana, {"nome": "Teste", "cor": "#8B5CF6"})
+st, _ = call("POST", f"/projetos/{alfa}/tarefas-colunas", ana, {"nome": "Teste", "cor": "#8B5CF6"})
 checar(st == 403, f"coordenadora não cria coluna → 403 (got {st})")
+
+# ⭐ O board é por projeto: as colunas do Beta são outras linhas, e uma tarefa
+# do Alfa não pode ser movida para uma coluna do Beta.
+st, colunas_beta = call("GET", f"/projetos/{beta}/tarefas-colunas", dani)
+checar(st == 200 and {c["id"] for c in colunas_beta}.isdisjoint({c["id"] for c in colunas}),
+       "cada projeto tem as SUAS colunas (nenhum id em comum)")
+st, _ = call("PATCH", f"/tarefas/{t1['id']}", ana, {"coluna_id": colunas_beta[0]["id"]})
+checar(st == 422, f"mover tarefa do Alfa para coluna do Beta → 422 (got {st})")
 
 print("\n=== F8 · Reuniões ===")
 # Idempotente: limpa as reuniões do Alfa antes, para rodar quantas vezes quiser.
