@@ -3,6 +3,8 @@
 from datetime import date
 
 from src.utils.tarefa_status import (
+    calcular_urgencia,
+    dias_para_prazo,
     eh_vencida,
     esta_ativa,
     fim_semana,
@@ -45,6 +47,48 @@ class TestTarefaVencida:
 
     def test_sem_prazo_nao_vence(self):
         assert not eh_vencida(None, COLUNA_ABERTA, QUA_16_09)
+
+
+class TestUrgencia:
+    """⏰ A gradação que a tela usa. `vencida` (booleano) continua servindo o
+    monitoramento; isto é para o card avisar ANTES de estourar."""
+
+    def test_prazo_passado_e_vencida(self):
+        assert calcular_urgencia(date(2026, 9, 10), COLUNA_ABERTA, QUA_16_09) == "vencida"
+
+    def test_vence_hoje_e_critica(self):
+        assert calcular_urgencia(QUA_16_09, COLUNA_ABERTA, QUA_16_09) == "critica"
+
+    def test_vence_amanha_e_critica(self):
+        assert calcular_urgencia(date(2026, 9, 17), COLUNA_ABERTA, QUA_16_09) == "critica"
+
+    def test_vence_em_tres_dias_e_atencao(self):
+        assert calcular_urgencia(date(2026, 9, 19), COLUNA_ABERTA, QUA_16_09) == "atencao"
+
+    def test_vence_em_quatro_dias_e_normal(self):
+        assert calcular_urgencia(date(2026, 9, 20), COLUNA_ABERTA, QUA_16_09) == "normal"
+
+    def test_coluna_que_encerra_zera_a_urgencia(self):
+        """A tarefa saiu: o prazo não importa mais, nem se já passou."""
+        assert calcular_urgencia(date(2026, 1, 1), COLUNA_ENCERRA, QUA_16_09) == "normal"
+
+    def test_urgencia_e_vencida_nunca_discordam(self):
+        for prazo in [date(2026, 9, 1), QUA_16_09, date(2026, 9, 30)]:
+            for encerra in (COLUNA_ABERTA, COLUNA_ENCERRA):
+                venceu = eh_vencida(prazo, encerra, QUA_16_09)
+                urgencia = calcular_urgencia(prazo, encerra, QUA_16_09)
+                assert venceu == (urgencia == "vencida")
+
+
+class TestDiasParaPrazo:
+    def test_conta_dias_corridos(self):
+        assert dias_para_prazo(date(2026, 9, 20), QUA_16_09) == 4
+
+    def test_negativo_quando_ja_passou(self):
+        assert dias_para_prazo(date(2026, 9, 10), QUA_16_09) == -6
+
+    def test_zero_no_dia_do_prazo(self):
+        assert dias_para_prazo(QUA_16_09, QUA_16_09) == 0
 
 
 class TestStatusAtivo:

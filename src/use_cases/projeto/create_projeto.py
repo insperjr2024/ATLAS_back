@@ -13,6 +13,7 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
+from src.use_cases.tarefa.colunas import criar_colunas_padrao
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
     EscopoVendidoRequest,
     validar_escopo_vendido,
@@ -93,6 +94,11 @@ class CreateProjetoUseCase:
             dia_reuniao_padrao=request.dia_reuniao_padrao,
             criado_por=criado_por,
         )
+
+        # O board nasce com o conjunto padrão de colunas. Sem isto o kanban
+        # do projeto novo abriria vazio e não haveria onde a primeira tarefa
+        # cair — as colunas são por projeto, não uma configuração global.
+        criar_colunas_padrao(self.db, projeto.id)
 
         for frente_id in request.frente_ids:
             self.frente_repository.create(projeto_id=projeto.id, frente_id=frente_id)
