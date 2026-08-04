@@ -8,14 +8,20 @@ Rodar:  uv run python -m scripts.seed
 É idempotente — rodar de novo não duplica nada.
 """
 
-from datetime import date
+from datetime import date, datetime, time, timedelta
 
 from src.database.database import SessionLocal
+from src.models.banca_model import BancaModel
 from src.models.cargo_model import CargoModel
 from src.models.configuracao_model import ConfiguracaoModel
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
 from src.models.escopo_model import EscopoModel
 from src.models.frente_model import FrenteModel
+from src.models.projeto_escopo_model import ProjetoEscopoModel
+from src.models.projeto_frente_model import ProjetoFrenteModel
+from src.models.projeto_membro_model import ProjetoMembroModel
+from src.models.projeto_model import ProjetoModel
+from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.semestre_model import SemestreModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.usuario_model import UsuarioModel
@@ -101,9 +107,121 @@ def obter_ou_criar(db, model, filtros: dict, valores: dict | None = None):
     return instancia, True
 
 
+def projetos_da_demo(hoje, frentes, catalogo, usuarios):
+    """Os dois projetos da demo, com as datas ancoradas em `hoje`.
+
+    **Alfa** é o caminho feliz: sinérgico, um escopo correndo com banca já
+    realizada e aprovada (a entrega está liberada) e outro ainda não iniciado
+    (a contagem não corre).
+
+    **Beta** existe para a aba Atrasos ter o que mostrar: a banca dele venceu
+    e ninguém marcou `realizado_em` — é exatamente o estado `atrasada` que
+    não existia no sistema antes da F5. Sem um caso assim, o placar da gestão
+    dá 100% e não dá para saber se a costura funcionou.
+    """
+    dias = lambda n: hoje - timedelta(days=n)  # noqa: E731
+
+    ana = usuarios["ana@al.insper.edu.br"].id
+    duda = usuarios["duda@al.insper.edu.br"].id
+
+    return [
+        {
+            "nome": "Projeto Alfa",
+            "coordenador_id": ana,
+            "frente_ids": [frentes["Business"].id, frentes["Tech"].id],
+            "campos": {
+                "cliente": "Padaria do Zé",
+                "descricao": "Diagnóstico comercial e um app de pedidos para a padaria.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(21),
+                "dia_reuniao_padrao": 3,  # quarta
+                "criado_por": usuarios["gil@gmail.com"].id,
+            },
+            "equipe": [
+                (ana, "coordenador"),
+                (usuarios["bia@gmail.com"].id, "consultor"),
+                (usuarios["caio@icloud.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(30), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(21), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(14), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["Análise Mercadológica"].id,
+                    "frente_id": frentes["Business"].id,
+                    "dias_uteis_vendidos": 15,
+                    "status": "em_andamento",
+                    "data_inicio": dias(14),
+                    "data_entrega_planejada": hoje + timedelta(days=7),
+                    # ✅ Realizada e aprovada → a entrega está liberada (§5.5).
+                    "_banca": {
+                        "data_hora": datetime.combine(dias(3), time(14, 0)),
+                        "realizado_em": datetime.combine(dias(3), time(15, 30)),
+                        "resultado": "aprovada",
+                    },
+                },
+                {
+                    # Vendido e não iniciado: a contagem não corre (§5.4).
+                    "escopo_id": catalogo["Desenvolvimento Tech"].id,
+                    "frente_id": frentes["Tech"].id,
+                    "dias_uteis_vendidos": 20,
+                    "status": "nao_iniciado",
+                },
+            ],
+        },
+        {
+            "nome": "Projeto Beta",
+            "coordenador_id": duda,
+            "frente_ids": [frentes["Direito"].id],
+            "campos": {
+                "cliente": "Oficina da Lu",
+                "descricao": "Revisão contratual e adequação societária da oficina.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(28),
+                "dia_reuniao_padrao": 2,  # terça
+                "criado_por": usuarios["dani@al.insper.edu.br"].id,
+            },
+            "equipe": [
+                (duda, "coordenador"),
+                (usuarios["bia@gmail.com"].id, "consultor"),
+                (usuarios["caio@icloud.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(40), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(28), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(21), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["Elaboração e/ou Revisão Contratual"].id,
+                    "frente_id": frentes["Direito"].id,
+                    "dias_uteis_vendidos": 12,
+                    "status": "em_andamento",
+                    "data_inicio": dias(21),
+                    "data_entrega_planejada": dias(2),
+                    # 🚨 Venceu e NÃO aconteceu: `realizado_em` vazio → atrasada.
+                    "_banca": {
+                        "data_hora": datetime.combine(dias(5), time(10, 0)),
+                        "realizado_em": None,
+                        "resultado": None,
+                    },
+                },
+            ],
+        },
+    ]
+
+
 def executar():
     db = SessionLocal()
-    criados = {"frente": 0, "escopo": 0, "cargo": 0, "usuario": 0, "dia": 0}
+    hoje = date.today()
+    criados = {
+        "frente": 0, "escopo": 0, "cargo": 0, "usuario": 0, "dia": 0,
+        "projeto": 0, "escopo_vendido": 0, "banca": 0,
+    }
 
     try:
         # 1 · Frentes
@@ -158,6 +276,7 @@ def executar():
             criados["dia"] += novo
 
         # 5 · Membros pré-cadastrados (§10 — ninguém se auto-registra)
+        usuarios_por_email = {}
         for nome, email, posicao, nome_cargo, nomes_frentes, status in USUARIOS:
             usuario, novo = obter_ou_criar(
                 db, UsuarioModel,
@@ -173,6 +292,7 @@ def executar():
             )
             criados["usuario"] += novo
             db.flush()
+            usuarios_por_email[email] = usuario
 
             for nome_frente in nomes_frentes:
                 obter_ou_criar(
@@ -180,7 +300,65 @@ def executar():
                     {"usuario_id": usuario.id, "frente_id": frentes[nome_frente].id},
                 )
 
-        # 6 · Configuração global
+        # 6 · Os projetos da demo.
+        #
+        # As datas são ancoradas em HOJE, não fixas: um seed com data cravada
+        # envelhece e a contagem de dias aparece zerada (intervalo invertido),
+        # que é justamente o que a demo precisa mostrar viva.
+        catalogo = {e.nome: e for e in db.query(EscopoModel).all()}
+
+        for spec in projetos_da_demo(hoje, frentes, catalogo, usuarios_por_email):
+            projeto, novo = obter_ou_criar(
+                db, ProjetoModel, {"nome": spec["nome"]}, spec["campos"]
+            )
+            db.flush()
+            if not novo:
+                continue
+            criados["projeto"] += 1
+
+            for frente_id in spec["frente_ids"]:
+                db.add(ProjetoFrenteModel(projeto_id=projeto.id, frente_id=frente_id))
+
+            for usuario_id, papel in spec["equipe"]:
+                db.add(
+                    ProjetoMembroModel(
+                        projeto_id=projeto.id,
+                        usuario_id=usuario_id,
+                        papel=papel,
+                        entrou_em=spec["campos"]["data_kickoff"],
+                    )
+                )
+
+            for anterior, novo_status, quando in spec["historico"]:
+                db.add(
+                    ProjetoStatusHistoricoModel(
+                        projeto_id=projeto.id,
+                        status_anterior=anterior,
+                        status_novo=novo_status,
+                        alterado_em=quando,
+                    )
+                )
+
+            for escopo_spec in spec["escopos"]:
+                banca_spec = escopo_spec.pop("_banca", None)
+                escopo = ProjetoEscopoModel(projeto_id=projeto.id, **escopo_spec)
+                db.add(escopo)
+                db.flush()
+                criados["escopo_vendido"] += 1
+
+                if banca_spec:
+                    db.add(
+                        BancaModel(
+                            nome_projeto=projeto.nome,
+                            escopo_id=escopo.escopo_id,
+                            coordenador_id=spec["coordenador_id"],
+                            projeto_escopo_id=escopo.id,
+                            **banca_spec,
+                        )
+                    )
+                    criados["banca"] += 1
+
+        # 7 · Configuração global
         config = db.query(ConfiguracaoModel).first()
         if not config:
             config = ConfiguracaoModel(

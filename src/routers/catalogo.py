@@ -22,6 +22,7 @@ from src.use_cases.dia_nao_letivo.get_dia_nao_letivo import (
     GetDiasNaoUteisUseCase,
     ListDiasNaoLetivosUseCase,
 )
+from src.use_cases.calendario.get_eventos import GetEventosCalendarioUseCase
 from src.use_cases.semestre.get_semestre import GetSemestreAtivoUseCase
 from src.utils.exceptions import RegraDeNegocioError
 from src.use_cases.cargo.create_cargo import CreateCargoUseCase, CreateCargoRequest
@@ -251,6 +252,22 @@ def delete_dia_nao_letivo(dia_id: int, _=Depends(require_pode_gerenciar_cargos),
     if not deleted:
         raise HTTPException(status_code=404, detail="Dia não letivo não encontrado")
     return None
+
+
+@router.get("/calendario/eventos")
+def get_eventos_calendario(
+    inicio: date,
+    fim: date,
+    tipos: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """O calendário geral do §6.5 — bancas + kickoffs + reuniões + entregas.
+
+    🔓 **Sem recorte de visão, de propósito**: o §6.5 diz "acessível a todos".
+    É a única consulta de projeto do sistema assim — não "consertar".
+    """
+    lista = [t.strip() for t in tipos.split(",")] if tipos else None
+    return GetEventosCalendarioUseCase(db).execute(inicio, fim, lista)
 
 
 @router.get("/calendario/dias-nao-uteis")

@@ -2,7 +2,7 @@ from typing import List, Dict
 from src.models.candidatura_model import CandidaturaModel
 from src.models.avaliacao_model import AvaliacaoModel
 from src.models.banca_model import BancaModel
-from src.utils.banca_status import calcular_status_banca
+from src.utils.banca_status import banca_ja_ocorreu, calcular_status_banca
 
 
 def calcular_avaliacoes_pendentes(
@@ -18,7 +18,9 @@ def calcular_avaliacoes_pendentes(
         banca = bancas_por_id.get(c.banca_id)
         if not banca:
             continue
-        if calcular_status_banca(banca.data_hora) != "realizada":
+        # Banca que não aconteceu não tem o que avaliar. Depois da F5 isto
+        # depende de `realizado_em`, não mais do relógio.
+        if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em)):
             continue
         if (banca.id, c.usuario_id) in submetidas:
             continue

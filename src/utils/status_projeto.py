@@ -58,6 +58,58 @@ def aplicar_transicao_manual(status_atual: str) -> str:
     return proximo
 
 
+# ↩ A VOLTA — um passo atrás na mesma fila.
+#
+# Avançar sem poder voltar deixa um clique errado travando o projeto para
+# sempre: só um DBA desfaria. A régua é a mesma da ida — **um passo por vez,
+# nunca pula etapa** —, então a volta é o índice anterior em STATUS_ORDEM.
+# Isso inclui reabrir um projeto finalizado, que é o caso em que o erro mais
+# dói.
+#
+# ⛔ **O piso é Ambientação.** Voltar dali para Vendido seria desmarcar o
+# kickoff, e a data já registrada é um fato do projeto — não um passo de
+# fluxo que se desfaz clicando. Um kickoff marcado errado se corrige
+# editando a data na aba Visão geral, não regredindo o status.
+#
+# `pausado` também fica de fora: não está na fila, e a saída dele é o
+# retomar, que devolve ao status guardado.
+
+STATUS_PISO_VOLTA = "ambientacao"
+
+
+def status_anterior_manual(status_atual: str) -> Optional[str]:
+    """A etapa imediatamente anterior, ou None se não houver.
+
+    Devolve None em `ambientacao` (o piso) e em `pausado` (fora da fila).
+    """
+    if status_atual not in STATUS_ORDEM or status_atual == STATUS_PISO_VOLTA:
+        return None
+    indice = STATUS_ORDEM.index(status_atual)
+    return STATUS_ORDEM[indice - 1] if indice > 0 else None
+
+
+def transicao_volta_valida(status_atual: str, status_novo: str) -> bool:
+    return status_anterior_manual(status_atual) == status_novo
+
+
+def aplicar_volta(status_atual: str) -> str:
+    """A etapa anterior — ou erro se o projeto já estiver no piso."""
+    anterior = status_anterior_manual(status_atual)
+    if anterior is None:
+        if status_atual == "pausado":
+            raise RegraDeNegocioError(
+                "Um projeto pausado não volta etapa: use o botão de retomar."
+            )
+        if status_atual == STATUS_PISO_VOLTA:
+            raise RegraDeNegocioError(
+                "Ambientação é a primeira etapa a que se pode voltar. Para "
+                "corrigir um kickoff marcado errado, edite a data na aba "
+                "Visão geral."
+            )
+        raise RegraDeNegocioError(f"'{status_atual}' já é a primeira etapa do projeto")
+    return anterior
+
+
 def pausar(status_atual: str) -> tuple[str, str]:
     """Devolve (novo_status, status_a_guardar_para_retomar)."""
     if not pode_pausar(status_atual):

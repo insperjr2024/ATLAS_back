@@ -84,8 +84,18 @@ def get_desempenho(usuario_id: int, semestre_id: Optional[int] = None, current_u
 
 @router.post("/usuarios-frentes")
 def create_usuario_frente(request: CreateUsuarioFrenteRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if request.usuario_id != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
-        raise HTTPException(status_code=403, detail="Você só pode gerenciar suas próprias frentes")
+    """🔒 Vincular-se a uma frente é ação de diretoria.
+
+    A regra antiga ("pode gerenciar as PRÓPRIAS frentes") era um furo no
+    recorte de visão: `aplicar_recorte_visao` decide o que um gerente enxerga
+    a partir de `usuario_frente`, então o próprio gerente podia se vincular a
+    outra frente e passar a ver os projetos dela — burlando o §7.5.
+    """
+    if not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas a diretoria pode alterar o vínculo de um membro com as frentes",
+        )
     return CreateUsuarioFrenteUseCase(db).execute(request)
 
 

@@ -2,7 +2,7 @@ from typing import List, Optional
 from src.models.banca_model import BancaModel
 from src.models.equipe_projeto_model import EquipeProjetoModel
 from src.models.semestre_model import SemestreModel
-from src.utils.banca_status import calcular_status_banca
+from src.utils.banca_status import banca_ja_ocorreu, calcular_status_banca
 from src.utils.identificar_semestre import identificar_semestre
 
 
@@ -21,7 +21,9 @@ def filtrar_historico_bancas(
 
     resultado = []
     for banca in bancas:
-        if calcular_status_banca(banca.data_hora) != "realizada":
+        # Histórico é do que aconteceu. Depois da F5, `realizado_em` é quem
+        # diz isso — o backfill da migration 5 preservou as bancas antigas.
+        if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em)):
             continue
         if consultor_id is not None and banca.id not in bancas_ids_do_consultor:
             continue

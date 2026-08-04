@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
+from src.middlewares.authorization import require_diretor
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.auth.login import LoginUseCase, LoginRequest
 from src.use_cases.auth.registrar import RegistrarUseCase, RegistrarRequest
@@ -23,7 +24,13 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/registrar")
-def registrar(request: RegistrarRequest, db: Session = Depends(get_db)):
+def registrar(request: RegistrarRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    """§10: ninguém se auto-registra — os membros entram pré-cadastrados.
+
+    🔒 Antes disto, qualquer pessoa logada criava uma conta e escolhia a
+    `posicao` dela: um consultor podia se promover a diretor criando um
+    usuário novo. Agora é ação de diretoria.
+    """
     try:
         return RegistrarUseCase(db).execute(request)
     except RegraDeNegocioError as e:

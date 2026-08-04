@@ -33,12 +33,15 @@ def serializar_projeto_completo(
     projeto,
     frente_repo: ProjetoFrenteRepository,
     membro_repo: ProjetoMembroRepository,
+    escopos=None,
 ):
     """A forma completa, usada na página do projeto (§6.4, aba Visão geral)."""
     resumo = serializar_projeto_resumo(projeto, frente_repo, membro_repo)
     membros = membro_repo.get_by_projeto(projeto.id, apenas_atuais=True)
     return {
         **resumo,
+        # Já vêm com a contagem do §5.4 calculada — o front só desenha a barra.
+        "escopos": escopos or [],
         "descricao": projeto.descricao,
         "link_proposta": projeto.link_proposta,
         "dias_ambientacao": projeto.dias_ambientacao,
@@ -54,15 +57,21 @@ def serializar_projeto_completo(
 
 class GetProjetoUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
         self.frente_repository = ProjetoFrenteRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
 
     def execute(self, projeto_id: int):
+        from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
+
         projeto = self.repository.get_by_id(projeto_id)
         if not projeto:
             return None
-        return serializar_projeto_completo(projeto, self.frente_repository, self.membro_repository)
+        escopos = ListEscoposProjetoUseCase(self.db).execute(projeto_id)
+        return serializar_projeto_completo(
+            projeto, self.frente_repository, self.membro_repository, escopos
+        )
 
 
 class ListProjetosUseCase:

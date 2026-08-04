@@ -9,8 +9,14 @@ from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
+from src.use_cases.projeto_escopo.create_escopo_projeto import (
+    EscopoVendidoRequest,
+    validar_escopo_vendido,
+)
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -28,6 +34,10 @@ class CreateProjetoRequest(BaseModel):
     dias_ambientacao: int = 5
     equipe: List[MembroEquipeRequest]
     dia_reuniao_padrao: Optional[int] = None
+    #: §5.1: "no registro entram (…) escopos com os dias úteis vendidos de
+    #: cada um". Opcional para não quebrar quem cria o projeto e adiciona os
+    #: escopos depois, na página do projeto.
+    escopos: List[EscopoVendidoRequest] = Field(default_factory=list)
 
     @field_validator("frente_ids")
     @classmethod
@@ -52,11 +62,18 @@ class CreateProjetoUseCase:
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
         self.frente_catalogo = FrenteRepository(db)
         self.usuario_repository = UsuarioRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.catalogo_repository = EscopoRepository(db)
 
     def execute(self, request: CreateProjetoRequest, criado_por: int):
         for frente_id in request.frente_ids:
             if not self.frente_catalogo.get_by_id(frente_id):
                 raise RegraDeNegocioError(f"Frente {frente_id} não encontrada")
+
+        # Valida os escopos ANTES de gravar qualquer coisa — senão um escopo
+        # inválido deixa para trás um projeto meio-criado.
+        for escopo in request.escopos:
+            validar_escopo_vendido(escopo, request.frente_ids, self.catalogo_repository)
 
         coordenadores = [m for m in request.equipe if m.papel == "coordenador"]
         consultores = [m for m in request.equipe if m.papel == "consultor"]
@@ -82,6 +99,17 @@ class CreateProjetoUseCase:
 
         for frente_id in request.frente_ids:
             self.frente_repository.create(projeto_id=projeto.id, frente_id=frente_id)
+
+        for escopo in request.escopos:
+            self.escopo_repository.create(
+                projeto_id=projeto.id,
+                escopo_id=escopo.escopo_id,
+                nome_customizado=(escopo.nome_customizado or "").strip() or None,
+                frente_id=escopo.frente_id,
+                dias_uteis_vendidos=escopo.dias_uteis_vendidos,
+                data_entrega_planejada=escopo.data_entrega_planejada,
+                status="nao_iniciado",
+            )
 
         hoje = date.today()
         for membro in request.equipe:

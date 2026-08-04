@@ -1,7 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.routers import auth, avaliacoes, bancas, catalogo, projetos, usuarios
+from src.routers import (
+    auth,
+    avaliacoes,
+    bancas,
+    catalogo,
+    cronograma,
+    monitoramento,
+    projetos,
+    tarefas,
+    usuarios,
+)
 
 app = FastAPI(title="API ATLAS")
 
@@ -29,5 +39,8 @@ app.include_router(auth.router)
 app.include_router(catalogo.router)
 app.include_router(usuarios.router)
 app.include_router(projetos.router)
+app.include_router(cronograma.router)
+app.include_router(tarefas.router)
+app.include_router(monitoramento.router)
 app.include_router(bancas.router)
 app.include_router(avaliacoes.router)

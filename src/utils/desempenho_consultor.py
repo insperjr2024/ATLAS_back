@@ -2,7 +2,7 @@ from typing import List, Dict
 from src.models.avaliacao_model import AvaliacaoModel
 from src.models.banca_model import BancaModel
 from src.models.semestre_model import SemestreModel
-from src.utils.banca_status import calcular_status_banca
+from src.utils.banca_status import banca_ja_ocorreu, calcular_status_banca
 
 
 def calcular_desempenho_consultor(
@@ -21,7 +21,8 @@ def calcular_desempenho_consultor(
 
     bancas_realizadas_semestre = [
         b for b in bancas
-        if banca_no_semestre(b.id) and calcular_status_banca(b.data_hora) == "realizada"
+        if banca_no_semestre(b.id)
+        and banca_ja_ocorreu(calcular_status_banca(b.data_hora, b.realizado_em))
     ]
 
     avaliacoes_submetidas_usuario = [

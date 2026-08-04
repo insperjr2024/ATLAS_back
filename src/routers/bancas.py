@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    exigir_acesso_ao_projeto,
+    require_diretor,
+    require_lideranca,
     require_pode_agendar_banca,
     require_pode_gerenciar_cargos,
     usuario_tem_permissao,
@@ -16,6 +19,16 @@ from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequ
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
+from src.use_cases.banca.marcar_banca_escopo import (
+    LiberarExcecaoChoqueRequest,
+    LiberarExcecaoChoqueUseCase,
+    MarcarBancaEscopoRequest,
+    MarcarBancaEscopoUseCase,
+    RegistrarRealizacaoBancaUseCase,
+    RegistrarRealizacaoRequest,
+    RegistrarResultadoBancaUseCase,
+    RegistrarResultadoRequest,
+)
 from src.use_cases.banca.update_banca import UpdateBancaUseCase, UpdateBancaRequest, DeleteBancaUseCase
 from src.use_cases.banca_frente.create_banca_frente import CreateBancaFrenteUseCase, CreateBancaFrenteRequest
 from src.use_cases.banca_frente.get_banca_frente import GetBancaFrenteUseCase, ListBancasFrentesUseCase
@@ -85,6 +98,76 @@ def delete_banca(banca_id: int, _=Depends(require_pode_agendar_banca), db: Sessi
     if not deleted:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return None
+
+
+# ------------------------------------------------------- realização e resultado (F5)
+#
+# ⚠ Duas dimensões de permissão convivem aqui, e confundi-las gera 403
+# inexplicável: `cargo` (pode_agendar_banca) manda nas ações do módulo de
+# bancas; `posicao` manda no resto. Marcar a banca PELO CRONOGRAMA é ação de
+# posição — é a coordenadora cravando o cronograma do projeto dela, e ela não
+# precisa da flag do núcleo para isso.
+
+
+@router.post("/bancas/{banca_id}/realizar")
+def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+    """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre."""
+    try:
+        result = RegistrarRealizacaoBancaUseCase(db).execute(banca_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Banca não encontrada")
+    return result
+
+
+@router.patch("/bancas/{banca_id}/resultado")
+def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+    """🔒 É o resultado que libera a entrega ao cliente (§5.5, §8)."""
+    try:
+        result = RegistrarResultadoBancaUseCase(db).execute(banca_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Banca não encontrada")
+    return result
+
+
+@router.patch("/bancas/{banca_id}/excecao-choque")
+def liberar_excecao_choque(banca_id: int, request: LiberarExcecaoChoqueRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+    """§8: a exceção de choque de horário só é liberada pela diretoria."""
+    try:
+        result = LiberarExcecaoChoqueUseCase(db).execute(banca_id, request, liberado_por=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Banca não encontrada")
+    return result
+
+
+@router.put("/escopos-projeto/{escopo_id}/banca")
+def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+    """Marcar a banca do escopo — "uma data só" (§8).
+
+    Escreve na MESMA linha de `banca` que a tela de Bancas lê. Não há espelho
+    nem rotina de sincronização, de propósito.
+    """
+    from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+
+    escopo = ProjetoEscopoRepository(db).get_by_id(escopo_id)
+    if not escopo:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    exigir_acesso_ao_projeto(escopo.projeto_id, current_user, db)
+
+    try:
+        result = MarcarBancaEscopoUseCase(db).execute(
+            escopo_id, request, eh_diretor=current_user.posicao == "diretor"
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    return result
 
 
 @router.get("/historico-bancas")

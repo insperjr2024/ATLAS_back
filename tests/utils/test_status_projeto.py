@@ -3,10 +3,13 @@ import pytest
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.status_projeto import (
     aplicar_transicao_manual,
+    aplicar_volta,
     pausar,
     pode_pausar,
     retomar,
+    status_anterior_manual,
     transicao_manual_valida,
+    transicao_volta_valida,
 )
 
 
@@ -40,6 +43,60 @@ class TestTransicaoManual:
     def test_vendido_nao_tem_transicao_manual_e_sim_automatica(self):
         with pytest.raises(RegraDeNegocioError):
             aplicar_transicao_manual("vendido")
+
+
+class TestVoltarEtapa:
+    """↩ Avançar sem poder voltar deixa um clique errado travando o projeto."""
+
+    def test_volta_um_passo_na_fila(self):
+        assert aplicar_volta("envio_tep") == "validacao_bancas"
+
+    def test_a_volta_e_o_inverso_exato_da_ida(self):
+        """Ida e volta têm que ser simétricas, ou o projeto fica preso num
+        estado que só o banco desfaz."""
+        for atual, proximo in [
+            ("em_andamento", "validacao_bancas"),
+            ("validacao_bancas", "envio_tep"),
+            ("envio_tep", "periodo_ajustes"),
+            ("periodo_ajustes", "finalizado"),
+        ]:
+            assert aplicar_transicao_manual(atual) == proximo
+            assert aplicar_volta(proximo) == atual
+
+    def test_projeto_finalizado_pode_ser_reaberto(self):
+        """O caso em que o clique errado mais dói."""
+        assert aplicar_volta("finalizado") == "periodo_ajustes"
+
+    def test_volta_ate_ambientacao(self):
+        """Em andamento chega por 🤖 automação, mas a volta manual passa por
+        ela do mesmo jeito — senão não há como desfazer."""
+        assert aplicar_volta("em_andamento") == "ambientacao"
+
+    def test_ambientacao_e_o_piso_da_volta(self):
+        """⛔ Não se volta para Vendido: isso seria desmarcar o kickoff, e a
+        data já registrada é um fato do projeto, não um passo de fluxo."""
+        assert status_anterior_manual("ambientacao") is None
+        with pytest.raises(RegraDeNegocioError) as erro:
+            aplicar_volta("ambientacao")
+        assert "kickoff" in str(erro.value).lower()
+
+    def test_nao_existe_transicao_de_ambientacao_para_vendido(self):
+        assert not transicao_volta_valida("ambientacao", "vendido")
+
+    def test_vendido_nao_volta(self):
+        with pytest.raises(RegraDeNegocioError):
+            aplicar_volta("vendido")
+
+    def test_pausado_nao_volta_etapa_volta_pelo_retomar(self):
+        with pytest.raises(RegraDeNegocioError) as erro:
+            aplicar_volta("pausado")
+        assert "retomar" in str(erro.value)
+
+    def test_nao_pode_pular_etapa_para_tras(self):
+        assert not transicao_volta_valida("finalizado", "em_andamento")
+
+    def test_status_anterior_de_pausado_e_indefinido(self):
+        assert status_anterior_manual("pausado") is None
 
 
 class TestPausarERetomar:

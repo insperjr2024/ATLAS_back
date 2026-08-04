@@ -13,6 +13,18 @@ class ProjetoMembroRepository(BaseRepository[ProjetoMembroModel]):
             query = query.filter(ProjetoMembroModel.saiu_em.is_(None))
         return query.all()
 
+    def get_by_projetos(self, projeto_ids: List[int], apenas_atuais: bool = False) -> List[ProjetoMembroModel]:
+        """Em lote — o monitoramento (§7.3) precisa da carga de todo mundo
+        sem fazer uma consulta por projeto."""
+        if not projeto_ids:
+            return []
+        query = self.db.query(ProjetoMembroModel).filter(
+            ProjetoMembroModel.projeto_id.in_(projeto_ids)
+        )
+        if apenas_atuais:
+            query = query.filter(ProjetoMembroModel.saiu_em.is_(None))
+        return query.all()
+
     def get_atuais_por_usuario(self, usuario_id: int) -> List[ProjetoMembroModel]:
         return (
             self.db.query(ProjetoMembroModel)

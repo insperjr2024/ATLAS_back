@@ -55,7 +55,10 @@ class CreateBancaUseCase:
             "escopo_id": banca.escopo_id,
             "coordenador_id": banca.coordenador_id,
             "data_hora": banca.data_hora,
-            "status": calcular_status_banca(banca.data_hora),
+            "projeto_escopo_id": banca.projeto_escopo_id,
+            "realizado_em": banca.realizado_em,
+            "resultado": banca.resultado,
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
             "consultor_ids": request.consultor_ids,
             "frente_ids": request.frente_ids
         }
