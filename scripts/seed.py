@@ -23,6 +23,7 @@ from src.models.projeto_membro_model import ProjetoMembroModel
 from src.models.projeto_model import ProjetoModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.semestre_model import SemestreModel
+from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.usuario_model import UsuarioModel
 from src.utils.senha import hash_senha
@@ -81,6 +82,17 @@ USUARIOS = [
 ]
 
 SEMESTRE = ("2026.2", date(2026, 7, 1), date(2026, 12, 20))
+
+# As colunas do kanban (§4). Nascem aqui, mas a diretoria edita em /config —
+# nome, cor, ordem e o "encerra a tarefa" são configuráveis.
+# (chave, nome, cor, ordem, encerra_tarefa)
+COLUNAS_TAREFA = [
+    ("a_fazer", "A fazer", "#9CA3AF", 0, False),
+    ("em_andamento", "Em andamento", "#3B82F6", 1, False),
+    ("validacao", "Validação", "#F59E0B", 2, False),
+    ("concluido", "Concluído", "#10B981", 3, True),
+    ("cancelado", "Cancelado", "#EF4444", 4, True),
+]
 
 # Calendário acadêmico — é esta carga que define o dia útil (§5.4).
 DIAS_NAO_LETIVOS = [
@@ -220,7 +232,7 @@ def executar():
     hoje = date.today()
     criados = {
         "frente": 0, "escopo": 0, "cargo": 0, "usuario": 0, "dia": 0,
-        "projeto": 0, "escopo_vendido": 0, "banca": 0,
+        "projeto": 0, "escopo_vendido": 0, "banca": 0, "coluna": 0,
     }
 
     try:
@@ -358,7 +370,15 @@ def executar():
                     )
                     criados["banca"] += 1
 
-        # 7 · Configuração global
+        # 7 · Colunas do kanban
+        for chave, nome_col, cor, ordem, encerra in COLUNAS_TAREFA:
+            _, novo = obter_ou_criar(
+                db, TarefaColunaModel, {"chave": chave},
+                {"nome": nome_col, "cor": cor, "ordem": ordem, "encerra_tarefa": encerra},
+            )
+            criados["coluna"] += novo
+
+        # 8 · Configuração global
         config = db.query(ConfiguracaoModel).first()
         if not config:
             config = ConfiguracaoModel(

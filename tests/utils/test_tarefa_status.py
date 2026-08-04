@@ -16,36 +16,43 @@ SEG_14_09 = date(2026, 9, 14)
 DOM_20_09 = date(2026, 9, 20)
 
 
+# As colunas do kanban são configuráveis pela diretoria, então o que decide
+# "encerrada" é a flag da COLUNA — não uma lista de status no código.
+COLUNA_ABERTA = False
+COLUNA_ENCERRA = True
+
+
 class TestTarefaVencida:
-    def test_prazo_passado_e_status_ativo_esta_vencida(self):
-        assert eh_vencida(date(2026, 9, 10), "em_andamento", QUA_16_09)
+    def test_prazo_passado_em_coluna_aberta_esta_vencida(self):
+        assert eh_vencida(date(2026, 9, 10), COLUNA_ABERTA, QUA_16_09)
 
     def test_prazo_futuro_nao_esta_vencida(self):
-        assert not eh_vencida(date(2026, 9, 20), "em_andamento", QUA_16_09)
+        assert not eh_vencida(date(2026, 9, 20), COLUNA_ABERTA, QUA_16_09)
 
     def test_prazo_hoje_ainda_nao_venceu(self):
         """Vence no dia SEGUINTE ao prazo — o dia do prazo é para entregar."""
-        assert not eh_vencida(QUA_16_09, "a_fazer", QUA_16_09)
+        assert not eh_vencida(QUA_16_09, COLUNA_ABERTA, QUA_16_09)
 
-    def test_concluida_nunca_esta_vencida(self):
-        assert not eh_vencida(date(2026, 9, 1), "concluido", QUA_16_09)
+    def test_coluna_que_encerra_nunca_deixa_vencida(self):
+        """Vale para Concluído, Cancelado e qualquer coluna que a diretoria
+        criar marcando "encerra a tarefa" — Arquivado, por exemplo."""
+        assert not eh_vencida(date(2026, 9, 1), COLUNA_ENCERRA, QUA_16_09)
 
-    def test_cancelada_nunca_esta_vencida(self):
-        assert not eh_vencida(date(2026, 9, 1), "cancelado", QUA_16_09)
+    def test_coluna_intermediaria_com_prazo_passado_esta_vencida(self):
+        """Validação (e qualquer coluna nova que não encerre) ainda conta:
+        a tarefa não saiu."""
+        assert eh_vencida(date(2026, 9, 1), COLUNA_ABERTA, QUA_16_09)
 
-    def test_validacao_com_prazo_passado_esta_vencida(self):
-        """Validação não é terminal: a tarefa ainda não saiu."""
-        assert eh_vencida(date(2026, 9, 1), "validacao", QUA_16_09)
+    def test_sem_prazo_nao_vence(self):
+        assert not eh_vencida(None, COLUNA_ABERTA, QUA_16_09)
 
 
 class TestStatusAtivo:
-    def test_terminais_nao_sao_ativos(self):
-        assert not esta_ativa("concluido")
-        assert not esta_ativa("cancelado")
+    def test_coluna_que_encerra_nao_conta_como_trabalho_ativo(self):
+        assert not esta_ativa(COLUNA_ENCERRA)
 
-    def test_os_outros_tres_sao_ativos(self):
-        for status in ("a_fazer", "em_andamento", "validacao"):
-            assert esta_ativa(status)
+    def test_coluna_aberta_conta(self):
+        assert esta_ativa(COLUNA_ABERTA)
 
 
 class TestJanelaDaSemana:
