@@ -146,12 +146,13 @@ BLOCOS_TECNICOS: dict[str, list[str]] = {
 BLOCO_FINAL_UNIVERSAL = ["Design Visual", "Clareza de Texto", "Visuais Completos"]
 
 CARGOS = [
-    # (nome, definir_formulario, agendar_banca, gerenciar_cargos,
-    #  gerenciar_membros, gerenciar_nucleo)
-    ("Diretor de Projetos", True, True, True, True, True),
-    ("Gerente de Frente", True, True, False, False, False),
-    ("Coordenador", False, True, False, False, False),
-    ("Membro", False, False, False, False, False),
+    # (nome, criar_projeto, editar_equipe, gerir_membros, marcar_kickoff,
+    #  definir_cronograma, aprovar_reajuste, criar_tarefa, mover_editar_tarefa,
+    #  ver_proprios_projetos, ver_monitoramento) — as 10 caixas do §3.
+    ("Diretor de Projetos", True, True, True, True, True, True, True, True, True, True),
+    ("Gerente de Frente", True, True, False, True, True, False, True, True, True, True),
+    ("Coordenador", False, False, False, True, True, False, True, True, True, False),
+    ("Membro", False, False, False, True, False, False, True, True, True, False),
 ]
 
 # (nome, email, posicao, cargo, frentes, status)
@@ -617,19 +618,28 @@ def executar():
                 escopo.ativo = True
                 criados["escopo"] += novo
 
-        # 3 · Cargos (permissões do módulo de bancas)
+        # 3 · Cargos (as 10 permissões da tabela do §3)
         cargos = {}
-        for nome, formulario, banca, gerenciar, membros, nucleo in CARGOS:
+        for (
+            nome, criar_projeto, editar_equipe, gerir_membros, marcar_kickoff,
+            definir_cronograma, aprovar_reajuste, criar_tarefa, mover_editar_tarefa,
+            ver_proprios_projetos, ver_monitoramento,
+        ) in CARGOS:
             cargo, novo = obter_ou_criar(
                 db,
                 CargoModel,
                 {"nome": nome},
                 {
-                    "pode_definir_formulario": formulario,
-                    "pode_agendar_banca": banca,
-                    "pode_gerenciar_cargos": gerenciar,
-                    "pode_gerenciar_membros": membros,
-                    "pode_gerenciar_nucleo": nucleo,
+                    "pode_criar_projeto": criar_projeto,
+                    "pode_editar_equipe": editar_equipe,
+                    "pode_gerir_membros": gerir_membros,
+                    "pode_marcar_kickoff": marcar_kickoff,
+                    "pode_definir_cronograma": definir_cronograma,
+                    "pode_aprovar_reajuste": aprovar_reajuste,
+                    "pode_criar_tarefa": criar_tarefa,
+                    "pode_mover_editar_tarefa": mover_editar_tarefa,
+                    "pode_ver_proprios_projetos": ver_proprios_projetos,
+                    "pode_ver_monitoramento": ver_monitoramento,
                 },
             )
             cargos[nome] = cargo
