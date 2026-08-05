@@ -52,6 +52,7 @@ from src.use_cases.projeto.update_kickoff import (
     UpdateKickoffRequest,
     UpdateKickoffUseCase,
 )
+from src.use_cases.projeto.update_descricao import UpdateDescricaoRequest, UpdateDescricaoUseCase
 from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatusUseCase
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
 from src.repositories.projeto_repository import ProjetoRepository
@@ -105,10 +106,7 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
 @router.patch("/projetos/{projeto_id}/kickoff")
 def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    try:
-        result = UpdateKickoffUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    result = UpdateKickoffUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
@@ -118,6 +116,15 @@ def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=
 def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateEntregaClienteUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/descricao")
+def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDescricaoUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
