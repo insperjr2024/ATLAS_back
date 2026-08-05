@@ -18,10 +18,16 @@ class DiaNaoLetivoItem(BaseModel):
 
 
 class CreateDiasNaoLetivosRequest(BaseModel):
-    """Carga em lote: a diretoria sobe o calendário do semestre de uma vez."""
+    """Carga em lote: a diretoria sobe o calendário do semestre de uma vez.
+
+    `frente_id` nulo grava o calendário GLOBAL, que vale para todas as frentes
+    — é onde mora o feriado nacional. Com frente, grava o calendário base
+    daquela frente, que vem do PDF do curso dela.
+    """
 
     dias: List[DiaNaoLetivoItem]
     substituir: bool = False
+    frente_id: Optional[int] = None
 
 
 class CreateDiasNaoLetivosUseCase:
@@ -34,13 +40,31 @@ class CreateDiasNaoLetivosUseCase:
         if not semestre:
             raise RegraDeNegocioError("Semestre não encontrado")
 
+        # Substituir apaga só o calendário DESTA frente: recarregar o PDF de
+        # Business não pode derrubar o que já foi conferido em Tech.
         if request.substituir:
-            self.repository.delete_por_semestre(semestre_id)
+            self.repository.delete_da_frente(semestre_id, request.frente_id)
 
-        existentes = {d.data for d in self.repository.get_by_semestre(semestre_id)}
+        existentes = {
+            d.data
+            for d in self.repository.get_by_semestre(semestre_id)
+            if d.frente_id == request.frente_id
+        }
 
         criados, ignorados = [], []
         for item in request.dias:
+            # 📐 Semana de prova é do CURSO, não do país: as datas de avaliação
+            # de Administração não são as de Engenharia. Um `prova` global
+            # aplicaria a prova de uma frente ao cronograma de todas.
+            #
+            # Feriado é o contrário — global por natureza — mas nada impede que
+            # uma frente tenha um feriado só dela (feriado escolar do curso),
+            # então esse lado não é travado.
+            if item.tipo == "prova" and request.frente_id is None:
+                raise RegraDeNegocioError(
+                    "Semana de avaliação precisa de uma frente: cada curso tem as suas datas. "
+                    "Feriados é que valem para todas."
+                )
             if not (semestre.inicio <= item.data <= semestre.fim):
                 raise RegraDeNegocioError(
                     f"{item.data:%d/%m/%Y} está fora do semestre "
@@ -53,6 +77,7 @@ class CreateDiasNaoLetivosUseCase:
                 continue
             registro = self.repository.create(
                 semestre_id=semestre_id,
+                frente_id=request.frente_id,
                 data=item.data,
                 tipo=item.tipo,
                 descricao=item.descricao,
@@ -62,6 +87,7 @@ class CreateDiasNaoLetivosUseCase:
 
         return {
             "semestre_id": semestre_id,
+            "frente_id": request.frente_id,
             "criados": len(criados),
             "ignorados": len(ignorados),
             "dias": [

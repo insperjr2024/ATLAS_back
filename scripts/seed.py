@@ -96,16 +96,22 @@ COLUNAS_TAREFA = [
 ]
 
 # Calendário acadêmico — é esta carga que define o dia útil (§5.4).
+#
+# O 4º campo é a FRENTE dona do dia; `None` vale para todas. Feriado é do país,
+# então é global. Semana de prova é do CURSO — as datas de Administração não
+# são as de Engenharia —, então fica presa a uma frente. O seed usa Business
+# como exemplo; as outras frentes recebem as suas quando a diretoria sobe o PDF
+# do curso delas.
 DIAS_NAO_LETIVOS = [
-    (date(2026, 9, 7), "feriado", "Independência"),
-    (date(2026, 10, 12), "feriado", "Nossa Senhora Aparecida"),
-    (date(2026, 11, 2), "feriado", "Finados"),
-    (date(2026, 11, 15), "feriado", "Proclamação da República"),
-    (date(2026, 9, 28), "prova", "Semana de provas P1"),
-    (date(2026, 9, 29), "prova", "Semana de provas P1"),
-    (date(2026, 9, 30), "prova", "Semana de provas P1"),
-    (date(2026, 10, 1), "prova", "Semana de provas P1"),
-    (date(2026, 10, 2), "prova", "Semana de provas P1"),
+    (date(2026, 9, 7), "feriado", "Independência", None),
+    (date(2026, 10, 12), "feriado", "Nossa Senhora Aparecida", None),
+    (date(2026, 11, 2), "feriado", "Finados", None),
+    (date(2026, 11, 15), "feriado", "Proclamação da República", None),
+    (date(2026, 9, 28), "prova", "Semana de provas P1", "Business"),
+    (date(2026, 9, 29), "prova", "Semana de provas P1", "Business"),
+    (date(2026, 9, 30), "prova", "Semana de provas P1", "Business"),
+    (date(2026, 10, 1), "prova", "Semana de provas P1", "Business"),
+    (date(2026, 10, 2), "prova", "Semana de provas P1", "Business"),
 ]
 
 
@@ -280,10 +286,11 @@ def executar():
         )
         db.flush()
 
-        for data, tipo, descricao in DIAS_NAO_LETIVOS:
+        for data, tipo, descricao, nome_frente in DIAS_NAO_LETIVOS:
+            frente_do_dia = frentes[nome_frente].id if nome_frente else None
             _, novo = obter_ou_criar(
                 db, DiaNaoLetivoModel,
-                {"semestre_id": semestre.id, "data": data},
+                {"semestre_id": semestre.id, "data": data, "frente_id": frente_do_dia},
                 {"tipo": tipo, "descricao": descricao},
             )
             criados["dia"] += novo

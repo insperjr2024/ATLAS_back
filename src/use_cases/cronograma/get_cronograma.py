@@ -87,12 +87,29 @@ class GetCronogramaUseCase:
             # Ambientação e pausas são DERIVADAS, não etapas gravadas — vêm
             # calculadas daqui para o front não reimplementar `somar_dias_uteis`
             # em TypeScript.
+            # A ambientação é do PROJETO, não de um escopo, então conta apenas
+            # os dias que valem para todas as frentes. Usar o calendário de uma
+            # frente aqui faria a ambientação do mesmo projeto terminar em datas
+            # diferentes conforme o escopo que estivesse selecionado na tela.
             "faixas_derivadas": self._faixas_derivadas(
-                projeto, escopos, [d.data for d in dias_nao_letivos]
+                projeto, escopos, [d.data for d in dias_nao_letivos if d.frente_id is None]
             ),
             "janela": {"inicio": inicio, "fim": fim},
+            # 📐 Cada dia carrega a FRENTE dona. O calendário acadêmico deixou
+            # de ser um só: cada frente abrange cursos diferentes e cada curso
+            # tem as suas semanas de avaliação. `frente_id` nulo é feriado, que
+            # vale para todas.
+            #
+            # Vem tudo numa lista só, e não agrupado por frente, porque o
+            # projeto sinérgico precisa enxergar as duas frentes ao mesmo tempo
+            # para avisar quando uma etapa pisa no dia não útil da outra.
             "dias_nao_uteis": [
-                {"data": d.data, "tipo": d.tipo, "descricao": d.descricao}
+                {
+                    "data": d.data,
+                    "tipo": d.tipo,
+                    "descricao": d.descricao,
+                    "frente_id": d.frente_id,
+                }
                 for d in dias_nao_letivos
             ],
             # F11 ainda não existe; o campo já vem para o banner do front não
