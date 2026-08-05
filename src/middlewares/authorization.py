@@ -43,13 +43,34 @@ def require_pode_agendar_banca(current_user=Depends(get_current_user), db: Sessi
                               "Você não tem permissão para gerenciar bancas")
 
 
+def require_pode_gerenciar_membros(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return _exigir_permissao(current_user, db, "pode_gerenciar_membros",
+                              "Você não tem permissão para gerenciar membros")
+
+
+def require_pode_gerenciar_nucleo(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return _exigir_permissao(current_user, db, "pode_gerenciar_nucleo",
+                              "Você não tem permissão para gerenciar o núcleo")
+
+
 def require_pode_gerenciar_cargos(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """🔒 Editar cargo é editar quem pode o quê — exige a caixa E a posição.
+
+    Só a caixa era um furo de escalonamento: quem a tivesse abria o próprio
+    cargo e marcava o resto. A posição fecha isso porque ela não se edita por
+    aqui — muda em Membros, que já é da diretoria.
+    """
+    if current_user.posicao != "diretor":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas a diretoria pode alterar cargos e permissões",
+        )
     return _exigir_permissao(current_user, db, "pode_gerenciar_cargos",
-                              "Apenas o Diretor de Projetos pode realizar esta ação")
+                              "Você não tem permissão para alterar cargos")
 
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
         raise HTTPException(status_code=403, detail="Você só pode acessar seus próprios dados")
     return current_user
 

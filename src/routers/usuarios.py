@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
-    require_pode_gerenciar_cargos,
+    require_diretor,
+    require_pode_gerenciar_membros,
     require_self_or_admin,
     usuario_tem_permissao,
 )
@@ -15,11 +16,15 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.banca.get_bancas_para_avaliar import GetBancasParaAvaliarUseCase
 from src.use_cases.usuario.get_desempenho import GetDesempenhoUseCase
 from src.use_cases.usuario.get_usuario import GetUsuarioUseCase, ListUsuariosUseCase
+from src.use_cases.usuario.transferir_diretoria import (
+    TransferirDiretoriaUseCase,
+    TransferirDiretoriaRequest,
+)
 from src.use_cases.usuario.update_usuario import UpdateUsuarioUseCase, UpdateUsuarioRequest, DeleteUsuarioUseCase
 from src.use_cases.usuario_frente.create_usuario_frente import CreateUsuarioFrenteUseCase, CreateUsuarioFrenteRequest
 from src.use_cases.usuario_frente.get_usuario_frente import GetUsuarioFrenteUseCase, ListUsuariosFrentesUseCase
 from src.use_cases.usuario_frente.update_usuario_frente import DeleteUsuarioFrenteUseCase
-from src.utils.exceptions import ResourceInUseError
+from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
 
 router = APIRouter(tags=["usuários"], dependencies=[Depends(get_current_user)])
 
@@ -47,17 +52,37 @@ def get_usuario(usuario_id: int, db: Session = Depends(get_db)):
 def update_usuario(
     usuario_id: int,
     request: UpdateUsuarioRequest,
-    current_user=Depends(require_pode_gerenciar_cargos),
+    current_user=Depends(require_pode_gerenciar_membros),
     db: Session = Depends(get_db),
 ):
-    result = UpdateUsuarioUseCase(db).execute(usuario_id, request, alterado_por=current_user.id)
+    try:
+        result = UpdateUsuarioUseCase(db).execute(usuario_id, request, alterado_por=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return result
 
 
+@router.post("/usuarios/transferir-diretoria")
+def transferir_diretoria(
+    request: TransferirDiretoriaRequest,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """§10 — a passagem de bastão da virada de gestão, num passo só.
+
+    🔒 Restrita à diretoria por posição: é a ação que decide quem manda no
+    ano seguinte.
+    """
+    try:
+        return TransferirDiretoriaUseCase(db).execute(request, alterado_por=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.delete("/usuarios/{usuario_id}", status_code=204)
-def delete_usuario(usuario_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_usuario(usuario_id: int, _=Depends(require_pode_gerenciar_membros), db: Session = Depends(get_db)):
     try:
         deleted = DeleteUsuarioUseCase(db).execute(usuario_id)
     except ResourceInUseError:
@@ -91,7 +116,7 @@ def create_usuario_frente(request: CreateUsuarioFrenteRequest, current_user=Depe
     a partir de `usuario_frente`, então o próprio gerente podia se vincular a
     outra frente e passar a ver os projetos dela — burlando o §7.5.
     """
-    if not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
         raise HTTPException(
             status_code=403,
             detail="Apenas a diretoria pode alterar o vínculo de um membro com as frentes",
@@ -117,7 +142,7 @@ def delete_usuario_frente(usuario_frente_id: int, current_user=Depends(get_curre
     registro = GetUsuarioFrenteUseCase(db).execute(usuario_frente_id)
     if not registro:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
-    if registro["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if registro["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
         raise HTTPException(status_code=403, detail="Você só pode remover suas próprias frentes")
     deleted = DeleteUsuarioFrenteUseCase(db).execute(usuario_frente_id)
     if not deleted:
