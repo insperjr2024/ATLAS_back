@@ -11,6 +11,12 @@ class CreateAvaliacaoRequest(BaseModel):
     status: str = "rascunho"
     comentario_feedback: Optional[str] = None
     submetida_em: Optional[datetime] = None
+    # Bloco 1 do formulário — ver o docstring de AvaliacaoModel.
+    nome_avaliador: Optional[str] = None
+    tipo_avaliador: Optional[str] = None
+    projeto_avaliado: Optional[str] = None
+    escopo_avaliado_id: Optional[int] = None
+    escopo_avaliado_outro: Optional[str] = None
 
 
 class CreateAvaliacaoUseCase:
@@ -24,12 +30,22 @@ class CreateAvaliacaoUseCase:
             formulario_id=request.formulario_id,
             status=request.status,
             comentario_feedback=request.comentario_feedback,
-            submetida_em=request.submetida_em
+            submetida_em=request.submetida_em,
+            nome_avaliador=request.nome_avaliador,
+            tipo_avaliador=request.tipo_avaliador,
+            projeto_avaliado=request.projeto_avaliado,
+            escopo_avaliado_id=request.escopo_avaliado_id,
+            escopo_avaliado_outro=request.escopo_avaliado_outro,
         )
         return {
             "id": avaliacao.id,
             "banca_id": avaliacao.banca_id,
             "avaliador_id": avaliacao.avaliador_id,
             "formulario_id": avaliacao.formulario_id,
-            "status": avaliacao.status
+            "status": avaliacao.status,
+            "nome_avaliador": avaliacao.nome_avaliador,
+            "tipo_avaliador": avaliacao.tipo_avaliador,
+            "projeto_avaliado": avaliacao.projeto_avaliado,
+            "escopo_avaliado_id": avaliacao.escopo_avaliado_id,
+            "escopo_avaliado_outro": avaliacao.escopo_avaliado_outro,
         }

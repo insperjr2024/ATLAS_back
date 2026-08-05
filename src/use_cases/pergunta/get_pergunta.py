@@ -15,7 +15,8 @@ class GetPerguntaUseCase:
             "formulario_id": pergunta.formulario_id,
             "texto": pergunta.texto,
             "ordem": pergunta.ordem,
-            "tipo_resposta": pergunta.tipo_resposta
+            "tipo_resposta": pergunta.tipo_resposta,
+            "escopo_id": pergunta.escopo_id,
         }
 
 
@@ -31,7 +32,8 @@ class ListPerguntasUseCase:
                 "formulario_id": p.formulario_id,
                 "texto": p.texto,
                 "ordem": p.ordem,
-                "tipo_resposta": p.tipo_resposta
+                "tipo_resposta": p.tipo_resposta,
+                "escopo_id": p.escopo_id,
             }
             for p in perguntas
         ]
