@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoModel
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.usuario.get_usuario import serializar_usuario
@@ -26,6 +27,7 @@ class UpdateUsuarioUseCase:
         self.db = db
         self.repository = UsuarioRepository(db)
         self.semestre_repository = SemestreRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
 
     def execute(self, usuario_id: int, request: UpdateUsuarioRequest, alterado_por: Optional[int] = None):
         data = request.model_dump(exclude_unset=True)
@@ -61,7 +63,8 @@ class UpdateUsuarioUseCase:
             )
             self.db.commit()
 
-        return serializar_usuario(usuario)
+        alocados = self.membro_repository.contar_ativos_por_usuario()
+        return serializar_usuario(usuario, alocados.get(usuario.id, 0))
 
 
 class DeleteUsuarioUseCase:

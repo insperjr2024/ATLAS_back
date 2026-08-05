@@ -9,6 +9,7 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.validacao_equipe import validar_equipe
 
 
 class MembroEquipeRequest(BaseModel):
@@ -34,13 +35,7 @@ class UpdateEquipeProjetoUseCase:
         if not self.projeto_repository.get_by_id(projeto_id):
             return None
 
-        coordenadores = [m for m in request.equipe if m.papel == "coordenador"]
-        if len(coordenadores) != 1:
-            raise RegraDeNegocioError("O projeto precisa de exatamente 1 coordenador")
-
-        for membro in request.equipe:
-            if not self.usuario_repository.get_by_id(membro.usuario_id):
-                raise RegraDeNegocioError(f"Usuário {membro.usuario_id} não encontrado")
+        validar_equipe(request.equipe, self.usuario_repository)
 
         atuais = self.repository.get_by_projeto(projeto_id, apenas_atuais=True)
         ids_novos = {m.usuario_id for m in request.equipe}
