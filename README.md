@@ -57,7 +57,7 @@ Depois edite o `.env` com os dados do seu banco local:
 DATABASE_URL=mysql+pymysql://usuario:senha@localhost:3306/bancas_db
 SECRET_KEY=sua_chave_secreta_aqui
 ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+ACCESS_TOKEN_EXPIRE_MINUTES=10080
 ```
 
 > O banco `bancas_db` precisa existir no MySQL antes de rodar as migrations.
