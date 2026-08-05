@@ -20,6 +20,7 @@ from src.models.banca_model import BancaModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.models.tarefa_model import ReuniaoSemanalModel
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.utils.banca_status import calcular_status_banca
 
@@ -58,9 +59,16 @@ class GetEventosCalendarioUseCase:
                 .filter(BancaModel.data_hora <= fim_do_dia)
                 .all()
             )
+            # Uma banca pode cobrir vários escopos: o evento é UM só, com os
+            # nomes juntos no título.
+            escopos_da_banca = BancaEscopoRepository(self.db).get_escopo_ids_por_banca(
+                [b.id for b in bancas]
+            )
             for b in bancas:
-                escopo = escopos.get(b.projeto_escopo_id)
-                projeto = projetos.get(escopo.projeto_id) if escopo else None
+                cobertos = [escopos.get(eid) for eid in escopos_da_banca.get(b.id, [])]
+                cobertos = [e for e in cobertos if e]
+                projeto = projetos.get(cobertos[0].projeto_id) if cobertos else None
+                nomes = " + ".join(nome_escopo(e) for e in cobertos)
                 eventos.append(
                     {
                         "tipo": "banca",
@@ -68,7 +76,7 @@ class GetEventosCalendarioUseCase:
                         # Banca legada não tem projeto — cai no texto livre.
                         "projeto_id": projeto.id if projeto else None,
                         "projeto_nome": projeto.nome if projeto else b.nome_projeto,
-                        "titulo": f"Banca — {nome_escopo(escopo) or b.nome_projeto}",
+                        "titulo": f"Banca — {nomes or b.nome_projeto}",
                         "referencia_id": b.id,
                         "status": calcular_status_banca(b.data_hora, b.realizado_em),
                     }
