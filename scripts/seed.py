@@ -369,7 +369,7 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
             ],
             "escopos": [
                 {
-                    "escopo_id": catalogo["Viabilidade Financeira"].id,
+                    "escopo_id": catalogo["Plano Financeiro"].id,
                     "frente_id": frentes["Business"].id,
                     "dias_uteis_vendidos": 18,
                     "status": "em_andamento",
@@ -421,7 +421,7 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
             ],
             "escopos": [
                 {
-                    "escopo_id": catalogo["Planejamento e Análise Tributária"].id,
+                    "escopo_id": catalogo["Planejamento Consultivo Tributário"].id,
                     "frente_id": frentes["Direito"].id,
                     "dias_uteis_vendidos": 14,
                     "status": "em_andamento",
