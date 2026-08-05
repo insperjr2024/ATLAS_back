@@ -9,14 +9,10 @@ class CargoRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, nome: str, pode_definir_formulario: bool,
-               pode_agendar_banca: bool, pode_gerenciar_cargos: bool) -> CargoModel:
-        cargo = CargoModel(
-            nome=nome,
-            pode_definir_formulario=pode_definir_formulario,
-            pode_agendar_banca=pode_agendar_banca,
-            pode_gerenciar_cargos=pode_gerenciar_cargos
-        )
+    def create(self, **campos) -> CargoModel:
+        """Aberto por campo: uma permissão nova entra no modelo e no use case
+        sem ter que ser repetida aqui e no `update` logo abaixo."""
+        cargo = CargoModel(**campos)
         self.db.add(cargo)
         self.db.commit()
         self.db.refresh(cargo)

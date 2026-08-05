@@ -9,3 +9,5 @@ class Cargo:
     pode_definir_formulario: bool = False
     pode_agendar_banca: bool = False
     pode_gerenciar_cargos: bool = False
+    pode_gerenciar_membros: bool = False
+    pode_gerenciar_nucleo: bool = False
