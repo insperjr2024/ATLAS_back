@@ -63,11 +63,12 @@ ESCOPOS = {
 }
 
 CARGOS = [
-    # (nome, definir_formulario, agendar_banca, gerenciar_cargos)
-    ("Diretor de Projetos", True, True, True),
-    ("Gerente de Frente", False, True, False),
-    ("Coordenador", False, True, False),
-    ("Membro", False, False, False),
+    # (nome, definir_formulario, agendar_banca, gerenciar_cargos,
+    #  gerenciar_membros, gerenciar_nucleo)
+    ("Diretor de Projetos", True, True, True, True, True),
+    ("Gerente de Frente", False, True, False, False, False),
+    ("Coordenador", False, True, False, False, False),
+    ("Membro", False, False, False, False, False),
 ]
 
 # (nome, email, posicao, cargo, frentes, status)
@@ -535,7 +536,7 @@ def executar():
 
         # 3 · Cargos (permissões do módulo de bancas)
         cargos = {}
-        for nome, formulario, banca, gerenciar in CARGOS:
+        for nome, formulario, banca, gerenciar, membros, nucleo in CARGOS:
             cargo, novo = obter_ou_criar(
                 db,
                 CargoModel,
@@ -544,6 +545,8 @@ def executar():
                     "pode_definir_formulario": formulario,
                     "pode_agendar_banca": banca,
                     "pode_gerenciar_cargos": gerenciar,
+                    "pode_gerenciar_membros": membros,
+                    "pode_gerenciar_nucleo": nucleo,
                 },
             )
             cargos[nome] = cargo

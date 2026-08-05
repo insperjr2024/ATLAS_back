@@ -1,8 +1,10 @@
 """Monitoramento da diretoria e gerência (§7).
 
-🔐 Todas as rotas atrás de `require_gestao` (diretor + gerente), e cada use
-case abre com `aplicar_recorte_visao` — que já é o §7.5 de graça: o gerente
-fica travado nas próprias frentes mesmo mandando outro `?frente_id=`.
+🔐 A maioria das rotas fica atrás de `require_gestao` (diretor + gerente);
+`/tarefas` é a exceção, `require_diretor` só — é o board macro de tarefas de
+todos os projetos, mais informal que os números agregados das outras abas.
+Todo use case abre com `aplicar_recorte_visao`, que já é o §7.5 de graça: o
+gerente fica travado nas próprias frentes mesmo mandando outro `?frente_id=`.
 """
 
 from typing import Optional
@@ -11,12 +13,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import require_gestao
+from src.middlewares.authorization import require_diretor, require_gestao
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.monitoramento.monitoramento import (
     AlocacaoUseCase,
     AtrasosUseCase,
     ExecucaoUseCase,
+    TarefasGeraisUseCase,
     VisaoGeralUseCase,
 )
 
@@ -43,3 +46,8 @@ def alocacao(frente_id: Optional[int] = None, current_user=Depends(require_gesta
 @router.get("/atrasos")
 def atrasos(frente_id: Optional[int] = None, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
     return AtrasosUseCase(db).execute(current_user, frente_id)
+
+
+@router.get("/tarefas")
+def tarefas(frente_id: Optional[int] = None, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+    return TarefasGeraisUseCase(db).execute(current_user, frente_id)

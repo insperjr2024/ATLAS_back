@@ -2,6 +2,20 @@ from sqlalchemy.orm import Session
 from src.repositories.cargo_repository import CargoRepository
 
 
+def serializar_cargo(cargo):
+    """Num lugar só — a lista, o get, o create e o update devolvem a mesma
+    forma, senão uma permissão nova nasce faltando em metade das telas."""
+    return {
+        "id": cargo.id,
+        "nome": cargo.nome,
+        "pode_definir_formulario": cargo.pode_definir_formulario,
+        "pode_agendar_banca": cargo.pode_agendar_banca,
+        "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos,
+        "pode_gerenciar_membros": cargo.pode_gerenciar_membros,
+        "pode_gerenciar_nucleo": cargo.pode_gerenciar_nucleo,
+    }
+
+
 class GetCargoUseCase:
     def __init__(self, db: Session):
         self.repository = CargoRepository(db)
@@ -10,13 +24,7 @@ class GetCargoUseCase:
         cargo = self.repository.get_by_id(cargo_id)
         if not cargo:
             return None
-        return {
-            "id": cargo.id,
-            "nome": cargo.nome,
-            "pode_definir_formulario": cargo.pode_definir_formulario,
-            "pode_agendar_banca": cargo.pode_agendar_banca,
-            "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos
-        }
+        return serializar_cargo(cargo)
 
 
 class ListCargosUseCase:
@@ -24,14 +32,4 @@ class ListCargosUseCase:
         self.repository = CargoRepository(db)
 
     def execute(self):
-        cargos = self.repository.get_all()
-        return [
-            {
-                "id": c.id,
-                "nome": c.nome,
-                "pode_definir_formulario": c.pode_definir_formulario,
-                "pode_agendar_banca": c.pode_agendar_banca,
-                "pode_gerenciar_cargos": c.pode_gerenciar_cargos
-            }
-            for c in cargos
-        ]
+        return [serializar_cargo(c) for c in self.repository.get_all()]
