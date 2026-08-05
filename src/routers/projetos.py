@@ -22,7 +22,10 @@ from src.use_cases.projeto_escopo.create_escopo_projeto import (
     CreateEscopoProjetoUseCase,
     EscopoVendidoRequest,
 )
-from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
+from src.use_cases.projeto_escopo.get_escopos_projeto import (
+    ListEscoposProjetoUseCase,
+    ListTodosEscoposVendidosUseCase,
+)
 from src.use_cases.projeto_escopo.update_escopo_projeto import (
     ClassificarAtrasoEntregaRequest,
     ClassificarAtrasoEntregaUseCase,
@@ -215,6 +218,15 @@ def _projeto_do_escopo(escopo_id: int, current_user, db: Session) -> int:
 def list_escopos(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     return ListEscoposProjetoUseCase(db).execute(projeto_id)
+
+
+@router.get("/escopos-projeto")
+def list_todos_escopos_vendidos(db: Session = Depends(get_db)):
+    """Nome de todo escopo vendido, de todos os projetos — usado pela página
+    Bancas pra resolver `projeto_escopo_ids`. Sem recorte de visão de
+    propósito: bancas já são globais (§8), então o escopo/projeto de
+    qualquer uma também é."""
+    return ListTodosEscoposVendidosUseCase(db).execute()
 
 
 @router.post("/projetos/{projeto_id}/escopos")
