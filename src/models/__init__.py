@@ -27,3 +27,16 @@ from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMa
 from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.tarefa_comentario_model import TarefaComentarioModel
 from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
+
+# Avaliação de Desempenho — periódica/finalização de consultores e
+# coordenadores. Não confundir com formulario/pergunta/avaliacao/
+# avaliacao_nota acima, que são feedback de banca (outra feature).
+from src.models.desempenho_lote_model import DesempenhoLoteModel
+from src.models.desempenho_lote_projeto_model import DesempenhoLoteProjetoModel
+from src.models.desempenho_lote_finalizado_model import DesempenhoLoteFinalizadoModel
+from src.models.desempenho_formulario_model import DesempenhoFormularioModel
+from src.models.desempenho_formulario_secao_model import DesempenhoFormularioSecaoModel
+from src.models.desempenho_criterio_model import DesempenhoCriterioModel
+from src.models.desempenho_avaliacao_model import DesempenhoAvaliacaoModel
+from src.models.desempenho_avaliacao_nota_model import DesempenhoAvaliacaoNotaModel
+from src.models.desempenho_mentoria_model import DesempenhoMentoriaModel

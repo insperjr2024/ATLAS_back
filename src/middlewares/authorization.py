@@ -111,6 +111,30 @@ def require_lideranca(current_user=Depends(get_current_user)):
     return current_user
 
 
+# ---------------------------------------------------------------- avaliação de desempenho
+
+def require_self(usuario_id: int, current_user=Depends(get_current_user)):
+    """Só a própria pessoa — diferente de `require_self_or_admin`, aqui não
+    tem override de admin (ex.: minha fila de avaliação, meus mentorados)."""
+    if current_user.id != usuario_id:
+        raise HTTPException(status_code=403, detail="Você só pode acessar seus próprios dados")
+    return current_user
+
+
+def require_self_mentor_ou_gestao(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Vê o relatório de desempenho de `usuario_id`: a própria pessoa, quem
+    tem vínculo de mentoria com ela (`desempenho_mentoria`), ou diretor/gerente."""
+    if current_user.id == usuario_id or current_user.posicao in ("diretor", "gerente"):
+        return current_user
+
+    from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
+
+    vinculo = DesempenhoMentoriaRepository(db).first_by(mentor_id=current_user.id, mentorado_id=usuario_id)
+    if vinculo:
+        return current_user
+    raise HTTPException(status_code=403, detail="Você não tem acesso a este relatório")
+
+
 # ---------------------------------------------------------------- recorte de visão
 
 def frentes_do_usuario(current_user, db: Session) -> List[int]:
