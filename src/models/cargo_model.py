@@ -19,3 +19,8 @@ class CargoModel(Base):
     pode_gerenciar_cargos = Column(Boolean, default=False, nullable=False)
     pode_gerenciar_membros = Column(Boolean, default=False, nullable=False)
     pode_gerenciar_nucleo = Column(Boolean, default=False, nullable=False)
+    # Avaliação de Desempenho (P4) — antes eram travadas por `posicao`
+    # (gestão/diretoria) direto na rota. Viraram caixa de cargo para a
+    # diretoria poder delegar sem promover ninguém de posição.
+    pode_gerenciar_desempenho = Column(Boolean, default=False, nullable=False)
+    pode_definir_formulario_desempenho = Column(Boolean, default=False, nullable=False)

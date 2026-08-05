@@ -11,6 +11,8 @@ class CreateCargoRequest(BaseModel):
     pode_gerenciar_cargos: bool = False
     pode_gerenciar_membros: bool = False
     pode_gerenciar_nucleo: bool = False
+    pode_gerenciar_desempenho: bool = False
+    pode_definir_formulario_desempenho: bool = False
 
 
 class CreateCargoUseCase:

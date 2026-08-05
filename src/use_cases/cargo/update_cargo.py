@@ -12,6 +12,8 @@ class UpdateCargoRequest(BaseModel):
     pode_gerenciar_cargos: Optional[bool] = None
     pode_gerenciar_membros: Optional[bool] = None
     pode_gerenciar_nucleo: Optional[bool] = None
+    pode_gerenciar_desempenho: Optional[bool] = None
+    pode_definir_formulario_desempenho: Optional[bool] = None
 
 
 class UpdateCargoUseCase:

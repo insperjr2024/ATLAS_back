@@ -13,6 +13,8 @@ def serializar_cargo(cargo):
         "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos,
         "pode_gerenciar_membros": cargo.pode_gerenciar_membros,
         "pode_gerenciar_nucleo": cargo.pode_gerenciar_nucleo,
+        "pode_gerenciar_desempenho": cargo.pode_gerenciar_desempenho,
+        "pode_definir_formulario_desempenho": cargo.pode_definir_formulario_desempenho,
     }
 
 
