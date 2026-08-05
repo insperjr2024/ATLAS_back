@@ -61,7 +61,9 @@ class CreateBancaUseCase:
             "escopo_id": banca.escopo_id,
             "coordenador_id": banca.coordenador_id,
             "data_hora": banca.data_hora,
-            "projeto_escopo_id": banca.projeto_escopo_id,
+            # Esta rota é a do módulo legado: cria banca sem escopo vendido.
+            # Quem costura banca a escopo é PUT /escopos-projeto/{id}/banca.
+            "projeto_escopo_ids": [],
             "realizado_em": banca.realizado_em,
             "resultado": banca.resultado,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),

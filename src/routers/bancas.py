@@ -165,6 +165,9 @@ def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, cu
 
     Escreve na MESMA linha de `banca` que a tela de Bancas lê. Não há espelho
     nem rotina de sincronização, de propósito.
+
+    `escopo_ids` no corpo diz quais escopos do projeto esta banca cobre (o da
+    URL entra sempre). Omitido, os vínculos atuais ficam como estão.
     """
     from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 

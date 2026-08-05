@@ -10,9 +10,8 @@ class Banca:
     escopo_id: Optional[int] = None
     coordenador_id: Optional[int] = None
     data_hora: Optional[datetime] = None
-    # F5 — a costura com o projeto. Entity e model não têm trava de sincronia:
-    # campo que existe só aqui é aceito pela API e descartado em silêncio.
-    projeto_escopo_id: Optional[int] = None
+    # A costura com o projeto mora em `banca_escopo` (uma banca cobre N
+    # escopos), não num campo daqui.
     realizado_em: Optional[datetime] = None
     resultado: Optional[str] = None
     excecao_choque_por: Optional[int] = None

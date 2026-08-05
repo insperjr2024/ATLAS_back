@@ -1,16 +1,17 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String
 from src.database.database import Base
 
 
 class BancaModel(Base):
-    """A banca de um escopo (§5.5, §8).
+    """A banca de um ou mais escopos vendidos (§5.5, §8).
 
     F5 costurou esta tabela ao projeto. Três cuidados que valem registro:
 
-    - `projeto_escopo_id` é a ligação real com o projeto, e é **nullable**
-      porque as bancas legadas do módulo antigo não têm escopo vendido. É
-      UNIQUE: um escopo tem no máximo uma banca ("uma data só" — marcar pelo
-      cronograma escreve NESTA linha, sem espelho nem sincronização).
+    - A ligação com o projeto mora em `banca_escopo`, não numa coluna daqui.
+      Uma banca pode cobrir vários escopos do mesmo projeto; o escopo é que
+      continua tendo no máximo uma banca ("uma data só" — marcar pelo
+      cronograma escreve NESTA linha, sem espelho nem sincronização). Banca
+      legada do módulo antigo simplesmente não tem linha em `banca_escopo`.
     - `data_hora` voltou a ser nullable: sem isso o estado `nao_marcada` seria
       inalcançável.
     - `escopo_id` (o catálogo) virou nullable porque um escopo "Outro" não tem
@@ -18,9 +19,6 @@ class BancaModel(Base):
     """
 
     __tablename__ = "banca"
-    __table_args__ = (
-        UniqueConstraint("projeto_escopo_id", name="uq_banca_projeto_escopo"),
-    )
 
     id = Column(Integer, primary_key=True, index=True)
     nome_projeto = Column(String(150), nullable=False)
@@ -28,9 +26,6 @@ class BancaModel(Base):
     coordenador_id = Column(Integer, ForeignKey("usuario.id"), nullable=False)
     data_hora = Column(DateTime, nullable=True)
 
-    projeto_escopo_id = Column(
-        Integer, ForeignKey("projeto_escopo.id"), nullable=True, index=True
-    )
     #: ⭐ A fonte da verdade do "aconteceu". Sem isto, banca com data passada
     #: era reportada como realizada só pelo relógio — e "venceu e não
     #: aconteceu" não existia no sistema.
