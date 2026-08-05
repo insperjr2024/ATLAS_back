@@ -12,14 +12,24 @@ class AvaliacaoRepository:
 
     def create(self, banca_id: int, avaliador_id: int, formulario_id: int,
                status: str = "rascunho", comentario_feedback: Optional[str] = None,
-               submetida_em: Optional[datetime] = None) -> AvaliacaoModel:
+               submetida_em: Optional[datetime] = None,
+               nome_avaliador: Optional[str] = None,
+               tipo_avaliador: Optional[str] = None,
+               projeto_avaliado: Optional[str] = None,
+               escopo_avaliado_id: Optional[int] = None,
+               escopo_avaliado_outro: Optional[str] = None) -> AvaliacaoModel:
         avaliacao = AvaliacaoModel(
             banca_id=banca_id,
             avaliador_id=avaliador_id,
             formulario_id=formulario_id,
             status=status,
             comentario_feedback=comentario_feedback,
-            submetida_em=submetida_em
+            submetida_em=submetida_em,
+            nome_avaliador=nome_avaliador,
+            tipo_avaliador=tipo_avaliador,
+            projeto_avaliado=projeto_avaliado,
+            escopo_avaliado_id=escopo_avaliado_id,
+            escopo_avaliado_outro=escopo_avaliado_outro,
         )
         self.db.add(avaliacao)
         self.db.commit()

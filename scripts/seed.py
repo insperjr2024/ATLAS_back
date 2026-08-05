@@ -16,7 +16,9 @@ from src.models.cargo_model import CargoModel
 from src.models.configuracao_model import ConfiguracaoModel
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
 from src.models.escopo_model import EscopoModel
+from src.models.formulario_model import FormularioModel
 from src.models.frente_model import FrenteModel
+from src.models.pergunta_model import PerguntaModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_frente_model import ProjetoFrenteModel
 from src.models.projeto_membro_model import ProjetoMembroModel
@@ -39,34 +41,115 @@ FRENTES = [
     ("Engenharia de Processos", 2),
 ]
 
-# O catálogo do §4 do briefing.
+# O catálogo do §4 do briefing — nomes já alinhados com o formulário de
+# avaliação de bancas (ver BLOCOS_TECNICOS abaixo).
 ESCOPOS = {
     "Business": [
         "Análise Mercadológica",
         "Plano Estratégico de Marketing",
         "Plano Operacional",
-        "Viabilidade Financeira",
+        "Plano Financeiro",
     ],
     "Direito": [
-        "Elaboração e/ou Revisão Contratual",
+        "Elaboração Contratual",
+        "Revisão Contratual",
         "Planejamento Consultivo Societário",
         "Planejamento Consultivo de Propriedade Industrial",
-        "Planejamento e Análise Tributária",
+        "Planejamento Consultivo Tributário",
     ],
     "Tech": [
         "Desenvolvimento Tech",
         "AI e Automações",
+        "Análise de Dados",
+        "Desenvolvimento Web (Mock-Up)",
+        "Desenvolvimento Web (Front/Back)",
     ],
     "Engenharia de Processos": [
         "Simulação e Otimização de Processos",
     ],
 }
 
+# Uma pergunta por bloco técnico do formulário de avaliação de bancas, por
+# escopo — pergunta.escopo_id aponta pra cá. Espelhado na migration
+# ff536b09e0a2 para bancos que já existiam antes deste seed.
+BLOCOS_TECNICOS: dict[str, list[str]] = {
+    "Análise Mercadológica": [
+        "Storytelling",
+        "Solução Consistente",
+        "Embasamento de Hipóteses/Soluções",
+        "Clareza de Recomendações/Insights",
+    ],
+    "Plano Operacional": [
+        "Storytelling",
+        "Plano de Ação",
+        "Uso de Ferramentas",
+        "Tangibilidade das Recomendações",
+    ],
+    "Plano Estratégico de Marketing": [
+        "Storytelling",
+        "Plano de Ação",
+        "Uso de Ferramentas",
+        "Tangibilidade das Recomendações",
+    ],
+    "Plano Financeiro": [
+        "Premissas Utilizadas",
+        "Organização do Excel",
+        "Apresentação de Resultados",
+    ],
+    "Análise de Dados": [
+        "Qualidade do Código",
+        "Relevância dos Dados",
+        "Clareza dos Resultados",
+    ],
+    "Desenvolvimento Web (Mock-Up)": [
+        "Experiência de Uso",
+        "Coerência com Público-Alvo",
+        "Organização da Figma",
+    ],
+    "Desenvolvimento Web (Front/Back)": [
+        "Organização do Código",
+        "Coerência com Figma",
+        "Usabilidade e UX",
+    ],
+    "Planejamento Consultivo Tributário": [
+        "Aderência na Simulação",
+        "Organização do Excel",
+        "Clareza e Recomendações/Insights",
+        "Estrutura do Parecer",
+    ],
+    "Planejamento Consultivo Societário": [
+        "Solução Coerente para o Cliente",
+        "Enquadramento Correto",
+        "Mapeamento dos Documentos/Processos Corretos",
+        "Estrutura do Parecer",
+    ],
+    "Planejamento Consultivo de Propriedade Industrial": [
+        "Pesquisa INPI Completa",
+        "Estrutura do Parecer",
+        "Sugestão Coerente para o Cliente",
+    ],
+    "Elaboração Contratual": [
+        "Segurança Jurídica/Equilíbrio Contratual",
+        "Nível de Personalização",
+        "Clareza (considerando organização e escrita)",
+        "Previsibilidade Coerente (gestão de riscos)",
+    ],
+    "Revisão Contratual": [
+        "Clareza (considerando organização e escrita)",
+        "Comparação Clara entre Cláusula Antiga e Nova",
+        "Justificativas para Alteração Coerente",
+    ],
+    # Simulação e Otimização de Processos, Desenvolvimento Tech e AI e
+    # Automações nascem sem pergunta própria — a diretoria cadastra as dela.
+}
+
+BLOCO_FINAL_UNIVERSAL = ["Design Visual", "Clareza de Texto", "Visuais Completos"]
+
 CARGOS = [
     # (nome, definir_formulario, agendar_banca, gerenciar_cargos,
     #  gerenciar_membros, gerenciar_nucleo)
     ("Diretor de Projetos", True, True, True, True, True),
-    ("Gerente de Frente", False, True, False, False, False),
+    ("Gerente de Frente", True, True, False, False, False),
     ("Coordenador", False, True, False, False, False),
     ("Membro", False, False, False, False, False),
 ]
@@ -240,7 +323,7 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
             ],
             "escopos": [
                 {
-                    "escopo_id": catalogo["Elaboração e/ou Revisão Contratual"].id,
+                    "escopo_id": catalogo["Elaboração Contratual"].id,
                     "frente_id": frentes["Direito"].id,
                     "dias_uteis_vendidos": 12,
                     "status": "em_andamento",
@@ -286,7 +369,7 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
             ],
             "escopos": [
                 {
-                    "escopo_id": catalogo["Viabilidade Financeira"].id,
+                    "escopo_id": catalogo["Plano Financeiro"].id,
                     "frente_id": frentes["Business"].id,
                     "dias_uteis_vendidos": 18,
                     "status": "em_andamento",
@@ -338,7 +421,7 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
             ],
             "escopos": [
                 {
-                    "escopo_id": catalogo["Planejamento e Análise Tributária"].id,
+                    "escopo_id": catalogo["Planejamento Consultivo Tributário"].id,
                     "frente_id": frentes["Direito"].id,
                     "dias_uteis_vendidos": 14,
                     "status": "em_andamento",
@@ -567,6 +650,34 @@ def executar():
                 {"tipo": tipo, "descricao": descricao},
             )
             criados["dia"] += novo
+
+        # 4b · Formulário de avaliação padrão + perguntas por escopo
+        escopos_por_nome = {e.nome: e for e in db.query(EscopoModel).all()}
+        formulario, novo = obter_ou_criar(
+            db, FormularioModel, {"semestre_id": semestre.id, "ativo": True}
+        )
+        criados["formulario"] = criados.get("formulario", 0) + novo
+        ordem = 0
+        for nome_escopo, perguntas in BLOCOS_TECNICOS.items():
+            escopo = escopos_por_nome.get(nome_escopo)
+            if not escopo:
+                continue
+            for texto in perguntas:
+                ordem += 1
+                _, criado = obter_ou_criar(
+                    db, PerguntaModel,
+                    {"formulario_id": formulario.id, "texto": texto},
+                    {"ordem": ordem, "tipo_resposta": "nota", "escopo_id": escopo.id},
+                )
+                criados["pergunta"] = criados.get("pergunta", 0) + criado
+        for texto in BLOCO_FINAL_UNIVERSAL:
+            ordem += 1
+            _, criado = obter_ou_criar(
+                db, PerguntaModel,
+                {"formulario_id": formulario.id, "texto": texto},
+                {"ordem": ordem, "tipo_resposta": "nota", "escopo_id": None},
+            )
+            criados["pergunta"] = criados.get("pergunta", 0) + criado
 
         # 5 · Membros pré-cadastrados (§10 — ninguém se auto-registra)
         usuarios_por_email = {}
