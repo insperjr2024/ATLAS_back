@@ -12,6 +12,7 @@ from src.models.frente_model import FrenteModel
 from src.models.equipe_projeto_model import EquipeProjetoModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.banca_frente_model import BancaFrenteModel
+from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.configuracao_model import ConfiguracaoModel
 
 # Prioridade 1 — todo model novo precisa entrar aqui, senão o `alembic

@@ -90,12 +90,13 @@ class _BaseMonitoramento:
     def _contexto(self, projetos):
         ids = [p.id for p in projetos]
         escopos = self.escopo_repository.get_by_projetos(ids)
-        bancas = self.banca_repository.get_by_projeto_escopos([e.id for e in escopos])
         catalogo = {e.id: e.nome for e in self.catalogo_repository.get_all()}
         return {
             "ids": ids,
             "escopos_por_projeto": _agrupar(escopos, "projeto_id"),
-            "bancas_por_escopo": {b.projeto_escopo_id: b for b in bancas},
+            # Escopo → banca. Uma banca que cobre vários escopos aparece em
+            # todas as chaves dela: o atraso é cobrado por escopo.
+            "bancas_por_escopo": self.banca_repository.mapa_por_escopo([e.id for e in escopos]),
             "nomes_escopo": {
                 e.id: e.nome_customizado or catalogo.get(e.escopo_id, "escopo") for e in escopos
             },
@@ -233,7 +234,10 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         escopo_para_projeto = {
             e.id: pid for pid, escopos in ctx["escopos_por_projeto"].items() for e in escopos
         }
-        proximas = []
+        # Agrupado por BANCA, não por escopo: a que cobre dois escopos é uma
+        # linha só na agenda ("Alfa · Análise + Contratual"), senão a mesma
+        # data apareceria duas vezes como se fossem dois compromissos.
+        por_banca = {}
         for escopo_id, banca in ctx["bancas_por_escopo"].items():
             if not banca.data_hora:
                 continue
@@ -243,14 +247,26 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             if calcular_status_banca(banca.data_hora, banca.realizado_em) != ABERTA:
                 continue
             projeto_id = escopo_para_projeto.get(escopo_id)
-            proximas.append(
+            item = por_banca.setdefault(
+                banca.id,
                 {
                     "projeto_id": projeto_id,
                     "projeto_nome": nomes_projeto.get(projeto_id, ""),
-                    "escopo": ctx["nomes_escopo"].get(escopo_id, ""),
+                    "escopos": [],
                     "data_hora": banca.data_hora,
-                }
+                },
             )
+            item["escopos"].append(ctx["nomes_escopo"].get(escopo_id, ""))
+
+        proximas = [
+            {
+                "projeto_id": item["projeto_id"],
+                "projeto_nome": item["projeto_nome"],
+                "escopo": " + ".join(sorted(item["escopos"])),
+                "data_hora": item["data_hora"],
+            }
+            for item in por_banca.values()
+        ]
         proximas.sort(key=lambda b: b["data_hora"])
         return proximas
 
