@@ -11,7 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import exigir_acesso_ao_projeto, require_diretor
+from src.middlewares.authorization import (
+    exigir_acesso_ao_projeto,
+    require_diretor,
+    require_pode_criar_tarefa,
+    require_pode_mover_editar_tarefa,
+)
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.tarefa.comentarios import (
     ComentarioRequest,
@@ -143,7 +148,7 @@ def list_tarefas(projeto_id: int, current_user=Depends(get_current_user), db: Se
 
 
 @router.post("/projetos/{projeto_id}/tarefas")
-def create_tarefa(projeto_id: int, request: CreateTarefaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def create_tarefa(projeto_id: int, request: CreateTarefaRequest, current_user=Depends(require_pode_criar_tarefa), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         result = CreateTarefaUseCase(db).execute(projeto_id, request, criado_por=current_user.id)
@@ -155,7 +160,7 @@ def create_tarefa(projeto_id: int, request: CreateTarefaRequest, current_user=De
 
 
 @router.patch("/tarefas/{tarefa_id}")
-def update_tarefa(tarefa_id: int, request: UpdateTarefaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def update_tarefa(tarefa_id: int, request: UpdateTarefaRequest, current_user=Depends(require_pode_mover_editar_tarefa), db: Session = Depends(get_db)):
     """Move (arrastar no kanban) e edita — a mesma rota."""
     _acesso_pela_tarefa(tarefa_id, current_user, db)
     try:

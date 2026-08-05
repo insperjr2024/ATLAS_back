@@ -2,10 +2,12 @@
 
 Duas dimensões que convivem, e não devem ser confundidas:
 
-- **`cargo`** (3 flags booleanas) → permissões do MÓDULO DE BANCAS (P2/P3).
-  É o que já existia; continua mandando nas ações de banca e formulário.
-- **`posicao`** (diretor · gerente · coordenador · consultor) → a matriz do §3,
-  que manda no resto da plataforma.
+- **`cargo`** (as 10 caixas da tabela do §3) → quem DECIDE em runtime. São as
+  10 ações da tabela do briefing, editáveis na tela de Cargos.
+- **`posicao`** (diretor · gerente · coordenador · consultor) → define o PADRÃO
+  com que cada cargo nasce (ver a migration `7514970fac39`) e ainda tranca o
+  que ficou de fora da tabela: formulário de banca, núcleo/configurações,
+  cargos e a Avaliação de Desempenho.
 
 O recorte de visão (`aplicar_recorte_visao`) é a regra mais importante daqui:
 o front só ESCONDE, quem DECIDE é o backend.
@@ -20,7 +22,7 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.repositories.cargo_repository import CargoRepository
 
 
-# ---------------------------------------------------------------- cargo (bancas)
+# -------------------------------------------------- cargo (as 10 da tabela §3)
 
 def usuario_tem_permissao(current_user, db: Session, campo: str) -> bool:
     cargo = CargoRepository(db).get_by_id(current_user.cargo_id)
@@ -33,62 +35,62 @@ def _exigir_permissao(current_user, db: Session, campo: str, mensagem: str):
     return current_user
 
 
-def require_pode_definir_formulario(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return _exigir_permissao(current_user, db, "pode_definir_formulario",
-                              "Apenas o Diretor de Projetos pode editar o formulário")
+def _dependencia_permissao(campo: str, mensagem: str):
+    """Fabrica a dependência de uma das 10 caixas.
 
-
-def require_pode_agendar_banca(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return _exigir_permissao(current_user, db, "pode_agendar_banca",
-                              "Você não tem permissão para gerenciar bancas")
-
-
-def require_pode_gerenciar_membros(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return _exigir_permissao(current_user, db, "pode_gerenciar_membros",
-                              "Você não tem permissão para gerenciar membros")
-
-
-def require_pode_gerenciar_nucleo(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return _exigir_permissao(current_user, db, "pode_gerenciar_nucleo",
-                              "Você não tem permissão para gerenciar o núcleo")
-
-
-def require_pode_gerenciar_desempenho(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Painel de Avaliação de Desempenho inteiro: resultados, lotes e mentorias.
-
-    Era `require_gestao` (diretor + gerente) fixo na rota. Agora é caixa de
-    cargo, então a diretoria delega o painel sem ter que mudar a posição de
-    ninguém — e um diretor sem a caixa não entra.
+    Escrever as 10 à mão era repetir o mesmo corpo dez vezes — e cada cópia é
+    uma chance de checar o campo errado.
     """
-    return _exigir_permissao(current_user, db, "pode_gerenciar_desempenho",
-                              "Você não tem permissão para acessar a avaliação de desempenho")
+
+    def _dependencia(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+        return _exigir_permissao(current_user, db, campo, mensagem)
+
+    return _dependencia
 
 
-def require_pode_definir_formulario_desempenho(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Editar os formulários de desempenho. Separada da de cima porque mexer no
-    formulário muda o que TODO mundo responde — ver os resultados não."""
-    return _exigir_permissao(current_user, db, "pode_definir_formulario_desempenho",
-                              "Você não tem permissão para editar o formulário de desempenho")
+# 1. Criar projeto e alocar equipe
+require_pode_criar_projeto = _dependencia_permissao(
+    "pode_criar_projeto", "Você não tem permissão para criar projetos")
 
+# 2. Editar a equipe de um projeto
+require_pode_editar_equipe = _dependencia_permissao(
+    "pode_editar_equipe", "Você não tem permissão para editar a equipe do projeto")
 
-def require_pode_gerenciar_cargos(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """🔒 Editar cargo é editar quem pode o quê — exige a caixa E a posição.
+# 3. Gerir membros (posição e status)
+require_pode_gerir_membros = _dependencia_permissao(
+    "pode_gerir_membros", "Você não tem permissão para gerir membros")
 
-    Só a caixa era um furo de escalonamento: quem a tivesse abria o próprio
-    cargo e marcava o resto. A posição fecha isso porque ela não se edita por
-    aqui — muda em Membros, que já é da diretoria.
-    """
-    if current_user.posicao != "diretor":
-        raise HTTPException(
-            status_code=403,
-            detail="Apenas a diretoria pode alterar cargos e permissões",
-        )
-    return _exigir_permissao(current_user, db, "pode_gerenciar_cargos",
-                              "Você não tem permissão para alterar cargos")
+# 4. Marcar kickoff e data de entrega
+require_pode_marcar_kickoff = _dependencia_permissao(
+    "pode_marcar_kickoff", "Você não tem permissão para marcar kickoff e entrega")
+
+# 5. Definir cronograma por escopo (etapas, banca)
+require_pode_definir_cronograma = _dependencia_permissao(
+    "pode_definir_cronograma", "Você não tem permissão para definir o cronograma")
+
+# 6. Aprovar reajuste de cronograma
+require_pode_aprovar_reajuste = _dependencia_permissao(
+    "pode_aprovar_reajuste", "Você não tem permissão para aprovar reajuste de cronograma")
+
+# 7. Criar tarefa
+require_pode_criar_tarefa = _dependencia_permissao(
+    "pode_criar_tarefa", "Você não tem permissão para criar tarefas")
+
+# 8. Mover e editar tarefa
+require_pode_mover_editar_tarefa = _dependencia_permissao(
+    "pode_mover_editar_tarefa", "Você não tem permissão para mover ou editar tarefas")
+
+# 9. Ver os próprios projetos
+require_pode_ver_proprios_projetos = _dependencia_permissao(
+    "pode_ver_proprios_projetos", "Você não tem permissão para ver projetos")
+
+# 10. Monitoramento e alocação
+require_pode_ver_monitoramento = _dependencia_permissao(
+    "pode_ver_monitoramento", "Você não tem permissão para ver o monitoramento")
 
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
+    if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
         raise HTTPException(status_code=403, detail="Você só pode acessar seus próprios dados")
     return current_user
 
@@ -162,14 +164,12 @@ def require_self(usuario_id: int, current_user=Depends(get_current_user)):
 
 def require_self_mentor_ou_gestao(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Vê o relatório de desempenho de `usuario_id`: a própria pessoa, quem tem
-    vínculo de mentoria com ela (`desempenho_mentoria`), ou quem administra o
-    painel de desempenho.
+    vínculo de mentoria com ela (`desempenho_mentoria`), ou diretor/gerente.
 
-    O terceiro caso era `posicao in (diretor, gerente)`; virou a caixa
-    `pode_gerenciar_desempenho` para o relatório seguir a mesma regra do resto
-    do painel — senão dava para ver a lista de avaliações e não o relatório.
+    A Avaliação de Desempenho não está na tabela das 10, então continua travada
+    por posição, como o resto do painel.
     """
-    if current_user.id == usuario_id or usuario_tem_permissao(current_user, db, "pode_gerenciar_desempenho"):
+    if current_user.id == usuario_id or current_user.posicao in ("diretor", "gerente"):
         return current_user
 
     from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository

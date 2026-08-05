@@ -6,13 +6,16 @@ from pydantic import BaseModel
 
 class CreateCargoRequest(BaseModel):
     nome: str
-    pode_definir_formulario: bool = False
-    pode_agendar_banca: bool = False
-    pode_gerenciar_cargos: bool = False
-    pode_gerenciar_membros: bool = False
-    pode_gerenciar_nucleo: bool = False
-    pode_gerenciar_desempenho: bool = False
-    pode_definir_formulario_desempenho: bool = False
+    pode_criar_projeto: bool = False
+    pode_editar_equipe: bool = False
+    pode_gerir_membros: bool = False
+    pode_marcar_kickoff: bool = False
+    pode_definir_cronograma: bool = False
+    pode_aprovar_reajuste: bool = False
+    pode_criar_tarefa: bool = False
+    pode_mover_editar_tarefa: bool = False
+    pode_ver_proprios_projetos: bool = False
+    pode_ver_monitoramento: bool = False
 
 
 class CreateCargoUseCase:

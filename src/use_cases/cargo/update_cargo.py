@@ -7,13 +7,16 @@ from src.use_cases.cargo.get_cargo import serializar_cargo
 
 class UpdateCargoRequest(BaseModel):
     nome: Optional[str] = None
-    pode_definir_formulario: Optional[bool] = None
-    pode_agendar_banca: Optional[bool] = None
-    pode_gerenciar_cargos: Optional[bool] = None
-    pode_gerenciar_membros: Optional[bool] = None
-    pode_gerenciar_nucleo: Optional[bool] = None
-    pode_gerenciar_desempenho: Optional[bool] = None
-    pode_definir_formulario_desempenho: Optional[bool] = None
+    pode_criar_projeto: Optional[bool] = None
+    pode_editar_equipe: Optional[bool] = None
+    pode_gerir_membros: Optional[bool] = None
+    pode_marcar_kickoff: Optional[bool] = None
+    pode_definir_cronograma: Optional[bool] = None
+    pode_aprovar_reajuste: Optional[bool] = None
+    pode_criar_tarefa: Optional[bool] = None
+    pode_mover_editar_tarefa: Optional[bool] = None
+    pode_ver_proprios_projetos: Optional[bool] = None
+    pode_ver_monitoramento: Optional[bool] = None
 
 
 class UpdateCargoUseCase:

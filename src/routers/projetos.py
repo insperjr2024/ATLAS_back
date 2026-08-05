@@ -12,6 +12,10 @@ from src.middlewares.authorization import (
     require_diretor,
     require_gestao,
     require_lideranca,
+    require_pode_criar_projeto,
+    require_pode_editar_equipe,
+    require_pode_marcar_kickoff,
+    require_pode_ver_proprios_projetos,
 )
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
@@ -58,7 +62,7 @@ router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/projetos")
-def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_pode_criar_projeto), db: Session = Depends(get_db)):
     try:
         return CreateProjetoUseCase(db).execute(request, criado_por=current_user.id)
     except RegraDeNegocioError as e:
@@ -69,7 +73,7 @@ def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_g
 def list_projetos(
     frente_id: Optional[int] = None,
     incluir_arquivados: bool = False,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_pode_ver_proprios_projetos),
     db: Session = Depends(get_db),
 ):
     return ListProjetosUseCase(db).execute(current_user, frente_id=frente_id, incluir_arquivados=incluir_arquivados)
@@ -85,7 +89,7 @@ def get_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Ses
 
 
 @router.put("/projetos/{projeto_id}/equipe")
-def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
     # `require_gestao` só diz "é diretor ou gerente" — sem o recorte, um
     # gerente de Business editava a equipe de um projeto de Direito.
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
@@ -99,7 +103,7 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
 
 
 @router.patch("/projetos/{projeto_id}/kickoff")
-def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         result = UpdateKickoffUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
@@ -111,7 +115,7 @@ def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=
 
 
 @router.patch("/projetos/{projeto_id}/entrega-cliente")
-def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateEntregaClienteUseCase(db).execute(projeto_id, request)
     if not result:

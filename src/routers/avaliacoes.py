@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
-    require_pode_agendar_banca,
-    require_pode_definir_formulario,
+    require_pode_definir_cronograma,
+    require_diretor,
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -56,7 +56,7 @@ def get_formulario_ativo(db: Session = Depends(get_db)):
 
 
 @router.post("/formularios/nova-versao")
-def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, _=Depends(require_pode_definir_formulario), db: Session = Depends(get_db)):
+def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         return CreateNovaVersaoFormularioUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -77,7 +77,7 @@ def get_formulario(formulario_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/formularios/{formulario_id}")
-def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=Depends(require_pode_definir_formulario), db: Session = Depends(get_db)):
+def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     result = UpdateFormularioUseCase(db).execute(formulario_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
@@ -85,7 +85,7 @@ def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=De
 
 
 @router.delete("/formularios/{formulario_id}", status_code=204)
-def delete_formulario(formulario_id: int, _=Depends(require_pode_definir_formulario), db: Session = Depends(get_db)):
+def delete_formulario(formulario_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         deleted = DeleteFormularioUseCase(db).execute(formulario_id)
     except ResourceInUseError:
@@ -111,7 +111,7 @@ def get_pergunta(pergunta_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/perguntas/{pergunta_id}")
-def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(require_pode_definir_formulario), db: Session = Depends(get_db)):
+def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     result = UpdatePerguntaUseCase(db).execute(pergunta_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Pergunta não encontrada")
@@ -119,7 +119,7 @@ def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(
 
 
 @router.delete("/perguntas/{pergunta_id}", status_code=204)
-def delete_pergunta(pergunta_id: int, _=Depends(require_pode_definir_formulario), db: Session = Depends(get_db)):
+def delete_pergunta(pergunta_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         deleted = DeletePerguntaUseCase(db).execute(pergunta_id)
     except ResourceInUseError:
@@ -137,7 +137,7 @@ def create_avaliacao(request: CreateAvaliacaoRequest, current_user=Depends(get_c
 
 
 @router.get("/avaliacoes-pendentes")
-def get_avaliacoes_pendentes(_=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def get_avaliacoes_pendentes(_=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     return GetAvaliacoesPendentesUseCase(db).execute()
 
 
