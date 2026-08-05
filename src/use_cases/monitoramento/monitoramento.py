@@ -28,6 +28,7 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
+from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
@@ -53,6 +54,7 @@ class _BaseMonitoramento:
         self.catalogo_repository = EscopoRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
+        self.coluna_repository = TarefaColunaRepository(db)
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -69,6 +71,14 @@ class _BaseMonitoramento:
             self.db.query(ProjetoModel), current_user, self.db, frente_id
         )
         return query.all()
+
+    def _encerra_por_coluna(self) -> Dict[int, bool]:
+        """`coluna_id → encerra_tarefa`. "Vencida" e "ativa" dependem disto,
+        e não mais de uma lista fixa de status: as colunas do kanban são
+        configuráveis pela diretoria."""
+        # `listar_todas`, não `listar(projeto_id)`: o monitoramento agrega
+        # vários projetos de uma vez e cada um tem o seu conjunto de colunas.
+        return {c.id: c.encerra_tarefa for c in self.coluna_repository.listar_todas()}
 
     def _contexto(self, projetos):
         ids = [p.id for p in projetos]
@@ -280,6 +290,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         tarefas_por_projeto = _agrupar(
             self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
         )
+        encerra = self._encerra_por_coluna()
 
         for p in projetos:
             if p.status == "finalizado":
@@ -316,7 +327,9 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                 )
 
             vencidas = [
-                t for t in tarefas_por_projeto.get(p.id, []) if eh_vencida(t.prazo, t.status, hoje)
+                t
+                for t in tarefas_por_projeto.get(p.id, [])
+                if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
             ]
             if vencidas:
                 itens.append(
@@ -335,12 +348,14 @@ class VisaoGeralUseCase(_BaseMonitoramento):
 class ExecucaoUseCase(_BaseMonitoramento):
     """§7.2 — quem está distribuindo tarefa e fazendo reunião, sem abrir cada projeto.
 
-    ⏱ **Aqui os dias são ÚTEIS**, e é a única aba assim. O §7.4 (banca e
-    entrega, em `atraso_monitoramento.py`) continua em dias corridos — aquela
-    régua é do briefing. A diferença é intencional: lá se mede o quanto um
-    marco escorregou no calendário; aqui se mede quanto tempo de TRABALHO o
-    time deixou passar, e nesse caso um fim de semana ou uma semana de provas
-    não é tempo de trabalho perdido.
+    ⏱ **Aqui os dias são ÚTEIS**, pelo calendário do Insper — e desde
+    2026-08-04 o §7.4 (banca e entrega, em `atraso_monitoramento.py`) usa a
+    mesma régua, confirmada com a diretoria. Mede-se quanto tempo de TRABALHO
+    passou: fim de semana, feriado e semana de provas não são tempo que o time
+    deixou passar. Não há mais duas réguas no sistema.
+
+    ⭐ "Ativa" e "vencida" vêm da COLUNA do kanban (`encerra_tarefa`), não de
+    uma lista fixa de status — as colunas são configuráveis pela diretoria.
     """
 
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
@@ -351,6 +366,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
         todas_tarefas = self.tarefa_repository.get_by_projetos(ids)
         tarefas_por_projeto = _agrupar(todas_tarefas, "projeto_id")
+        encerra = self._encerra_por_coluna()
         reunioes = self.reuniao_repository.get_by_projetos_e_janela(ids, inicio, fim)
         reunioes_por_projeto = _agrupar(reunioes, "projeto_id")
 
@@ -368,8 +384,13 @@ class ExecucaoUseCase(_BaseMonitoramento):
                 t for t in do_projeto if t.criado_em and t.criado_em.date() >= inicio
             ]
             movimentacoes = [t.movida_em for t in do_projeto if t.movida_em]
-            vencidas = [t for t in do_projeto if eh_vencida(t.prazo, t.status, hoje)]
-            ativas = [t for t in do_projeto if esta_ativa(t.status)]
+            # "Vencida" e "ativa" saem da COLUNA do kanban, não de um status na
+            # tarefa: as colunas são configuráveis pela diretoria, e o campo
+            # `status` deixou de existir no modelo.
+            vencidas = [
+                t for t in do_projeto if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
+            ]
+            ativas = [t for t in do_projeto if esta_ativa(encerra.get(t.coluna_id, False))]
             marco, tipo_marco = self._marco_sem_tarefa(p, do_projeto)
 
             tarefas.append(
@@ -534,8 +555,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
             for u in usuarios.values()
             if entra(u, "consultor") and u.posicao == "consultor"
         ]
-        coordenadores.sort(key=lambda x: -x["total"])
-        consultores.sort(key=lambda x: -x["total"])
+        # As duas tabelas respondem perguntas OPOSTAS, por isso ordenam ao
+        # contrário uma da outra:
+        #   · coordenadores — "quem é o gargalo?" → mais carregado primeiro;
+        #   · consultores   — "quem pega o próximo projeto?" → menos
+        #     carregado primeiro, com os disponíveis (0 projetos) no topo.
+        # O nome é o desempate, senão pessoas com a mesma carga trocam de
+        # lugar a cada refresh (a ordem vinha do dicionário de usuários).
+        coordenadores.sort(key=lambda x: (-x["total"], x["nome"]))
+        consultores.sort(key=lambda x: (x["total"], x["nome"]))
 
         return {
             "coordenadores": coordenadores,

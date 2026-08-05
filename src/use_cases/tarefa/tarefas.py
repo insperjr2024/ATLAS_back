@@ -13,15 +13,22 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.tarefa.comentarios import exigir_permissao_de_edicao
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.tarefa_status import eh_vencida, janela_semana
+from src.utils.tarefa_status import (
+    calcular_urgencia,
+    dias_para_prazo,
+    eh_vencida,
+    janela_semana,
+)
 
-STATUS_VALIDOS = ("a_fazer", "em_andamento", "validacao", "concluido", "cancelado")
-
-
-def serializar_tarefa(tarefa, hoje: Optional[date] = None) -> dict:
+def serializar_tarefa(tarefa, coluna, hoje: Optional[date] = None) -> dict:
+    """`coluna` é obrigatória porque "vencida" depende de `encerra_tarefa`
+    dela — não de uma lista fixa de status."""
+    encerra = bool(coluna and coluna.encerra_tarefa)
     return {
         "id": tarefa.id,
         "projeto_id": tarefa.projeto_id,
@@ -29,12 +36,15 @@ def serializar_tarefa(tarefa, hoje: Optional[date] = None) -> dict:
         "titulo": tarefa.titulo,
         "responsavel_id": tarefa.responsavel_id,
         "prazo": tarefa.prazo,
-        "status": tarefa.status,
+        "coluna_id": tarefa.coluna_id,
         "criado_por": tarefa.criado_por,
         "criado_em": tarefa.criado_em,
         "movida_em": tarefa.movida_em,
-        # 🧮 Derivado, nunca gravado.
-        "vencida": eh_vencida(tarefa.prazo, tarefa.status, hoje),
+        # 🧮 Todos derivados, nunca gravados.
+        "vencida": eh_vencida(tarefa.prazo, encerra, hoje),
+        # ⏰ A gradação que o card usa para avisar ANTES do prazo estourar.
+        "urgencia": calcular_urgencia(tarefa.prazo, encerra, hoje),
+        "dias_para_prazo": dias_para_prazo(tarefa.prazo, hoje),
     }
 
 
@@ -43,24 +53,30 @@ class CreateTarefaRequest(BaseModel):
     responsavel_id: int
     prazo: date
     projeto_escopo_id: Optional[int] = None
-    status: str = "a_fazer"
+    #: Vazio = a primeira coluna do board.
+    coluna_id: Optional[int] = None
 
 
 class UpdateTarefaRequest(BaseModel):
     titulo: Optional[str] = None
     responsavel_id: Optional[int] = None
     prazo: Optional[date] = None
-    status: Optional[str] = None
+    coluna_id: Optional[int] = None
     projeto_escopo_id: Optional[int] = None
 
 
 class ListTarefasUseCase:
     def __init__(self, db: Session):
         self.repository = TarefaRepository(db)
+        self.coluna_repository = TarefaColunaRepository(db)
 
     def execute(self, projeto_id: int) -> List[dict]:
         hoje = date.today()
-        return [serializar_tarefa(t, hoje) for t in self.repository.get_by_projeto(projeto_id)]
+        colunas = {c.id: c for c in self.coluna_repository.listar(projeto_id)}
+        return [
+            serializar_tarefa(t, colunas.get(t.coluna_id), hoje)
+            for t in self.repository.get_by_projeto(projeto_id)
+        ]
 
 
 class CreateTarefaUseCase:
@@ -68,16 +84,24 @@ class CreateTarefaUseCase:
         self.repository = TarefaRepository(db)
         self.projeto_repository = ProjetoRepository(db)
         self.usuario_repository = UsuarioRepository(db)
+        self.coluna_repository = TarefaColunaRepository(db)
 
     def execute(self, projeto_id: int, request: CreateTarefaRequest, criado_por: int):
         if not self.projeto_repository.get_by_id(projeto_id):
             return None
-        if request.status not in STATUS_VALIDOS:
-            raise RegraDeNegocioError(f"Status inválido. Use um de: {', '.join(STATUS_VALIDOS)}")
         if not request.titulo.strip():
             raise RegraDeNegocioError("A tarefa precisa de um título")
         if not self.usuario_repository.get_by_id(request.responsavel_id):
             raise RegraDeNegocioError("Responsável não encontrado")
+
+        coluna = (
+            self.coluna_repository.get_by_id(request.coluna_id)
+            if request.coluna_id
+            else self.coluna_repository.primeira(projeto_id)
+        )
+        # A coluna tem que ser DESTE projeto — cada board é o seu.
+        if not coluna or coluna.projeto_id != projeto_id:
+            raise RegraDeNegocioError("Coluna inválida")
 
         tarefa = self.repository.create(
             projeto_id=projeto_id,
@@ -85,35 +109,45 @@ class CreateTarefaUseCase:
             titulo=request.titulo.strip(),
             responsavel_id=request.responsavel_id,
             prazo=request.prazo,
-            status=request.status,
+            coluna_id=coluna.id,
             criado_por=criado_por,
         )
-        return serializar_tarefa(tarefa)
+        return serializar_tarefa(tarefa, coluna)
 
 
 class UpdateTarefaUseCase:
     def __init__(self, db: Session):
         self.repository = TarefaRepository(db)
+        self.coluna_repository = TarefaColunaRepository(db)
 
-    def execute(self, tarefa_id: int, request: UpdateTarefaRequest):
+    def execute(self, tarefa_id: int, request: UpdateTarefaRequest, current_user=None):
         tarefa = self.repository.get_by_id(tarefa_id)
         if not tarefa:
             return None
 
         dados = request.dict(exclude_unset=True)
-        if "status" in dados:
-            if dados["status"] not in STATUS_VALIDOS:
-                raise RegraDeNegocioError(
-                    f"Status inválido. Use um de: {', '.join(STATUS_VALIDOS)}"
-                )
-            # `movida_em` só é tocado quando o status MUDA de fato — é o que
+
+        # ⭐ Mover ≠ editar. Trocar a COLUNA é do time inteiro (§3: os quatro
+        # perfis movem tarefa) — é o kanban funcionando. Mexer no CONTEÚDO
+        # (título, responsável, prazo) é da diretoria e de quem criou.
+        campos_de_conteudo = set(dados) - {"coluna_id"}
+        if campos_de_conteudo and current_user is not None:
+            exigir_permissao_de_edicao(tarefa, current_user)
+
+        if "coluna_id" in dados and dados["coluna_id"] is not None:
+            destino = self.coluna_repository.get_by_id(dados["coluna_id"])
+            if not destino or destino.projeto_id != tarefa.projeto_id:
+                raise RegraDeNegocioError("Coluna não encontrada")
+            # `movida_em` só é tocado quando a COLUNA muda de fato — é o que
             # torna a "última movimentação" do §7.2 significativa. Renomear a
             # tarefa não pode fingir atividade.
-            if dados["status"] != tarefa.status:
+            if dados["coluna_id"] != tarefa.coluna_id:
                 dados["movida_em"] = datetime.now()
 
         atualizada = self.repository.update(tarefa_id, **dados)
-        return serializar_tarefa(atualizada)
+        return serializar_tarefa(
+            atualizada, self.coluna_repository.get_by_id(atualizada.coluna_id)
+        )
 
 
 class DeleteTarefaUseCase:

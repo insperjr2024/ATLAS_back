@@ -2,7 +2,8 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -30,6 +31,7 @@ from src.use_cases.projeto_escopo.update_escopo_projeto import (
     UpdateEscopoProjetoUseCase,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.projeto.arquivar_projeto import ArquivarProjetoUseCase, DesarquivarProjetoUseCase
 from src.use_cases.projeto.create_projeto import CreateProjetoUseCase, CreateProjetoRequest
 from src.use_cases.projeto.get_projeto import (
     GetHistoricoProjetoUseCase,
@@ -47,7 +49,10 @@ from src.use_cases.projeto.update_kickoff import (
     UpdateKickoffUseCase,
 )
 from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatusUseCase
+from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
+from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.storage import pasta_propostas
 
 router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
@@ -61,8 +66,13 @@ def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_g
 
 
 @router.get("/projetos")
-def list_projetos(frente_id: Optional[int] = None, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return ListProjetosUseCase(db).execute(current_user, frente_id=frente_id)
+def list_projetos(
+    frente_id: Optional[int] = None,
+    incluir_arquivados: bool = False,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return ListProjetosUseCase(db).execute(current_user, frente_id=frente_id, incluir_arquivados=incluir_arquivados)
 
 
 @router.get("/projetos/{projeto_id}")
@@ -125,6 +135,62 @@ def update_status(projeto_id: int, request: UpdateStatusRequest, current_user=De
 def get_historico(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     return GetHistoricoProjetoUseCase(db).execute(projeto_id)
+
+
+@router.patch("/projetos/{projeto_id}/arquivar")
+def arquivar_projeto(projeto_id: int, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+    """Arquivar não é excluir — some das listagens, nada é apagado."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = ArquivarProjetoUseCase(db).execute(projeto_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return {"id": result.id, "arquivado_em": result.arquivado_em}
+
+
+@router.patch("/projetos/{projeto_id}/desarquivar")
+def desarquivar_projeto(projeto_id: int, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = DesarquivarProjetoUseCase(db).execute(projeto_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return {"id": result.id, "arquivado_em": result.arquivado_em}
+
+
+@router.post("/projetos/{projeto_id}/anexo-proposta")
+def upload_anexo_proposta(
+    projeto_id: int,
+    arquivo: UploadFile = File(...),
+    current_user=Depends(require_gestao),
+    db: Session = Depends(get_db),
+):
+    """A proposta é ou link (mandado na criação), ou este PDF — nunca os dois."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        return UploadAnexoPropostaUseCase(db).execute(projeto_id, arquivo)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/projetos/{projeto_id}/anexo-proposta")
+def download_anexo_proposta(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    projeto = ProjetoRepository(db).get_by_id(projeto_id)
+    if not projeto or not projeto.anexo_proposta_path:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+    caminho = pasta_propostas() / projeto.anexo_proposta_path
+    if not caminho.exists():
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+    return FileResponse(
+        caminho,
+        media_type="application/pdf",
+        filename=projeto.anexo_proposta_nome or "proposta.pdf",
+    )
 
 
 # ------------------------------------------------------------------ escopos (F4)

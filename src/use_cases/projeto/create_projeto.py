@@ -13,11 +13,13 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
+from src.use_cases.tarefa.colunas import criar_colunas_padrao
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
     EscopoVendidoRequest,
     validar_escopo_vendido,
 )
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.validacao_equipe import validar_equipe
 
 
 class MembroEquipeRequest(BaseModel):
@@ -75,16 +77,7 @@ class CreateProjetoUseCase:
         for escopo in request.escopos:
             validar_escopo_vendido(escopo, request.frente_ids, self.catalogo_repository)
 
-        coordenadores = [m for m in request.equipe if m.papel == "coordenador"]
-        consultores = [m for m in request.equipe if m.papel == "consultor"]
-        if len(coordenadores) != 1:
-            raise RegraDeNegocioError("O projeto precisa de exatamente 1 coordenador")
-        if not (2 <= len(consultores) <= 3):
-            raise RegraDeNegocioError("O projeto precisa de 2 a 3 consultores")
-
-        for membro in request.equipe:
-            if not self.usuario_repository.get_by_id(membro.usuario_id):
-                raise RegraDeNegocioError(f"Usuário {membro.usuario_id} não encontrado")
+        validar_equipe(request.equipe, self.usuario_repository)
 
         projeto = self.repository.create(
             nome=request.nome,
@@ -96,6 +89,11 @@ class CreateProjetoUseCase:
             dia_reuniao_padrao=request.dia_reuniao_padrao,
             criado_por=criado_por,
         )
+
+        # O board nasce com o conjunto padrão de colunas. Sem isto o kanban
+        # do projeto novo abriria vazio e não haveria onde a primeira tarefa
+        # cair — as colunas são por projeto, não uma configuração global.
+        criar_colunas_padrao(self.db, projeto.id)
 
         for frente_id in request.frente_ids:
             self.frente_repository.create(projeto_id=projeto.id, frente_id=frente_id)

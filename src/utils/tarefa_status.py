@@ -18,19 +18,71 @@ no dia em que alguém mexesse só num lado.
 from datetime import date, timedelta
 from typing import Optional
 
-STATUS_TERMINAIS = frozenset({"concluido", "cancelado"})
+def eh_vencida(
+    prazo: Optional[date], coluna_encerra: bool, hoje: Optional[date] = None
+) -> bool:
+    """Prazo passado E tarefa ainda aberta.
 
-
-def eh_vencida(prazo: Optional[date], status: str, hoje: Optional[date] = None) -> bool:
+    ⭐ `coluna_encerra` vem de `tarefa_coluna.encerra_tarefa`, e não de uma
+    lista fixa de status: as colunas do kanban são configuráveis pela
+    diretoria. Quem cria uma coluna diz se ela encerra a tarefa — é o que
+    impede que uma coluna nova ("Arquivado", "Em espera") deixe tudo que cai
+    ali vencido para sempre.
+    """
     if prazo is None:
         return False
     hoje = hoje or date.today()
-    return prazo < hoje and status not in STATUS_TERMINAIS
+    return prazo < hoje and not coluna_encerra
 
 
-def esta_ativa(status: str) -> bool:
-    """Tarefa que ainda conta como trabalho pendente."""
-    return status not in STATUS_TERMINAIS
+def esta_ativa(coluna_encerra: bool) -> bool:
+    """Tarefa que ainda conta como trabalho pendente (§7.2)."""
+    return not coluna_encerra
+
+
+# ⏰ Os níveis de urgência, do prazo se aproximando até ele passar.
+#
+# `vencida` já existia como booleano e continua — o monitoramento conta por
+# ele. A gradação abaixo é para a TELA: um card que vence amanhã e um que
+# vence em três semanas não podem parecer a mesma coisa, e esperar virar
+# vermelho no dia seguinte ao prazo é tarde demais.
+URGENCIA_VENCIDA = "vencida"
+URGENCIA_CRITICA = "critica"   # vence hoje ou amanhã
+URGENCIA_ATENCAO = "atencao"   # vence em 2 ou 3 dias
+URGENCIA_NORMAL = "normal"
+
+DIAS_CRITICA = 1
+DIAS_ATENCAO = 3
+
+
+def dias_para_prazo(prazo: Optional[date], hoje: Optional[date] = None) -> Optional[int]:
+    """Dias CORRIDOS até o prazo. Negativo = já passou."""
+    if prazo is None:
+        return None
+    hoje = hoje or date.today()
+    return (prazo - hoje).days
+
+
+def calcular_urgencia(
+    prazo: Optional[date], coluna_encerra: bool, hoje: Optional[date] = None
+) -> str:
+    """O nível de urgência do prazo.
+
+    Tarefa em coluna que encerra é sempre `normal`: ela saiu, o prazo não
+    importa mais. Mesma regra de `eh_vencida`, para as duas nunca discordarem.
+    """
+    if coluna_encerra:
+        return URGENCIA_NORMAL
+    restantes = dias_para_prazo(prazo, hoje)
+    if restantes is None:
+        return URGENCIA_NORMAL
+    if restantes < 0:
+        return URGENCIA_VENCIDA
+    if restantes <= DIAS_CRITICA:
+        return URGENCIA_CRITICA
+    if restantes <= DIAS_ATENCAO:
+        return URGENCIA_ATENCAO
+    return URGENCIA_NORMAL
 
 
 def inicio_semana(dia: Optional[date] = None) -> date:

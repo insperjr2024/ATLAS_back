@@ -23,6 +23,7 @@ from src.models.projeto_membro_model import ProjetoMembroModel
 from src.models.projeto_model import ProjetoModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.semestre_model import SemestreModel
+from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.usuario_model import UsuarioModel
@@ -82,6 +83,18 @@ USUARIOS = [
 ]
 
 SEMESTRE = ("2026.2", date(2026, 7, 1), date(2026, 12, 20))
+
+# As colunas do kanban (§4). Nascem aqui, mas a diretoria edita **dentro de
+# cada projeto** — nome, cor, ordem e o "encerra a tarefa" são configuráveis,
+# e um projeto pode ter um fluxo diferente do outro.
+# (chave, nome, cor, ordem, encerra_tarefa)
+COLUNAS_TAREFA = [
+    ("a_fazer", "A fazer", "#9CA3AF", 0, False),
+    ("em_andamento", "Em andamento", "#3B82F6", 1, False),
+    ("validacao", "Validação", "#F59E0B", 2, False),
+    ("concluido", "Concluído", "#10B981", 3, True),
+    ("cancelado", "Cancelado", "#EF4444", 4, True),
+]
 
 # Calendário acadêmico — é esta carga que define o dia útil (§5.4).
 DIAS_NAO_LETIVOS = [
@@ -496,7 +509,8 @@ def executar():
     hoje = date.today()
     criados = {
         "frente": 0, "escopo": 0, "cargo": 0, "usuario": 0, "dia": 0,
-        "projeto": 0, "escopo_vendido": 0, "banca": 0, "tarefa": 0, "reuniao": 0,
+        "projeto": 0, "escopo_vendido": 0, "banca": 0, "coluna": 0,
+        "tarefa": 0, "reuniao": 0,
     }
 
     try:
@@ -634,17 +648,37 @@ def executar():
                     )
                     criados["banca"] += 1
 
+            # As colunas do projeto precisam existir ANTES das tarefas dele: a
+            # tarefa aponta para uma coluna e não guarda mais status próprio.
+            # O bloco geral abaixo (seção 7) cobre os projetos que já existiam;
+            # este cobre os que acabaram de nascer, para as tarefas terem onde
+            # cair. `obter_ou_criar` é idempotente, então não duplica.
+            colunas_do_projeto = {}
+            for chave, nome_col, cor, ordem, encerra in COLUNAS_TAREFA:
+                coluna, novo = obter_ou_criar(
+                    db, TarefaColunaModel,
+                    {"projeto_id": projeto.id, "chave": chave},
+                    {"nome": nome_col, "cor": cor, "ordem": ordem, "encerra_tarefa": encerra},
+                )
+                colunas_do_projeto[chave] = coluna.id
+                criados["coluna"] += novo
+
             # `criado_em` é explícito porque é ELE que o §7.2 usa como marco de
             # "sem tarefa nova há N dias". Deixar o server_default carimbar
             # `now()` faria toda a demo nascer com 0 dias e a coluna morta.
-            for titulo, email, prazo, status, criada_em in spec.get("tarefas", []):
+            #
+            # O 4º item da tupla era o status da tarefa; virou a CHAVE da
+            # coluna do kanban. Os valores não mudaram ("a_fazer",
+            # "em_andamento", "concluido") porque são exatamente as chaves de
+            # `COLUNAS_TAREFA` — mudou o que eles significam.
+            for titulo, email, prazo, chave_coluna, criada_em in spec.get("tarefas", []):
                 db.add(
                     TarefaModel(
                         projeto_id=projeto.id,
                         titulo=titulo,
                         responsavel_id=usuarios_por_email[email].id,
                         prazo=prazo,
-                        status=status,
+                        coluna_id=colunas_do_projeto[chave_coluna],
                         criado_por=spec["coordenador_id"],
                         criado_em=datetime.combine(criada_em, time(9, 0)),
                         movida_em=datetime.combine(criada_em, time(9, 0)),
@@ -662,7 +696,21 @@ def executar():
                 )
                 criados["reuniao"] += 1
 
-        # 7 · Configuração global
+        # 7 · Colunas do kanban — um conjunto POR PROJETO.
+        #
+        # Varre todos os projetos do banco (não só os recém-criados): um seed
+        # rodado sobre uma base que já existia também precisa dar board a
+        # quem ainda não tem.
+        for projeto in db.query(ProjetoModel).all():
+            for chave, nome_col, cor, ordem, encerra in COLUNAS_TAREFA:
+                _, novo = obter_ou_criar(
+                    db, TarefaColunaModel,
+                    {"projeto_id": projeto.id, "chave": chave},
+                    {"nome": nome_col, "cor": cor, "ordem": ordem, "encerra_tarefa": encerra},
+                )
+                criados["coluna"] += novo
+
+        # 8 · Configuração global
         config = db.query(ConfiguracaoModel).first()
         if not config:
             config = ConfiguracaoModel(

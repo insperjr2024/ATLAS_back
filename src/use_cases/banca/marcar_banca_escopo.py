@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
-from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.banca_status import calcular_status_banca
@@ -36,7 +35,6 @@ class MarcarBancaEscopoUseCase:
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.projeto_repository = ProjetoRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
-        self.projeto_frente_repository = ProjetoFrenteRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
 
     def execute(self, escopo_id: int, request: MarcarBancaEscopoRequest, eh_diretor: bool = False):
@@ -81,15 +79,34 @@ class MarcarBancaEscopoUseCase:
                 data_hora=request.data_hora,
                 projeto_escopo_id=escopo_id,
             )
-            for frente in self.projeto_frente_repository.get_by_projeto(escopo.projeto_id):
-                self.banca_frente_repository.create(banca_id=banca.id, frente_id=frente.frente_id)
+        self._garantir_frente(banca.id, escopo.frente_id)
 
         return {
             "id": banca.id,
             "projeto_escopo_id": banca.projeto_escopo_id,
+            "frente_id": escopo.frente_id,
             "data_hora": banca.data_hora,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
         }
+
+    def _garantir_frente(self, banca_id: int, frente_id: int) -> None:
+        """⭐ A banca é da frente **do escopo**, não de todas as frentes do
+        projeto.
+
+        Um projeto sinérgico de Business + Direito tem duas bancas: a de
+        Análise Mercadológica é banca de Business, a de Revisão Contratual é
+        de Direito. Vincular cada uma a todas as frentes faria a composição
+        do §8 cobrar o piso de Business (3 pessoas) numa banca de Direito
+        (que pede 1) e escalaria gente da frente errada no push automático.
+
+        Roda também na remarcação, de propósito: banca criada por fora deste
+        fluxo (o módulo legado, um seed) chega aqui sem vínculo nenhum, e
+        marcar a data é a oportunidade de acertar isso. Idempotente.
+        """
+        atuais = self.banca_frente_repository.get_by_banca(banca_id)
+        if any(bf.frente_id == frente_id for bf in atuais):
+            return
+        self.banca_frente_repository.create(banca_id=banca_id, frente_id=frente_id)
 
     def _checar_choque(self, data_hora: datetime, ignorar_banca_id: Optional[int]) -> None:
         """§8: o sistema bloqueia duas bancas no mesmo horário; a exceção só é
