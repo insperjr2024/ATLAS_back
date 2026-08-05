@@ -44,6 +44,20 @@ class BancaRepository:
         """Bancas no mesmo horário — a checagem de choque do §8."""
         return self.db.query(BancaModel).filter(BancaModel.data_hora == data_hora).all()
 
+    def get_por_periodo(self, inicio: datetime, fim: datetime) -> List[BancaModel]:
+        """Bancas ainda não realizadas com data dentro do intervalo — o
+        universo candidato do push automático (§8: uma semana antes)."""
+        return (
+            self.db.query(BancaModel)
+            .filter(
+                BancaModel.data_hora.isnot(None),
+                BancaModel.data_hora >= inicio,
+                BancaModel.data_hora <= fim,
+                BancaModel.realizado_em.is_(None),
+            )
+            .all()
+        )
+
     def get_by_id(self, banca_id: int) -> Optional[BancaModel]:
         return self.db.query(BancaModel).filter(BancaModel.id == banca_id).first()
 

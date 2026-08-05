@@ -10,6 +10,8 @@ anyio==4.14.2
     # via
     #   starlette
     #   watchfiles
+apscheduler==3.11.3
+    # via bancas-back
 bcrypt==5.0.0
     # via bancas-back
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
@@ -83,6 +85,10 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
+tzdata==2026.3 ; sys_platform == 'win32'
+    # via tzlocal
+tzlocal==5.4.4
+    # via apscheduler
 uvicorn==0.51.0
     # via bancas-back
 uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'

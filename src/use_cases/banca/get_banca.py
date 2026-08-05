@@ -35,6 +35,7 @@ class GetBancaUseCase:
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
             "vagas": vagas,
             "alocados": len(candidaturas),
+            "piso_minimo_override": banca.piso_minimo_override,
             "semestre_id": semestre.id if semestre else None,
             "semestre_nome": semestre.nome if semestre else None
         }
@@ -68,6 +69,7 @@ class ListBancasUseCase:
                 "status": calcular_status_banca(b.data_hora, b.realizado_em),
                 "vagas": vagas,
                 "alocados": len(candidaturas),
+                "piso_minimo_override": b.piso_minimo_override,
                 "semestre_id": semestre.id if semestre else None,
                 "semestre_nome": semestre.nome if semestre else None
             })
