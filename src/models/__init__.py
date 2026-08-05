@@ -41,3 +41,6 @@ from src.models.desempenho_criterio_model import DesempenhoCriterioModel
 from src.models.desempenho_avaliacao_model import DesempenhoAvaliacaoModel
 from src.models.desempenho_avaliacao_nota_model import DesempenhoAvaliacaoNotaModel
 from src.models.desempenho_mentoria_model import DesempenhoMentoriaModel
+
+# Recuperação de senha — o token de uso único do "esqueci minha senha".
+from src.models.token_recuperacao_model import TokenRecuperacaoModel

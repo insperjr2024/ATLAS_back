@@ -9,6 +9,26 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     UPLOADS_DIR: str = "uploads"
 
+    # ─── Recuperação de senha ────────────────────────────────────────────
+    # Tudo com default para o `.env` de quem já clonou continuar valendo —
+    # mesmo motivo do UPLOADS_DIR acima. Sem SMTP_HOST preenchido o envio
+    # falha explicitamente em vez de fingir que mandou.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    #: Remetente exibido. Vazio = usa o SMTP_USER.
+    SMTP_FROM: str = ""
+    #: Base do link que vai no e-mail. Em produção precisa ser o domínio real,
+    #: senão o link aponta para a máquina de quem enviou.
+    FRONTEND_URL: str = "http://localhost:5173"
+    #: Janela de validade do link. Curta de propósito: é o tempo em que um
+    #: e-mail vazado ainda serve para trocar a senha de alguém.
+    RESET_TOKEN_EXPIRE_MINUTES: int = 30
+    #: Intervalo mínimo entre dois pedidos do mesmo usuário, em segundos.
+    #: Sem isso o endpoint vira um canhão de spam para a caixa de qualquer um.
+    RESET_INTERVALO_MINIMO_SEGUNDOS: int = 120
+
     class Config:
         env_file = ".env"
 
