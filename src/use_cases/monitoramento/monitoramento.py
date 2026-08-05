@@ -32,7 +32,13 @@ from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaR
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
 from src.utils.banca_status import ABERTA, calcular_status_banca
-from src.utils.tarefa_status import eh_vencida, esta_ativa, janela_semana
+from src.utils.tarefa_status import (
+    calcular_urgencia,
+    dias_para_prazo,
+    eh_vencida,
+    esta_ativa,
+    janela_semana,
+)
 
 STATUS_EM_EXECUCAO = ("ambientacao", "em_andamento", "validacao_bancas")
 STATUS_PERTO_DO_FIM = ("envio_tep", "periodo_ajustes")
@@ -515,3 +521,68 @@ class AtrasosUseCase(_BaseMonitoramento):
                 por_coordenador.values(), key=lambda x: -x["dias_acumulados"]
             ),
         }
+
+
+class TarefasGeraisUseCase(_BaseMonitoramento):
+    """Todas as tarefas de todos os projetos visíveis, num board só.
+
+    🔒 Só a diretoria (o router usa `require_diretor`, não `require_gestao`):
+    é uma visão de leitura mesmo, sem arrastar — clicar num card leva pro
+    board de verdade do projeto, onde a ação existe de fato.
+
+    🧩 Cada projeto tem seu próprio conjunto de colunas (§ colunas por
+    projeto). "Um board só" não tem de onde tirar uma lista de colunas
+    única, então as colunas do board macro são a UNIÃO dos nomes de coluna
+    dos projetos visíveis (normalizados por espaço/maiúscula) — se todos
+    usam o padrão de 5, o board fica idêntico ao de um projeto só; se algum
+    projeto renomeou ou criou uma coluna própria, ela aparece como coluna
+    extra, sem quebrar as outras.
+    """
+
+    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+        hoje = referencia or date.today()
+        projetos = self._projetos_visiveis(current_user, frente_id)
+        ids = [p.id for p in projetos]
+        nomes_projeto = {p.id: p.nome for p in projetos}
+        clientes_projeto = {p.id: p.cliente for p in projetos}
+
+        tarefas = self.tarefa_repository.get_by_projetos(ids)
+        # Só as colunas DOS PROJETOS VISÍVEIS — `listar_todas` traz o núcleo
+        # inteiro, e um gerente não pode ver colunas de projeto que ele nem
+        # enxerga (mesmo vazias, sem tarefa nenhuma).
+        colunas_visiveis = [c for c in self.coluna_repository.listar_todas() if c.projeto_id in ids]
+        colunas_por_id = {c.id: c for c in colunas_visiveis}
+        usuarios = {u.id: u for u in self.usuario_repository.get_all()}
+
+        grupos: Dict[str, dict] = {}
+        for c in sorted(colunas_visiveis, key=lambda c: (c.ordem, c.id)):
+            chave = c.nome.strip().lower()
+            if chave not in grupos:
+                grupos[chave] = {"chave": chave, "nome": c.nome, "cor": c.cor, "ordem": c.ordem}
+        colunas_ordenadas = sorted(grupos.values(), key=lambda g: g["ordem"])
+
+        itens = []
+        for t in tarefas:
+            coluna = colunas_por_id.get(t.coluna_id)
+            if not coluna:
+                continue
+            usuario = usuarios.get(t.responsavel_id)
+            itens.append(
+                {
+                    "id": t.id,
+                    "titulo": t.titulo,
+                    "projeto_id": t.projeto_id,
+                    "projeto_nome": nomes_projeto.get(t.projeto_id, ""),
+                    "cliente": clientes_projeto.get(t.projeto_id, ""),
+                    "responsavel_id": t.responsavel_id,
+                    "responsavel_nome": usuario.nome if usuario else f"Usuário {t.responsavel_id}",
+                    "prazo": t.prazo,
+                    "grupo_coluna": coluna.nome.strip().lower(),
+                    "coluna_nome": coluna.nome,
+                    "vencida": eh_vencida(t.prazo, coluna.encerra_tarefa, hoje),
+                    "urgencia": calcular_urgencia(t.prazo, coluna.encerra_tarefa, hoje),
+                    "dias_para_prazo": dias_para_prazo(t.prazo, hoje),
+                }
+            )
+
+        return {"colunas": colunas_ordenadas, "tarefas": itens}
