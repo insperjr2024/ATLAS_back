@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.authorization import (
     require_diretor,
-    require_pode_gerenciar_membros,
+    require_pode_gerir_membros,
     require_self_or_admin,
     usuario_tem_permissao,
 )
@@ -52,7 +52,7 @@ def get_usuario(usuario_id: int, db: Session = Depends(get_db)):
 def update_usuario(
     usuario_id: int,
     request: UpdateUsuarioRequest,
-    current_user=Depends(require_pode_gerenciar_membros),
+    current_user=Depends(require_pode_gerir_membros),
     db: Session = Depends(get_db),
 ):
     try:
@@ -82,7 +82,7 @@ def transferir_diretoria(
 
 
 @router.delete("/usuarios/{usuario_id}", status_code=204)
-def delete_usuario(usuario_id: int, _=Depends(require_pode_gerenciar_membros), db: Session = Depends(get_db)):
+def delete_usuario(usuario_id: int, _=Depends(require_pode_gerir_membros), db: Session = Depends(get_db)):
     try:
         deleted = DeleteUsuarioUseCase(db).execute(usuario_id)
     except ResourceInUseError:
@@ -116,7 +116,7 @@ def create_usuario_frente(request: CreateUsuarioFrenteRequest, current_user=Depe
     a partir de `usuario_frente`, então o próprio gerente podia se vincular a
     outra frente e passar a ver os projetos dela — burlando o §7.5.
     """
-    if not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
+    if not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
         raise HTTPException(
             status_code=403,
             detail="Apenas a diretoria pode alterar o vínculo de um membro com as frentes",
@@ -142,7 +142,7 @@ def delete_usuario_frente(usuario_frente_id: int, current_user=Depends(get_curre
     registro = GetUsuarioFrenteUseCase(db).execute(usuario_frente_id)
     if not registro:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
-    if registro["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
+    if registro["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
         raise HTTPException(status_code=403, detail="Você só pode remover suas próprias frentes")
     deleted = DeleteUsuarioFrenteUseCase(db).execute(usuario_frente_id)
     if not deleted:

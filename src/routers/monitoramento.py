@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import require_diretor, require_gestao
+from src.middlewares.authorization import require_diretor, require_pode_ver_monitoramento
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.monitoramento.monitoramento import (
     AlocacaoUseCase,
@@ -29,22 +29,22 @@ router = APIRouter(
 
 
 @router.get("/visao-geral")
-def visao_geral(frente_id: Optional[int] = None, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def visao_geral(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
     return VisaoGeralUseCase(db).execute(current_user, frente_id)
 
 
 @router.get("/execucao")
-def execucao(frente_id: Optional[int] = None, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def execucao(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
     return ExecucaoUseCase(db).execute(current_user, frente_id)
 
 
 @router.get("/alocacao")
-def alocacao(frente_id: Optional[int] = None, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def alocacao(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
     return AlocacaoUseCase(db).execute(current_user, frente_id)
 
 
 @router.get("/atrasos")
-def atrasos(frente_id: Optional[int] = None, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def atrasos(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
     return AtrasosUseCase(db).execute(current_user, frente_id)
 
 

@@ -8,13 +8,16 @@ def serializar_cargo(cargo):
     return {
         "id": cargo.id,
         "nome": cargo.nome,
-        "pode_definir_formulario": cargo.pode_definir_formulario,
-        "pode_agendar_banca": cargo.pode_agendar_banca,
-        "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos,
-        "pode_gerenciar_membros": cargo.pode_gerenciar_membros,
-        "pode_gerenciar_nucleo": cargo.pode_gerenciar_nucleo,
-        "pode_gerenciar_desempenho": cargo.pode_gerenciar_desempenho,
-        "pode_definir_formulario_desempenho": cargo.pode_definir_formulario_desempenho,
+        "pode_criar_projeto": cargo.pode_criar_projeto,
+        "pode_editar_equipe": cargo.pode_editar_equipe,
+        "pode_gerir_membros": cargo.pode_gerir_membros,
+        "pode_marcar_kickoff": cargo.pode_marcar_kickoff,
+        "pode_definir_cronograma": cargo.pode_definir_cronograma,
+        "pode_aprovar_reajuste": cargo.pode_aprovar_reajuste,
+        "pode_criar_tarefa": cargo.pode_criar_tarefa,
+        "pode_mover_editar_tarefa": cargo.pode_mover_editar_tarefa,
+        "pode_ver_proprios_projetos": cargo.pode_ver_proprios_projetos,
+        "pode_ver_monitoramento": cargo.pode_ver_monitoramento,
     }
 
 
