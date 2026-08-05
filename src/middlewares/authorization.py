@@ -43,13 +43,52 @@ def require_pode_agendar_banca(current_user=Depends(get_current_user), db: Sessi
                               "Você não tem permissão para gerenciar bancas")
 
 
+def require_pode_gerenciar_membros(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return _exigir_permissao(current_user, db, "pode_gerenciar_membros",
+                              "Você não tem permissão para gerenciar membros")
+
+
+def require_pode_gerenciar_nucleo(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return _exigir_permissao(current_user, db, "pode_gerenciar_nucleo",
+                              "Você não tem permissão para gerenciar o núcleo")
+
+
+def require_pode_gerenciar_desempenho(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Painel de Avaliação de Desempenho inteiro: resultados, lotes e mentorias.
+
+    Era `require_gestao` (diretor + gerente) fixo na rota. Agora é caixa de
+    cargo, então a diretoria delega o painel sem ter que mudar a posição de
+    ninguém — e um diretor sem a caixa não entra.
+    """
+    return _exigir_permissao(current_user, db, "pode_gerenciar_desempenho",
+                              "Você não tem permissão para acessar a avaliação de desempenho")
+
+
+def require_pode_definir_formulario_desempenho(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Editar os formulários de desempenho. Separada da de cima porque mexer no
+    formulário muda o que TODO mundo responde — ver os resultados não."""
+    return _exigir_permissao(current_user, db, "pode_definir_formulario_desempenho",
+                              "Você não tem permissão para editar o formulário de desempenho")
+
+
 def require_pode_gerenciar_cargos(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """🔒 Editar cargo é editar quem pode o quê — exige a caixa E a posição.
+
+    Só a caixa era um furo de escalonamento: quem a tivesse abria o próprio
+    cargo e marcava o resto. A posição fecha isso porque ela não se edita por
+    aqui — muda em Membros, que já é da diretoria.
+    """
+    if current_user.posicao != "diretor":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas a diretoria pode alterar cargos e permissões",
+        )
     return _exigir_permissao(current_user, db, "pode_gerenciar_cargos",
-                              "Apenas o Diretor de Projetos pode realizar esta ação")
+                              "Você não tem permissão para alterar cargos")
 
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
         raise HTTPException(status_code=403, detail="Você só pode acessar seus próprios dados")
     return current_user
 
@@ -109,6 +148,36 @@ def require_lideranca(current_user=Depends(get_current_user)):
             detail="Ação restrita a coordenação, gerência e diretoria",
         )
     return current_user
+
+
+# ---------------------------------------------------------------- avaliação de desempenho
+
+def require_self(usuario_id: int, current_user=Depends(get_current_user)):
+    """Só a própria pessoa — diferente de `require_self_or_admin`, aqui não
+    tem override de admin (ex.: minha fila de avaliação, meus mentorados)."""
+    if current_user.id != usuario_id:
+        raise HTTPException(status_code=403, detail="Você só pode acessar seus próprios dados")
+    return current_user
+
+
+def require_self_mentor_ou_gestao(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Vê o relatório de desempenho de `usuario_id`: a própria pessoa, quem tem
+    vínculo de mentoria com ela (`desempenho_mentoria`), ou quem administra o
+    painel de desempenho.
+
+    O terceiro caso era `posicao in (diretor, gerente)`; virou a caixa
+    `pode_gerenciar_desempenho` para o relatório seguir a mesma regra do resto
+    do painel — senão dava para ver a lista de avaliações e não o relatório.
+    """
+    if current_user.id == usuario_id or usuario_tem_permissao(current_user, db, "pode_gerenciar_desempenho"):
+        return current_user
+
+    from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
+
+    vinculo = DesempenhoMentoriaRepository(db).first_by(mentor_id=current_user.id, mentorado_id=usuario_id)
+    if vinculo:
+        return current_user
+    raise HTTPException(status_code=403, detail="Você não tem acesso a este relatório")
 
 
 # ---------------------------------------------------------------- recorte de visão

@@ -16,13 +16,14 @@ atravessam a virada continuam ativos.
 
 from collections import defaultdict
 from datetime import date, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from src.middlewares.authorization import aplicar_recorte_visao
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
@@ -32,6 +33,8 @@ from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaR
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
 from src.utils.banca_status import ABERTA, calcular_status_banca
+from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
+from src.utils.tarefa_status import eh_vencida, esta_ativa, janela_semana
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
@@ -57,7 +60,18 @@ class _BaseMonitoramento:
         self.usuario_repository = UsuarioRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.semestre_repository = SemestreRepository(db)
+        self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.coluna_repository = TarefaColunaRepository(db)
+
+    def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
+        """O calendário do Insper no intervalo, carregado UMA vez.
+
+        `dias_uteis.py` pede o conjunto pronto de propósito — consultar dentro
+        do laço de projetos faria uma query por projeto.
+        """
+        if desde is None or desde > ate:
+            desde = ate
+        return [d.data for d in self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)]
 
     def _projetos_visiveis(self, current_user, frente_id: Optional[int]) -> List[ProjetoModel]:
         query = aplicar_recorte_visao(
@@ -88,6 +102,22 @@ class _BaseMonitoramento:
         }
 
     def _atrasos(self, projetos, ctx, referencia: date):
+        """O atraso do §7.4, em dias ÚTEIS.
+
+        O calendário é carregado UMA vez, cobrindo desde o marco mais antigo em
+        jogo (a banca ou a entrega planejada mais velha) até hoje — consultar
+        dentro do laço faria uma query por projeto.
+        """
+        candidatos = [
+            b.data_hora.date() for b in ctx["bancas_por_escopo"].values() if b.data_hora
+        ]
+        candidatos += [
+            e.data_entrega_planejada
+            for escopos in ctx["escopos_por_projeto"].values()
+            for e in escopos
+            if e.data_entrega_planejada
+        ]
+        nao_letivos = self._dias_nao_letivos(min(candidatos, default=None), referencia)
         return {
             p.id: calcular_atraso_projeto(
                 p.id,
@@ -95,6 +125,7 @@ class _BaseMonitoramento:
                 ctx["bancas_por_escopo"],
                 ctx["nomes_escopo"],
                 referencia,
+                nao_letivos,
             )
             for p in projetos
         }
@@ -322,7 +353,17 @@ class VisaoGeralUseCase(_BaseMonitoramento):
 
 
 class ExecucaoUseCase(_BaseMonitoramento):
-    """§7.2 — quem está distribuindo tarefa e fazendo reunião, sem abrir cada projeto."""
+    """§7.2 — quem está distribuindo tarefa e fazendo reunião, sem abrir cada projeto.
+
+    ⏱ **Aqui os dias são ÚTEIS**, pelo calendário do Insper — e desde
+    2026-08-04 o §7.4 (banca e entrega, em `atraso_monitoramento.py`) usa a
+    mesma régua, confirmada com a diretoria. Mede-se quanto tempo de TRABALHO
+    passou: fim de semana, feriado e semana de provas não são tempo que o time
+    deixou passar. Não há mais duas réguas no sistema.
+
+    ⭐ "Ativa" e "vencida" vêm da COLUNA do kanban (`encerra_tarefa`), não de
+    uma lista fixa de status — as colunas são configuráveis pela diretoria.
+    """
 
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
         hoje = referencia or date.today()
@@ -330,10 +371,18 @@ class ExecucaoUseCase(_BaseMonitoramento):
         ids = [p.id for p in projetos]
         inicio, fim = janela_semana(hoje)
 
-        tarefas_por_projeto = _agrupar(self.tarefa_repository.get_by_projetos(ids), "projeto_id")
+        todas_tarefas = self.tarefa_repository.get_by_projetos(ids)
+        tarefas_por_projeto = _agrupar(todas_tarefas, "projeto_id")
         encerra = self._encerra_por_coluna()
         reunioes = self.reuniao_repository.get_by_projetos_e_janela(ids, inicio, fim)
         reunioes_por_projeto = _agrupar(reunioes, "projeto_id")
+
+        # O calendário precisa cobrir desde o prazo mais antigo em aberto (ou o
+        # kickoff mais antigo) até hoje — é o intervalo máximo que qualquer
+        # contagem desta aba vai varrer.
+        candidatos = [t.prazo for t in todas_tarefas if t.prazo]
+        candidatos += [p.data_kickoff for p in projetos if p.data_kickoff]
+        nao_letivos = self._dias_nao_letivos(min(candidatos, default=None), hoje)
 
         tarefas = []
         for p in projetos:
@@ -342,19 +391,45 @@ class ExecucaoUseCase(_BaseMonitoramento):
                 t for t in do_projeto if t.criado_em and t.criado_em.date() >= inicio
             ]
             movimentacoes = [t.movida_em for t in do_projeto if t.movida_em]
+            # "Vencida" e "ativa" saem da COLUNA do kanban, não de um status na
+            # tarefa: as colunas são configuráveis pela diretoria, e o campo
+            # `status` deixou de existir no modelo.
+            vencidas = [
+                t for t in do_projeto if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
+            ]
+            ativas = [t for t in do_projeto if esta_ativa(encerra.get(t.coluna_id, False))]
+            marco, tipo_marco = self._marco_sem_tarefa(p, do_projeto)
+
             tarefas.append(
                 {
                     "projeto_id": p.id,
                     "projeto_nome": p.nome,
+                    "status": p.status,
                     "distribuiu_na_semana": len(criadas_na_semana) > 0,
                     "total": len(do_projeto),
-                    "ativas": sum(
-                        1 for t in do_projeto if esta_ativa(encerra.get(t.coluna_id, False))
+                    "ativas": len(ativas),
+                    "vencidas": len(vencidas),
+                    # ⚠ `sem_tarefas` e `sem_tarefas_ativas` são situações
+                    # DIFERENTES e a diretoria age diferente em cada uma: a
+                    # primeira é um projeto que nunca foi destrinchado em
+                    # tarefa; a segunda é um projeto que zerou o quadro e não
+                    # recebeu o próximo lote. Um booleano só não distinguia.
+                    "sem_tarefas": len(do_projeto) == 0,
+                    "sem_tarefas_ativas": len(do_projeto) > 0 and len(ativas) == 0,
+                    "dias_uteis_sem_tarefa": self._dias_uteis_sem_tarefa(
+                        marco, hoje, nao_letivos
                     ),
-                    "vencidas": sum(
-                        1
-                        for t in do_projeto
-                        if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
+                    # De onde a contagem acima parte. Sem isto o front não tem
+                    # como escrever o motivo sem adivinhar — ver
+                    # `_marco_sem_tarefa`.
+                    "marco_sem_tarefa": tipo_marco,
+                    "data_marco_sem_tarefa": marco,
+                    # O pior atraso do quadro, em dias úteis. Serve para
+                    # ordenar: 1 tarefa parada há 10 dias úteis pesa mais que
+                    # 5 que venceram ontem.
+                    "atraso_maximo_dias_uteis": max(
+                        (dias_uteis_de_atraso(t.prazo, hoje, nao_letivos) for t in vencidas),
+                        default=0,
                     ),
                     "ultima_movimentacao": max(movimentacoes) if movimentacoes else None,
                 }
@@ -373,9 +448,59 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
         return {
             "semana": {"inicio": inicio, "fim": fim},
+            "resumo_tarefas": {
+                "projetos": len(tarefas),
+                "sem_tarefas": sum(1 for t in tarefas if t["sem_tarefas"]),
+                "sem_tarefas_ativas": sum(1 for t in tarefas if t["sem_tarefas_ativas"]),
+                "sem_distribuir_na_semana": sum(
+                    1 for t in tarefas if not t["distribuiu_na_semana"]
+                ),
+                "com_vencidas": sum(1 for t in tarefas if t["vencidas"] > 0),
+            },
             "tarefas": tarefas,
             "reunioes": reunioes_resposta,
         }
+
+    def _marco_sem_tarefa(self, projeto, tarefas) -> Tuple[Optional[date], Optional[str]]:
+        """De ONDE parte a contagem de "sem tarefa nova", e o que esse ponto é.
+
+        Devolve `(data, tipo)`, ambos lidos do banco:
+
+        - com tarefas no projeto, o marco é a criação da mais recente
+          (`tarefa.criado_em`) e o tipo é `"ultima_tarefa"`;
+        - sem tarefa nenhuma, cai no `projeto.data_kickoff` e o tipo é
+          `"kickoff"` — antes dele não há o que cobrar, porque o §5.2 diz que a
+          execução só começa aí;
+        - `(None, None)` quando o projeto ainda não tem kickoff.
+
+        O TIPO vai para a resposta de propósito. O front precisa escrever
+        "desde o kickoff" ou "desde a última tarefa criada", e não tem como
+        saber qual dos dois olhando só o número de dias. Antes ele deduzia pelo
+        `sem_tarefas`, o que funcionava por coincidência — no dia em que o
+        filtro daquela lista mudasse, o texto passaria a mentir em silêncio,
+        com um número plausível e o rótulo errado.
+        """
+        criacoes = [t.criado_em.date() for t in tarefas if t.criado_em]
+        if criacoes:
+            return max(criacoes), "ultima_tarefa"
+        if projeto.data_kickoff:
+            return projeto.data_kickoff, "kickoff"
+        return None, None
+
+    def _dias_uteis_sem_tarefa(
+        self, marco: Optional[date], hoje: date, nao_letivos
+    ) -> Optional[int]:
+        """Há quantos dias ÚTEIS o projeto não recebe uma tarefa nova.
+
+        `None` quando não há marco (projeto sem kickoff): ele já aparece no
+        "Atenção agora" com o motivo certo ("kickoff não marcado") e contar
+        dias aqui seria cobrar duas vezes a mesma coisa.
+        """
+        if marco is None:
+            return None
+        if marco >= hoje:
+            return 0
+        return contar_dias_uteis(marco + timedelta(days=1), hoje, nao_letivos)
 
 
 class AlocacaoUseCase(_BaseMonitoramento):
@@ -483,6 +608,7 @@ class AtrasosUseCase(_BaseMonitoramento):
                             "dias": m.dias,
                             "escopo": m.escopo_nome,
                             "projeto_escopo_id": m.projeto_escopo_id,
+                            "data_referencia": m.data_referencia,
                         }
                         for m in atraso.motivos
                     ],

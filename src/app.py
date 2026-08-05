@@ -7,6 +7,7 @@ from src.routers import (
     bancas,
     catalogo,
     cronograma,
+    desempenho,
     monitoramento,
     projetos,
     tarefas,
@@ -39,3 +40,4 @@ app.include_router(tarefas.router)
 app.include_router(monitoramento.router)
 app.include_router(bancas.router)
 app.include_router(avaliacoes.router)
+app.include_router(desempenho.router)

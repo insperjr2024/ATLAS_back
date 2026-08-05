@@ -11,7 +11,8 @@ from src.middlewares.authorization import (
     require_diretor,
     require_lideranca,
     require_pode_agendar_banca,
-    require_pode_gerenciar_cargos,
+    require_pode_definir_formulario,
+    require_pode_gerenciar_membros,
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -80,7 +81,7 @@ def get_banca(banca_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
-def get_notas_por_pergunta(banca_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def get_notas_por_pergunta(banca_id: int, _=Depends(require_pode_definir_formulario), db: Session = Depends(get_db)):
     return GetNotasPorPerguntaUseCase(db).execute(banca_id)
 
 
@@ -176,7 +177,7 @@ def get_historico_bancas(
     coordenador_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     semestre_id: Optional[int] = None,
-    _=Depends(require_pode_gerenciar_cargos),
+    _=Depends(require_pode_definir_formulario),
     db: Session = Depends(get_db),
 ):
     return GetHistoricoBancasUseCase(db).execute(consultor_id, coordenador_id, escopo_id, semestre_id)
@@ -210,7 +211,7 @@ def update_candidatura(candidatura_id: int, request: UpdateCandidaturaRequest, c
     existente = GetCandidaturaUseCase(db).execute(candidatura_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
-    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
         raise HTTPException(status_code=403, detail="Você só pode editar suas próprias candidaturas")
     result = UpdateCandidaturaUseCase(db).execute(candidatura_id, request)
     if not result:
@@ -223,7 +224,7 @@ def delete_candidatura(candidatura_id: int, current_user=Depends(get_current_use
     existente = GetCandidaturaUseCase(db).execute(candidatura_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
-    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_membros"):
         raise HTTPException(status_code=403, detail="Você só pode remover suas próprias candidaturas")
     try:
         deleted = DeleteCandidaturaUseCase(db).execute(candidatura_id)

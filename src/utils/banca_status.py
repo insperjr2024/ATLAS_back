@@ -61,10 +61,16 @@ def dias_de_atraso(
     realizado_em: Optional[datetime] = None,
     referencia: Optional[date] = None,
 ) -> int:
-    """Dias **corridos** desde a data vencida (§7.4 é explícito: corridos).
+    """Dias **corridos** desde a data vencida.
 
-    Zero quando a banca não está atrasada. É o insumo do placar da gestão e
-    da aba Atrasos.
+    Zero quando a banca não está atrasada.
+
+    ⚠ NÃO é mais o insumo do placar da gestão nem da aba Atrasos: desde
+    2026-08-04 o atraso do §7.4 é contado em dias ÚTEIS, e quem faz isso é
+    `dias_uteis.dias_uteis_de_atraso`. Esta função ficou sem chamador em
+    produção — só os testes a exercitam. Mantida porque a contagem corrida
+    ainda pode servir de referência, mas não a use para medir atraso sem
+    checar antes qual régua vale.
     """
     referencia = referencia or date.today()
     # A referência precisa atravessar para o cálculo do status, senão ele cai
