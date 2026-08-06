@@ -45,3 +45,9 @@ class ProjetoModel(Base):
     # Arquivar não é excluir: some das listagens normais, mas nada é apagado
     # — banca, avaliação e histórico continuam intactos (ver ArquivarProjetoUseCase).
     arquivado_em = Column(DateTime, nullable=True)
+    # "Limpar histórico" também não apaga nada: as linhas de
+    # `projeto_status_historico` anteriores a este corte só saem da timeline
+    # (§4). Continuam no banco intactas porque alimentam a contagem de dias
+    # (§5.4) — apagá-las de verdade mudaria retroativamente esse cálculo.
+    # `None` = nada oculto, mostra a timeline inteira.
+    historico_oculto_ate = Column(DateTime, nullable=True)

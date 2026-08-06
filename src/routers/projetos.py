@@ -43,6 +43,10 @@ from src.use_cases.projeto.get_projeto import (
     GetProjetoUseCase,
     ListProjetosUseCase,
 )
+from src.use_cases.projeto.ocultar_historico import (
+    MostrarHistoricoCompletoUseCase,
+    OcultarHistoricoUseCase,
+)
 from src.use_cases.projeto.update_equipe_projeto import (
     UpdateEquipeProjetoUseCase,
     UpdateEquipeProjetoRequest,
@@ -168,9 +172,35 @@ def update_status(projeto_id: int, request: UpdateStatusRequest, current_user=De
 
 
 @router.get("/projetos/{projeto_id}/historico")
-def get_historico(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def get_historico(
+    projeto_id: int,
+    incluir_ocultos: bool = False,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    return GetHistoricoProjetoUseCase(db).execute(projeto_id)
+    return GetHistoricoProjetoUseCase(db).execute(projeto_id, incluir_ocultos=incluir_ocultos)
+
+
+@router.patch("/projetos/{projeto_id}/historico/ocultar")
+def ocultar_historico(projeto_id: int, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+    """"Limpar histórico" (§4): some da timeline, nada é apagado — ver OcultarHistoricoUseCase."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = OcultarHistoricoUseCase(db).execute(projeto_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return {"id": result.id, "historico_oculto_ate": result.historico_oculto_ate}
+
+
+@router.patch("/projetos/{projeto_id}/historico/mostrar-tudo")
+def mostrar_historico_completo(
+    projeto_id: int, current_user=Depends(require_gestao), db: Session = Depends(get_db)
+):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = MostrarHistoricoCompletoUseCase(db).execute(projeto_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return {"id": result.id, "historico_oculto_ate": result.historico_oculto_ate}
 
 
 @router.patch("/projetos/{projeto_id}/arquivar")
