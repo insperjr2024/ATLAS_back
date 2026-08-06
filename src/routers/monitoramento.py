@@ -18,6 +18,7 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.monitoramento.monitoramento import (
     AlocacaoUseCase,
     AtrasosUseCase,
+    CronogramasGeraisUseCase,
     ExecucaoUseCase,
     TarefasGeraisUseCase,
     VisaoGeralUseCase,
@@ -51,3 +52,8 @@ def atrasos(frente_id: Optional[int] = None, current_user=Depends(require_pode_v
 @router.get("/tarefas")
 def tarefas(frente_id: Optional[int] = None, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
     return TarefasGeraisUseCase(db).execute(current_user, frente_id)
+
+
+@router.get("/cronogramas")
+def cronogramas(frente_id: Optional[int] = None, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+    return CronogramasGeraisUseCase(db).execute(current_user, frente_id)

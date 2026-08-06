@@ -31,6 +31,7 @@ from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.cronograma.get_cronograma import GetCronogramaUseCase
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
 from src.utils.banca_status import ABERTA, calcular_status_banca
 from src.utils.condicoes_alerta import (
@@ -737,3 +738,61 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
             )
 
         return {"colunas": colunas_ordenadas, "tarefas": itens}
+
+
+class CronogramasGeraisUseCase(_BaseMonitoramento):
+    """Todos os cronogramas dos projetos visíveis, um mini-calendário por
+    projeto (§7) — a mesma ideia do board macro de tarefas, mas para
+    cronograma.
+
+    🔒 Só a diretoria, mesma trava de `TarefasGeraisUseCase` acima.
+
+    Reaproveita `GetCronogramaUseCase` projeto a projeto — zero lógica de
+    dias úteis nova aqui, só agregação e ordenação. É mais caro que os
+    outros use cases do módulo (N consultas completas de cronograma em vez
+    de uma agregada), mas evita ter DOIS lugares calculando "quantos dias
+    restam de um escopo" que podem divergir.
+    """
+
+    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+        referencia = referencia or date.today()
+        projetos = self._projetos_visiveis(current_user, frente_id)
+
+        itens = []
+        for projeto in projetos:
+            cronograma = GetCronogramaUseCase(self.db).execute(projeto.id, referencia)
+            if not cronograma:
+                continue
+            itens.append(
+                {
+                    "projeto_id": projeto.id,
+                    "projeto_nome": projeto.nome,
+                    "cliente": projeto.cliente,
+                    "cronograma": cronograma,
+                    "escopo_critico": self._escopo_critico(cronograma["escopos"]),
+                }
+            )
+
+        # Quem tem escopo em contagem entra primeiro, do mais perto de
+        # estourar (restantes menor, inclusive negativo) pro mais folgado;
+        # projeto sem nenhum escopo em andamento vai para o fim da fila.
+        itens.sort(
+            key=lambda it: (
+                it["escopo_critico"] is None,
+                it["escopo_critico"]["restantes"] if it["escopo_critico"] else 0,
+            )
+        )
+        return {"projetos": itens}
+
+    def _escopo_critico(self, escopos: list) -> Optional[dict]:
+        em_andamento = [e for e in escopos if e["em_contagem"]]
+        if not em_andamento:
+            return None
+        escolhido = min(em_andamento, key=lambda e: e["restantes"])
+        return {
+            "id": escolhido["id"],
+            "nome": escolhido["nome"],
+            "restantes": escolhido["restantes"],
+            "estourou": escolhido["estourou"],
+            "data_entrega_planejada": escolhido["data_entrega_planejada"],
+        }
