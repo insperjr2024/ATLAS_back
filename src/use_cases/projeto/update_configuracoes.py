@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.repositories.projeto_repository import ProjetoRepository
+from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 
 
 class UpdateDiasAmbientacaoRequest(BaseModel):
@@ -12,13 +13,23 @@ class UpdateDiasAmbientacaoRequest(BaseModel):
 
 class UpdateDiasAmbientacaoUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
 
     def execute(self, projeto_id: int, request: UpdateDiasAmbientacaoRequest):
         projeto = self.repository.update(projeto_id, dias_ambientacao=request.dias_ambientacao)
         if not projeto:
             return None
-        return {"id": projeto.id, "dias_ambientacao": projeto.dias_ambientacao}
+        # 🤖 Encurtar a ambientação pode tê-la encerrado agora (§5.3): de 10
+        # para 3 dias num projeto que já rodou 5. A virada sai junto com a
+        # edição, não no dia seguinte.
+        EncerrarAmbientacaoUseCase(self.db).executar_para(projeto_id)
+        atualizado = self.repository.get_by_id(projeto_id)
+        return {
+            "id": atualizado.id,
+            "dias_ambientacao": atualizado.dias_ambientacao,
+            "status": atualizado.status,
+        }
 
 
 class UpdateDiaReuniaoPadraoRequest(BaseModel):

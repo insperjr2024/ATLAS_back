@@ -1,12 +1,15 @@
+from datetime import timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from src.models.projeto_model import ProjetoModel
+from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.utils.ambientacao import fim_da_ambientacao
 
 
 def serializar_projeto_resumo(projeto, frente_repo: ProjetoFrenteRepository, membro_repo: ProjetoMembroRepository):
@@ -36,12 +39,18 @@ def serializar_projeto_completo(
     frente_repo: ProjetoFrenteRepository,
     membro_repo: ProjetoMembroRepository,
     escopos=None,
+    fim_ambientacao=None,
 ):
     """A forma completa, usada na página do projeto (§6.4, aba Visão geral)."""
     resumo = serializar_projeto_resumo(projeto, frente_repo, membro_repo)
     membros = membro_repo.get_by_projeto(projeto.id, apenas_atuais=True)
     return {
         **resumo,
+        # 🤖 O último dia de ambientação (§5.3). Vem do backend porque depende
+        # de dia útil, e o front não recalcula isso — é ele que a tela usa para
+        # avisar quando o projeto vira Em andamento sozinho. `None` = sem
+        # janela (sem kickoff ou com zero dias), e aí a saída é manual.
+        "fim_ambientacao": fim_ambientacao,
         # Já vêm com a contagem do §5.4 calculada — o front só desenha a barra.
         "escopos": escopos or [],
         "descricao": projeto.descricao,
@@ -73,8 +82,27 @@ class GetProjetoUseCase:
             return None
         escopos = ListEscoposProjetoUseCase(self.db).execute(projeto_id)
         return serializar_projeto_completo(
-            projeto, self.frente_repository, self.membro_repository, escopos
+            projeto,
+            self.frente_repository,
+            self.membro_repository,
+            escopos,
+            fim_ambientacao=self._fim_ambientacao(projeto),
         )
+
+    def _fim_ambientacao(self, projeto):
+        """Mesma régua da faixa do cronograma e da virada automática: dias não
+        letivos GLOBAIS, porque a ambientação é do projeto inteiro."""
+        if not projeto.data_kickoff or projeto.dias_ambientacao <= 0:
+            return None
+        limite = projeto.data_kickoff + timedelta(days=365)
+        nao_letivos = [
+            d.data
+            for d in DiaNaoLetivoRepository(self.db).get_por_intervalo(
+                projeto.data_kickoff, limite
+            )
+            if d.frente_id is None
+        ]
+        return fim_da_ambientacao(projeto.data_kickoff, projeto.dias_ambientacao, nao_letivos)
 
 
 class ListProjetosUseCase:
