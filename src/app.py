@@ -9,6 +9,7 @@ from src.routers import (
     cronograma,
     desempenho,
     monitoramento,
+    notificacoes,
     projetos,
     tarefas,
     usuarios,
@@ -41,3 +42,4 @@ app.include_router(monitoramento.router)
 app.include_router(bancas.router)
 app.include_router(avaliacoes.router)
 app.include_router(desempenho.router)
+app.include_router(notificacoes.router)

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.notificacao.eventos import notificar_alocacao
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.validacao_equipe import validar_equipe
 
@@ -27,12 +28,14 @@ class UpdateEquipeProjetoUseCase:
     histórico de quem participou não pode ser reescrito)."""
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoMembroRepository(db)
         self.projeto_repository = ProjetoRepository(db)
         self.usuario_repository = UsuarioRepository(db)
 
     def execute(self, projeto_id: int, request: UpdateEquipeProjetoRequest):
-        if not self.projeto_repository.get_by_id(projeto_id):
+        projeto = self.projeto_repository.get_by_id(projeto_id)
+        if not projeto:
             return None
 
         validar_equipe(request.equipe, self.usuario_repository)
@@ -58,6 +61,7 @@ class UpdateEquipeProjetoUseCase:
                     papel=membro.papel,
                     entrou_em=hoje,
                 )
+                notificar_alocacao(self.db, projeto, membro.usuario_id)
             elif papel_atual != membro.papel:
                 linha_atual = next(a for a in atuais if a.usuario_id == membro.usuario_id)
                 self.repository.update(linha_atual.id, saiu_em=hoje)

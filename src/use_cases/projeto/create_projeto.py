@@ -12,6 +12,7 @@ from src.repositories.projeto_status_historico_repository import ProjetoStatusHi
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.notificacao.eventos import notificar_alocacao
 from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
 from src.use_cases.tarefa.colunas import criar_colunas_padrao
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
@@ -117,6 +118,7 @@ class CreateProjetoUseCase:
                 papel=membro.papel,
                 entrou_em=hoje,
             )
+            notificar_alocacao(self.db, projeto, membro.usuario_id)
 
         self.historico_repository.create(
             projeto_id=projeto.id,
