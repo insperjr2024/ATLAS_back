@@ -9,6 +9,7 @@ class UpdatePerguntaRequest(BaseModel):
     texto: Optional[str] = None
     ordem: Optional[int] = None
     tipo_resposta: Optional[str] = None
+    escopo_id: Optional[int] = None
 
 
 class UpdatePerguntaUseCase:
@@ -25,7 +26,8 @@ class UpdatePerguntaUseCase:
             "formulario_id": pergunta.formulario_id,
             "texto": pergunta.texto,
             "ordem": pergunta.ordem,
-            "tipo_resposta": pergunta.tipo_resposta
+            "tipo_resposta": pergunta.tipo_resposta,
+            "escopo_id": pergunta.escopo_id,
         }
 
 

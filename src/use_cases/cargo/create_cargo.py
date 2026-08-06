@@ -1,13 +1,21 @@
 from sqlalchemy.orm import Session
 from src.repositories.cargo_repository import CargoRepository
+from src.use_cases.cargo.get_cargo import serializar_cargo
 from pydantic import BaseModel
 
 
 class CreateCargoRequest(BaseModel):
     nome: str
-    pode_definir_formulario: bool = False
-    pode_agendar_banca: bool = False
-    pode_gerenciar_cargos: bool = False
+    pode_criar_projeto: bool = False
+    pode_editar_equipe: bool = False
+    pode_gerir_membros: bool = False
+    pode_marcar_kickoff: bool = False
+    pode_definir_cronograma: bool = False
+    pode_aprovar_reajuste: bool = False
+    pode_criar_tarefa: bool = False
+    pode_mover_editar_tarefa: bool = False
+    pode_ver_proprios_projetos: bool = False
+    pode_ver_monitoramento: bool = False
 
 
 class CreateCargoUseCase:
@@ -15,16 +23,5 @@ class CreateCargoUseCase:
         self.repository = CargoRepository(db)
 
     def execute(self, request: CreateCargoRequest):
-        cargo = self.repository.create(
-            nome=request.nome,
-            pode_definir_formulario=request.pode_definir_formulario,
-            pode_agendar_banca=request.pode_agendar_banca,
-            pode_gerenciar_cargos=request.pode_gerenciar_cargos
-        )
-        return {
-            "id": cargo.id,
-            "nome": cargo.nome,
-            "pode_definir_formulario": cargo.pode_definir_formulario,
-            "pode_agendar_banca": cargo.pode_agendar_banca,
-            "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos
-        }
+        cargo = self.repository.create(**request.model_dump())
+        return serializar_cargo(cargo)

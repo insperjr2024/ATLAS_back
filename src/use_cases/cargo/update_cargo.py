@@ -2,13 +2,21 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from src.repositories.cargo_repository import CargoRepository
+from src.use_cases.cargo.get_cargo import serializar_cargo
 
 
 class UpdateCargoRequest(BaseModel):
     nome: Optional[str] = None
-    pode_definir_formulario: Optional[bool] = None
-    pode_agendar_banca: Optional[bool] = None
-    pode_gerenciar_cargos: Optional[bool] = None
+    pode_criar_projeto: Optional[bool] = None
+    pode_editar_equipe: Optional[bool] = None
+    pode_gerir_membros: Optional[bool] = None
+    pode_marcar_kickoff: Optional[bool] = None
+    pode_definir_cronograma: Optional[bool] = None
+    pode_aprovar_reajuste: Optional[bool] = None
+    pode_criar_tarefa: Optional[bool] = None
+    pode_mover_editar_tarefa: Optional[bool] = None
+    pode_ver_proprios_projetos: Optional[bool] = None
+    pode_ver_monitoramento: Optional[bool] = None
 
 
 class UpdateCargoUseCase:
@@ -16,17 +24,11 @@ class UpdateCargoUseCase:
         self.repository = CargoRepository(db)
 
     def execute(self, cargo_id: int, request: UpdateCargoRequest):
-        data = request.dict(exclude_unset=True)
+        data = request.model_dump(exclude_unset=True)
         cargo = self.repository.update(cargo_id, **data)
         if not cargo:
             return None
-        return {
-            "id": cargo.id,
-            "nome": cargo.nome,
-            "pode_definir_formulario": cargo.pode_definir_formulario,
-            "pode_agendar_banca": cargo.pode_agendar_banca,
-            "pode_gerenciar_cargos": cargo.pode_gerenciar_cargos
-        }
+        return serializar_cargo(cargo)
 
 
 class DeleteCargoUseCase:

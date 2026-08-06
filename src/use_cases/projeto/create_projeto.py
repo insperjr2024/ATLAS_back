@@ -19,6 +19,7 @@ from src.use_cases.projeto_escopo.create_escopo_projeto import (
     validar_escopo_vendido,
 )
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.validacao_equipe import validar_equipe
 
 
 class MembroEquipeRequest(BaseModel):
@@ -76,13 +77,7 @@ class CreateProjetoUseCase:
         for escopo in request.escopos:
             validar_escopo_vendido(escopo, request.frente_ids, self.catalogo_repository)
 
-        coordenadores = [m for m in request.equipe if m.papel == "coordenador"]
-        if len(coordenadores) != 1:
-            raise RegraDeNegocioError("O projeto precisa de exatamente 1 coordenador")
-
-        for membro in request.equipe:
-            if not self.usuario_repository.get_by_id(membro.usuario_id):
-                raise RegraDeNegocioError(f"Usuário {membro.usuario_id} não encontrado")
+        validar_equipe(request.equipe, self.usuario_repository)
 
         projeto = self.repository.create(
             nome=request.nome,

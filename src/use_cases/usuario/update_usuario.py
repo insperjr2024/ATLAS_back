@@ -4,9 +4,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoModel
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.usuario.get_usuario import serializar_usuario
+from src.utils.exceptions import RegraDeNegocioError
 
 Posicao = Literal["diretor", "gerente", "coordenador", "consultor"]
 StatusUsuario = Literal["ativo", "ex_membro", "desligado"]
@@ -26,6 +28,34 @@ class UpdateUsuarioUseCase:
         self.db = db
         self.repository = UsuarioRepository(db)
         self.semestre_repository = SemestreRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
+
+    def _impedir_ficar_sem_diretoria(self, anterior, data: dict):
+        """🔒 A plataforma nunca pode ficar sem diretoria.
+
+        Só a diretoria edita cargos e permissões — rebaixar ou desativar o
+        último diretor trancaria a administração para sempre, sem ninguém
+        capaz de destrancar. Para a virada de gestão existe
+        `TransferirDiretoriaUseCase`, que promove antes de rebaixar.
+        """
+        if anterior.posicao != "diretor":
+            return
+
+        virou_outra_posicao = data.get("posicao", "diretor") != "diretor"
+        saiu_da_ativa = data.get("status", anterior.status) != "ativo"
+        if not virou_outra_posicao and not saiu_da_ativa:
+            return
+
+        outros = [
+            u
+            for u in self.repository.get_por_posicao("diretor")
+            if u.id != anterior.id and u.status == "ativo"
+        ]
+        if not outros:
+            raise RegraDeNegocioError(
+                "Esta é a última pessoa na diretoria — promova outra antes, "
+                "ou use a transferência de diretoria."
+            )
 
     def execute(self, usuario_id: int, request: UpdateUsuarioRequest, alterado_por: Optional[int] = None):
         data = request.model_dump(exclude_unset=True)
@@ -41,6 +71,8 @@ class UpdateUsuarioUseCase:
             data["ativo"] = data["status"] == "ativo"
         elif "ativo" in data and data["ativo"] is False and anterior.status == "ativo":
             data["status"] = "ex_membro"
+
+        self._impedir_ficar_sem_diretoria(anterior, data)
 
         usuario = self.repository.update(usuario_id, **data)
         if not usuario:
@@ -61,7 +93,8 @@ class UpdateUsuarioUseCase:
             )
             self.db.commit()
 
-        return serializar_usuario(usuario)
+        alocados = self.membro_repository.contar_ativos_por_usuario()
+        return serializar_usuario(usuario, alocados.get(usuario.id, 0))
 
 
 class DeleteUsuarioUseCase:

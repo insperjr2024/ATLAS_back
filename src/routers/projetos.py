@@ -12,13 +12,20 @@ from src.middlewares.authorization import (
     require_diretor,
     require_gestao,
     require_lideranca,
+    require_pode_criar_projeto,
+    require_pode_editar_equipe,
+    require_pode_marcar_kickoff,
+    require_pode_ver_proprios_projetos,
 )
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
     CreateEscopoProjetoUseCase,
     EscopoVendidoRequest,
 )
-from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
+from src.use_cases.projeto_escopo.get_escopos_projeto import (
+    ListEscoposProjetoUseCase,
+    ListTodosEscoposVendidosUseCase,
+)
 from src.use_cases.projeto_escopo.update_escopo_projeto import (
     ClassificarAtrasoEntregaRequest,
     ClassificarAtrasoEntregaUseCase,
@@ -48,6 +55,7 @@ from src.use_cases.projeto.update_kickoff import (
     UpdateKickoffRequest,
     UpdateKickoffUseCase,
 )
+from src.use_cases.projeto.update_descricao import UpdateDescricaoRequest, UpdateDescricaoUseCase
 from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatusUseCase
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
 from src.repositories.projeto_repository import ProjetoRepository
@@ -58,7 +66,7 @@ router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/projetos")
-def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_pode_criar_projeto), db: Session = Depends(get_db)):
     try:
         return CreateProjetoUseCase(db).execute(request, criado_por=current_user.id)
     except RegraDeNegocioError as e:
@@ -69,7 +77,7 @@ def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_g
 def list_projetos(
     frente_id: Optional[int] = None,
     incluir_arquivados: bool = False,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_pode_ver_proprios_projetos),
     db: Session = Depends(get_db),
 ):
     return ListProjetosUseCase(db).execute(current_user, frente_id=frente_id, incluir_arquivados=incluir_arquivados)
@@ -85,7 +93,7 @@ def get_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Ses
 
 
 @router.put("/projetos/{projeto_id}/equipe")
-def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
     # `require_gestao` só diz "é diretor ou gerente" — sem o recorte, um
     # gerente de Business editava a equipe de um projeto de Direito.
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
@@ -99,21 +107,27 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
 
 
 @router.patch("/projetos/{projeto_id}/kickoff")
-def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    try:
-        result = UpdateKickoffUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    result = UpdateKickoffUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
 
 
 @router.patch("/projetos/{projeto_id}/entrega-cliente")
-def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateEntregaClienteUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/descricao")
+def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDescricaoUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
@@ -211,6 +225,15 @@ def _projeto_do_escopo(escopo_id: int, current_user, db: Session) -> int:
 def list_escopos(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     return ListEscoposProjetoUseCase(db).execute(projeto_id)
+
+
+@router.get("/escopos-projeto")
+def list_todos_escopos_vendidos(db: Session = Depends(get_db)):
+    """Nome de todo escopo vendido, de todos os projetos — usado pela página
+    Bancas pra resolver `projeto_escopo_ids`. Sem recorte de visão de
+    propósito: bancas já são globais (§8), então o escopo/projeto de
+    qualquer uma também é."""
+    return ListTodosEscoposVendidosUseCase(db).execute()
 
 
 @router.post("/projetos/{projeto_id}/escopos")

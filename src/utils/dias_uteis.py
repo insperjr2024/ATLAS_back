@@ -74,3 +74,28 @@ def somar_dias_uteis(inicio: date, quantidade: int, dias_nao_letivos: Iterable[d
 def proximo_dia_util(dia: date, dias_nao_letivos: Iterable[date]) -> date:
     """O primeiro dia útil a partir de `dia` (inclusive)."""
     return somar_dias_uteis(dia, 1, dias_nao_letivos)
+
+
+def dias_uteis_de_atraso(
+    prazo: date, referencia: date, dias_nao_letivos: Iterable[date]
+) -> int:
+    """Quantos dias ÚTEIS se passaram depois que `prazo` venceu.
+
+    ⏱ O intervalo é `(prazo, referencia]` — aberto no prazo, fechado em hoje.
+    O dia do prazo é para entregar, então ele não conta como atraso; é a mesma
+    convenção de `tarefa_status.eh_vencida`, que só vira `True` no dia
+    SEGUINTE ao prazo. Venceu na sexta e hoje é segunda: 1 dia útil de atraso
+    (contra 3 corridos).
+
+    É a régua ÚNICA de atraso do sistema: vale tanto para a tarefa vencida da
+    aba de Execução quanto para a banca e a entrega do §7.4, desde que a
+    diretoria confirmou (2026-08-04) que ali também são dias úteis.
+
+    Devolve 0 quando o prazo ainda não venceu. Devolve 0 também quando venceu
+    mas nenhum dia útil passou desde então — atrasado no sábado, com o prazo na
+    sexta, é atraso de 0 dias úteis: o time ainda não teve dia de trabalho para
+    resolver. Quem decide SE está atrasado é a data, não esta contagem.
+    """
+    if prazo is None or referencia is None or prazo >= referencia:
+        return 0
+    return contar_dias_uteis(prazo + timedelta(days=1), referencia, dias_nao_letivos)

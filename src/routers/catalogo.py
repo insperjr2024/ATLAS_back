@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import require_pode_gerenciar_cargos
+from src.middlewares.authorization import require_diretor
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.dia_nao_letivo.create_dia_nao_letivo import (
     CreateDiasNaoLetivosUseCase,
@@ -48,7 +48,7 @@ router = APIRouter(tags=["catálogo"], dependencies=[Depends(get_current_user)])
 # ---------------------------------------------------------------- cargos
 
 @router.post("/cargos")
-def create_cargo(request: CreateCargoRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def create_cargo(request: CreateCargoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     return CreateCargoUseCase(db).execute(request)
 
 
@@ -66,7 +66,7 @@ def get_cargo(cargo_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/cargos/{cargo_id}")
-def update_cargo(cargo_id: int, request: UpdateCargoRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def update_cargo(cargo_id: int, request: UpdateCargoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     result = UpdateCargoUseCase(db).execute(cargo_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Cargo não encontrado")
@@ -74,7 +74,7 @@ def update_cargo(cargo_id: int, request: UpdateCargoRequest, _=Depends(require_p
 
 
 @router.delete("/cargos/{cargo_id}", status_code=204)
-def delete_cargo(cargo_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_cargo(cargo_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         deleted = DeleteCargoUseCase(db).execute(cargo_id)
     except ResourceInUseError:
@@ -87,7 +87,7 @@ def delete_cargo(cargo_id: int, _=Depends(require_pode_gerenciar_cargos), db: Se
 # ---------------------------------------------------------------- escopos
 
 @router.post("/escopos")
-def create_escopo(request: CreateEscopoRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def create_escopo(request: CreateEscopoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     return CreateEscopoUseCase(db).execute(request)
 
 
@@ -109,7 +109,7 @@ def get_escopo(escopo_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/escopos/{escopo_id}")
-def update_escopo(escopo_id: int, request: UpdateEscopoRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def update_escopo(escopo_id: int, request: UpdateEscopoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     result = UpdateEscopoUseCase(db).execute(escopo_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Escopo não encontrado")
@@ -117,7 +117,7 @@ def update_escopo(escopo_id: int, request: UpdateEscopoRequest, _=Depends(requir
 
 
 @router.delete("/escopos/{escopo_id}", status_code=204)
-def delete_escopo(escopo_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_escopo(escopo_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         deleted = DeleteEscopoUseCase(db).execute(escopo_id)
     except ResourceInUseError:
@@ -130,7 +130,7 @@ def delete_escopo(escopo_id: int, _=Depends(require_pode_gerenciar_cargos), db: 
 # ---------------------------------------------------------------- frentes
 
 @router.post("/frentes")
-def create_frente(request: CreateFrenteRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def create_frente(request: CreateFrenteRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     return CreateFrenteUseCase(db).execute(request)
 
 
@@ -148,7 +148,7 @@ def get_frente(frente_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/frentes/{frente_id}")
-def update_frente(frente_id: int, request: UpdateFrenteRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def update_frente(frente_id: int, request: UpdateFrenteRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     result = UpdateFrenteUseCase(db).execute(frente_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Frente não encontrada")
@@ -156,7 +156,7 @@ def update_frente(frente_id: int, request: UpdateFrenteRequest, _=Depends(requir
 
 
 @router.delete("/frentes/{frente_id}", status_code=204)
-def delete_frente(frente_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_frente(frente_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         deleted = DeleteFrenteUseCase(db).execute(frente_id)
     except ResourceInUseError:
@@ -169,7 +169,7 @@ def delete_frente(frente_id: int, _=Depends(require_pode_gerenciar_cargos), db: 
 # ---------------------------------------------------------------- semestres
 
 @router.post("/semestres")
-def create_semestre(request: CreateSemestreRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def create_semestre(request: CreateSemestreRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         return CreateSemestreUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -199,7 +199,7 @@ def get_semestre(semestre_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/semestres/{semestre_id}")
-def update_semestre(semestre_id: int, request: UpdateSemestreRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def update_semestre(semestre_id: int, request: UpdateSemestreRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         result = UpdateSemestreUseCase(db).execute(semestre_id, request)
     except RegraDeNegocioError as e:
@@ -210,7 +210,7 @@ def update_semestre(semestre_id: int, request: UpdateSemestreRequest, _=Depends(
 
 
 @router.delete("/semestres/{semestre_id}", status_code=204)
-def delete_semestre(semestre_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_semestre(semestre_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     try:
         deleted = DeleteSemestreUseCase(db).execute(semestre_id)
     except ResourceInUseError:
@@ -227,7 +227,7 @@ def delete_semestre(semestre_id: int, _=Depends(require_pode_gerenciar_cargos), 
 def create_dias_nao_letivos(
     semestre_id: int,
     request: CreateDiasNaoLetivosRequest,
-    _=Depends(require_pode_gerenciar_cargos),
+    _=Depends(require_diretor),
     db: Session = Depends(get_db),
 ):
     try:
@@ -269,13 +269,13 @@ async def ler_calendario_pdf(
 
 
 @router.delete("/semestres/{semestre_id}/dias-nao-letivos", status_code=204)
-def delete_dias_nao_letivos_do_semestre(semestre_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_dias_nao_letivos_do_semestre(semestre_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     DeleteDiasNaoLetivosDoSemestreUseCase(db).execute(semestre_id)
     return None
 
 
 @router.delete("/dias-nao-letivos/{dia_id}", status_code=204)
-def delete_dia_nao_letivo(dia_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def delete_dia_nao_letivo(dia_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     deleted = DeleteDiaNaoLetivoUseCase(db).execute(dia_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Dia não letivo não encontrado")
@@ -318,5 +318,5 @@ def get_configuracao(db: Session = Depends(get_db)):
 
 
 @router.patch("/configuracao")
-def update_configuracao(request: UpdateConfiguracaoRequest, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def update_configuracao(request: UpdateConfiguracaoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     return UpdateConfiguracaoUseCase(db).execute(request)

@@ -22,6 +22,9 @@ class UsuarioFrenteRepository:
     def get_by_usuario(self, usuario_id: int) -> List[UsuarioFrenteModel]:
         return self.db.query(UsuarioFrenteModel).filter(UsuarioFrenteModel.usuario_id == usuario_id).all()
 
+    def get_by_frente(self, frente_id: int) -> List[UsuarioFrenteModel]:
+        return self.db.query(UsuarioFrenteModel).filter(UsuarioFrenteModel.frente_id == frente_id).all()
+
     def get_all(self) -> List[UsuarioFrenteModel]:
         return self.db.query(UsuarioFrenteModel).all()
 

@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
@@ -31,6 +32,29 @@ def nome_do_escopo(escopo, catalogo_por_id: Dict[int, object]) -> str:
     return do_catalogo.nome if do_catalogo else "(escopo removido)"
 
 
+class ListTodosEscoposVendidosUseCase:
+    """Só `{id, projeto_id, nome}` de TODOS os projetos — sem a contagem de
+    dias (cara, e não faz sentido fora do contexto de um projeto só).
+
+    Existe para a página Bancas resolver `banca.projeto_escopo_ids` em nomes:
+    ela lista bancas de todos os projetos ao mesmo tempo, então não dá pra
+    pedir escopo por escopo com `GET /projetos/{id}/escopos` (que exige saber
+    o projeto e checa o recorte de visão dele). Bancas já é global — quem
+    pode ver a lista de bancas já vê projeto e escopo de qualquer uma."""
+
+    def __init__(self, db: Session):
+        self.repository = ProjetoEscopoRepository(db)
+        self.catalogo_repository = EscopoRepository(db)
+
+    def execute(self) -> List[dict]:
+        escopos = self.repository.get_all()
+        catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
+        return [
+            {"id": e.id, "projeto_id": e.projeto_id, "nome": nome_do_escopo(e, catalogo)}
+            for e in escopos
+        ]
+
+
 class ListEscoposProjetoUseCase:
     def __init__(self, db: Session):
         self.db = db
@@ -39,6 +63,7 @@ class ListEscoposProjetoUseCase:
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.banca_repository = BancaRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
 
     def execute(self, projeto_id: int, referencia: Optional[date] = None) -> List[dict]:
         escopos = self.repository.get_by_projeto(projeto_id)
@@ -50,19 +75,30 @@ class ListEscoposProjetoUseCase:
         historico = self.historico_repository.get_by_projeto(projeto_id)
         dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
         catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
-        bancas = {
-            b.projeto_escopo_id: b
-            for b in self.banca_repository.get_by_projeto_escopos([e.id for e in escopos])
-        }
+        bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])
+        # Uma banca pode cobrir vários escopos — a tela mostra isso em cada
+        # linha ("esta banca também avalia X"), então os ids vêm junto.
+        escopos_da_banca = self.banca_escopo_repository.get_escopo_ids_por_banca(
+            {b.id for b in bancas.values()}
+        )
 
         contagens = calcular_contagem_projeto(
             escopos, historico, dias_nao_letivos, referencia=referencia
         )
 
-        return [serializar_escopo(e, contagens[e.id], catalogo, bancas.get(e.id)) for e in escopos]
+        return [
+            serializar_escopo(
+                e,
+                contagens[e.id],
+                catalogo,
+                bancas.get(e.id),
+                escopos_da_banca,
+            )
+            for e in escopos
+        ]
 
 
-def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None) -> dict:
+def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None, escopos_da_banca=None) -> dict:
     return {
         "id": escopo.id,
         "projeto_id": escopo.projeto_id,
@@ -91,6 +127,8 @@ def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None) -> dict:
                 "realizado_em": banca.realizado_em,
                 "resultado": banca.resultado,
                 "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+                # Todos os escopos que esta banca cobre, este incluído.
+                "escopo_ids": (escopos_da_banca or {}).get(banca.id, [escopo.id]),
             }
             if banca
             else None

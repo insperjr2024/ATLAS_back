@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ class PerguntaNovaVersao(BaseModel):
     texto: str
     ordem: int
     tipo_resposta: str = "nota"
+    escopo_id: Optional[int] = None
 
 
 class CreateNovaVersaoFormularioRequest(BaseModel):
@@ -46,7 +47,8 @@ class CreateNovaVersaoFormularioUseCase:
                 formulario_id=novo_formulario.id,
                 texto=p.texto,
                 ordem=p.ordem,
-                tipo_resposta=p.tipo_resposta
+                tipo_resposta=p.tipo_resposta,
+                escopo_id=p.escopo_id,
             )
             for p in request.perguntas
         ]
@@ -59,7 +61,8 @@ class CreateNovaVersaoFormularioUseCase:
                     "id": p.id,
                     "texto": p.texto,
                     "ordem": p.ordem,
-                    "tipo_resposta": p.tipo_resposta
+                    "tipo_resposta": p.tipo_resposta,
+                    "escopo_id": p.escopo_id,
                 }
                 for p in perguntas_criadas
             ]

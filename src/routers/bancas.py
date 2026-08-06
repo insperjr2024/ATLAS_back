@@ -10,8 +10,7 @@ from src.middlewares.authorization import (
     exigir_acesso_ao_projeto,
     require_diretor,
     require_lideranca,
-    require_pode_agendar_banca,
-    require_pode_gerenciar_cargos,
+    require_pode_definir_cronograma,
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -19,6 +18,7 @@ from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequ
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
+from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.use_cases.banca.marcar_banca_escopo import (
     LiberarExcecaoChoqueRequest,
     LiberarExcecaoChoqueUseCase,
@@ -59,9 +59,11 @@ router = APIRouter(tags=["bancas"], dependencies=[Depends(get_current_user)])
 # ---------------------------------------------------------------- bancas
 
 @router.post("/bancas")
-def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     try:
-        return CreateBancaUseCase(db).execute(request, coordenador_id=current_user.id)
+        return CreateBancaUseCase(db).execute(
+            request, coordenador_id=current_user.id, eh_diretor=current_user.posicao == "diretor"
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -80,24 +82,36 @@ def get_banca(banca_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
-def get_notas_por_pergunta(banca_id: int, _=Depends(require_pode_gerenciar_cargos), db: Session = Depends(get_db)):
+def get_notas_por_pergunta(banca_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
     return GetNotasPorPerguntaUseCase(db).execute(banca_id)
 
 
 @router.patch("/bancas/{banca_id}")
-def update_banca(banca_id: int, request: UpdateBancaRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
-    result = UpdateBancaUseCase(db).execute(banca_id, request)
+def update_banca(banca_id: int, request: UpdateBancaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    try:
+        result = UpdateBancaUseCase(db).execute(
+            banca_id, request, eh_diretor=current_user.posicao == "diretor"
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return result
 
 
 @router.delete("/bancas/{banca_id}", status_code=204)
-def delete_banca(banca_id: int, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def delete_banca(banca_id: int, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     deleted = DeleteBancaUseCase(db).execute(banca_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return None
+
+
+@router.post("/bancas/push-alocacao")
+def push_alocacao_automatica(_=Depends(require_diretor), db: Session = Depends(get_db)):
+    """Roda na hora a mesma alocação automática por rodízio do agendador
+    diário (§8) — para a diretoria disparar manualmente e para teste."""
+    return PushAlocacaoAutomaticaUseCase(db).execute()
 
 
 # ------------------------------------------------------- realização e resultado (F5)
@@ -110,7 +124,7 @@ def delete_banca(banca_id: int, _=Depends(require_pode_agendar_banca), db: Sessi
 
 
 @router.post("/bancas/{banca_id}/realizar")
-def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre."""
     try:
         result = RegistrarRealizacaoBancaUseCase(db).execute(banca_id, request)
@@ -122,7 +136,7 @@ def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends
 
 
 @router.patch("/bancas/{banca_id}/resultado")
-def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """🔒 É o resultado que libera a entrega ao cliente (§5.5, §8)."""
     try:
         result = RegistrarResultadoBancaUseCase(db).execute(banca_id, request)
@@ -151,6 +165,9 @@ def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, cu
 
     Escreve na MESMA linha de `banca` que a tela de Bancas lê. Não há espelho
     nem rotina de sincronização, de propósito.
+
+    `escopo_ids` no corpo diz quais escopos do projeto esta banca cobre (o da
+    URL entra sempre). Omitido, os vínculos atuais ficam como estão.
     """
     from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 
@@ -176,7 +193,7 @@ def get_historico_bancas(
     coordenador_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     semestre_id: Optional[int] = None,
-    _=Depends(require_pode_gerenciar_cargos),
+    _=Depends(require_diretor),
     db: Session = Depends(get_db),
 ):
     return GetHistoricoBancasUseCase(db).execute(consultor_id, coordenador_id, escopo_id, semestre_id)
@@ -210,7 +227,7 @@ def update_candidatura(candidatura_id: int, request: UpdateCandidaturaRequest, c
     existente = GetCandidaturaUseCase(db).execute(candidatura_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
-    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
         raise HTTPException(status_code=403, detail="Você só pode editar suas próprias candidaturas")
     result = UpdateCandidaturaUseCase(db).execute(candidatura_id, request)
     if not result:
@@ -223,7 +240,7 @@ def delete_candidatura(candidatura_id: int, current_user=Depends(get_current_use
     existente = GetCandidaturaUseCase(db).execute(candidatura_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
-    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerenciar_cargos"):
+    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
         raise HTTPException(status_code=403, detail="Você só pode remover suas próprias candidaturas")
     try:
         deleted = DeleteCandidaturaUseCase(db).execute(candidatura_id)
@@ -239,7 +256,7 @@ def delete_candidatura(candidatura_id: int, current_user=Depends(get_current_use
 # as bancas já cadastradas apontarem para ela.
 
 @router.post("/equipes-projeto")
-def create_equipe_projeto(request: CreateEquipeProjetoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def create_equipe_projeto(request: CreateEquipeProjetoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     return CreateEquipeProjetoUseCase(db).execute(request)
 
 
@@ -257,7 +274,7 @@ def get_equipe_projeto(equipe_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/equipes-projeto/{equipe_id}")
-def update_equipe_projeto(equipe_id: int, request: UpdateEquipeProjetoRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def update_equipe_projeto(equipe_id: int, request: UpdateEquipeProjetoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     result = UpdateEquipeProjetoUseCase(db).execute(equipe_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Registro de equipe não encontrado")
@@ -265,7 +282,7 @@ def update_equipe_projeto(equipe_id: int, request: UpdateEquipeProjetoRequest, _
 
 
 @router.delete("/equipes-projeto/{equipe_id}", status_code=204)
-def delete_equipe_projeto(equipe_id: int, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def delete_equipe_projeto(equipe_id: int, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     deleted = DeleteEquipeProjetoUseCase(db).execute(equipe_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Registro de equipe não encontrado")
@@ -275,7 +292,7 @@ def delete_equipe_projeto(equipe_id: int, _=Depends(require_pode_agendar_banca),
 # ---------------------------------------------------------------- banca ↔ frente
 
 @router.post("/bancas-frentes")
-def create_banca_frente(request: CreateBancaFrenteRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def create_banca_frente(request: CreateBancaFrenteRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     return CreateBancaFrenteUseCase(db).execute(request)
 
 
@@ -293,7 +310,7 @@ def get_banca_frente(banca_frente_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/bancas-frentes/{banca_frente_id}")
-def update_banca_frente(banca_frente_id: int, request: UpdateBancaFrenteRequest, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def update_banca_frente(banca_frente_id: int, request: UpdateBancaFrenteRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     result = UpdateBancaFrenteUseCase(db).execute(banca_frente_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Registro não encontrado")
@@ -301,7 +318,7 @@ def update_banca_frente(banca_frente_id: int, request: UpdateBancaFrenteRequest,
 
 
 @router.delete("/bancas-frentes/{banca_frente_id}", status_code=204)
-def delete_banca_frente(banca_frente_id: int, _=Depends(require_pode_agendar_banca), db: Session = Depends(get_db)):
+def delete_banca_frente(banca_frente_id: int, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     deleted = DeleteBancaFrenteUseCase(db).execute(banca_frente_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Registro não encontrado")

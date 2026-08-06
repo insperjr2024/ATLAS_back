@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
+from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 
 
@@ -10,8 +11,9 @@ class BancaRepository:
 
     def create(self, nome_projeto: str, escopo_id: Optional[int], coordenador_id: int,
                data_hora: Optional[datetime], **extras) -> BancaModel:
-        # `extras` deixa a F5 passar `projeto_escopo_id` sem quebrar os call
-        # sites antigos, que continuam chamando com os 4 posicionais.
+        # `extras` existe para os call sites antigos, que passam só os 4
+        # posicionais. O vínculo com os escopos vendidos NÃO vem por aqui:
+        # mora em `banca_escopo`, gravado depois que a banca tem id.
         banca = BancaModel(
             nome_projeto=nome_projeto,
             escopo_id=escopo_id,
@@ -25,24 +27,55 @@ class BancaRepository:
         return banca
 
     def get_by_projeto_escopo(self, projeto_escopo_id: int) -> Optional[BancaModel]:
+        """A banca que cobre este escopo — no máximo uma (UNIQUE em
+        `banca_escopo.projeto_escopo_id`)."""
         return (
             self.db.query(BancaModel)
-            .filter(BancaModel.projeto_escopo_id == projeto_escopo_id)
+            .join(BancaEscopoModel, BancaEscopoModel.banca_id == BancaModel.id)
+            .filter(BancaEscopoModel.projeto_escopo_id == projeto_escopo_id)
             .first()
         )
 
-    def get_by_projeto_escopos(self, projeto_escopo_ids: List[int]) -> List[BancaModel]:
+    def mapa_por_escopo(self, projeto_escopo_ids: List[int]) -> Dict[int, BancaModel]:
+        """Escopo → banca que o cobre.
+
+        Devolve mapa, não lista: uma banca que cobre três escopos aparece nas
+        três chaves, e é isso que as telas precisam — a pergunta delas é sempre
+        "qual a banca DESTE escopo".
+        """
         if not projeto_escopo_ids:
-            return []
-        return (
-            self.db.query(BancaModel)
-            .filter(BancaModel.projeto_escopo_id.in_(projeto_escopo_ids))
+            return {}
+        linhas = (
+            self.db.query(BancaEscopoModel.projeto_escopo_id, BancaModel)
+            .join(BancaModel, BancaEscopoModel.banca_id == BancaModel.id)
+            .filter(BancaEscopoModel.projeto_escopo_id.in_(projeto_escopo_ids))
             .all()
         )
+        return {escopo_id: banca for escopo_id, banca in linhas}
+
+    def get_by_projeto_escopos(self, projeto_escopo_ids: List[int]) -> List[BancaModel]:
+        """As bancas destes escopos, cada uma UMA vez — quem cobre três escopos
+        não vira três itens."""
+        por_id = {b.id: b for b in self.mapa_por_escopo(projeto_escopo_ids).values()}
+        return list(por_id.values())
 
     def get_por_data_hora(self, data_hora: datetime) -> List[BancaModel]:
         """Bancas no mesmo horário — a checagem de choque do §8."""
         return self.db.query(BancaModel).filter(BancaModel.data_hora == data_hora).all()
+
+    def get_por_periodo(self, inicio: datetime, fim: datetime) -> List[BancaModel]:
+        """Bancas ainda não realizadas com data dentro do intervalo — o
+        universo candidato do push automático (§8: uma semana antes)."""
+        return (
+            self.db.query(BancaModel)
+            .filter(
+                BancaModel.data_hora.isnot(None),
+                BancaModel.data_hora >= inicio,
+                BancaModel.data_hora <= fim,
+                BancaModel.realizado_em.is_(None),
+            )
+            .all()
+        )
 
     def get_by_id(self, banca_id: int) -> Optional[BancaModel]:
         return self.db.query(BancaModel).filter(BancaModel.id == banca_id).first()

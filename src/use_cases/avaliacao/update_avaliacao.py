@@ -11,6 +11,11 @@ class UpdateAvaliacaoRequest(BaseModel):
     status: Optional[str] = None
     comentario_feedback: Optional[str] = None
     submetida_em: Optional[datetime] = None
+    nome_avaliador: Optional[str] = None
+    tipo_avaliador: Optional[str] = None
+    projeto_avaliado: Optional[str] = None
+    escopo_avaliado_id: Optional[int] = None
+    escopo_avaliado_outro: Optional[str] = None
 
 
 class UpdateAvaliacaoUseCase:
@@ -29,7 +34,12 @@ class UpdateAvaliacaoUseCase:
             "formulario_id": avaliacao.formulario_id,
             "status": avaliacao.status,
             "comentario_feedback": avaliacao.comentario_feedback,
-            "submetida_em": avaliacao.submetida_em
+            "submetida_em": avaliacao.submetida_em,
+            "nome_avaliador": avaliacao.nome_avaliador,
+            "tipo_avaliador": avaliacao.tipo_avaliador,
+            "projeto_avaliado": avaliacao.projeto_avaliado,
+            "escopo_avaliado_id": avaliacao.escopo_avaliado_id,
+            "escopo_avaliado_outro": avaliacao.escopo_avaliado_outro,
         }
 
 

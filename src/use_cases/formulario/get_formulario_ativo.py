@@ -22,7 +22,8 @@ class GetFormularioAtivoUseCase:
                     "id": p.id,
                     "texto": p.texto,
                     "ordem": p.ordem,
-                    "tipo_resposta": p.tipo_resposta
+                    "tipo_resposta": p.tipo_resposta,
+                    "escopo_id": p.escopo_id,
                 }
                 for p in perguntas
             ]

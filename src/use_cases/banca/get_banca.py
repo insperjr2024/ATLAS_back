@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
@@ -13,6 +14,7 @@ class GetBancaUseCase:
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
 
     def execute(self, banca_id: int):
         banca = self.repository.get_by_id(banca_id)
@@ -29,12 +31,14 @@ class GetBancaUseCase:
             "escopo_id": banca.escopo_id,
             "coordenador_id": banca.coordenador_id,
             "data_hora": banca.data_hora,
-            "projeto_escopo_id": banca.projeto_escopo_id,
+            # Os escopos vendidos que esta banca cobre — vazio nas legadas.
+            "projeto_escopo_ids": self.banca_escopo_repository.get_escopo_ids(banca.id),
             "realizado_em": banca.realizado_em,
             "resultado": banca.resultado,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
             "vagas": vagas,
             "alocados": len(candidaturas),
+            "piso_minimo_override": banca.piso_minimo_override,
             "semestre_id": semestre.id if semestre else None,
             "semestre_nome": semestre.nome if semestre else None
         }
@@ -46,12 +50,16 @@ class ListBancasUseCase:
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
 
     def execute(self):
         bancas = self.repository.get_all()
         configuracao = self.configuracao_repository.get()
         vagas = configuracao.vagas_por_banca if configuracao else 5
         semestres = self.semestre_repository.get_all()
+        escopos_por_banca = self.banca_escopo_repository.get_escopo_ids_por_banca(
+            [b.id for b in bancas]
+        )
         resultado = []
         for b in bancas:
             candidaturas = self.candidatura_repository.get_by_banca(b.id)
@@ -62,12 +70,13 @@ class ListBancasUseCase:
                 "escopo_id": b.escopo_id,
                 "coordenador_id": b.coordenador_id,
                 "data_hora": b.data_hora,
-                "projeto_escopo_id": b.projeto_escopo_id,
+                "projeto_escopo_ids": escopos_por_banca.get(b.id, []),
                 "realizado_em": b.realizado_em,
                 "resultado": b.resultado,
                 "status": calcular_status_banca(b.data_hora, b.realizado_em),
                 "vagas": vagas,
                 "alocados": len(candidaturas),
+                "piso_minimo_override": b.piso_minimo_override,
                 "semestre_id": semestre.id if semestre else None,
                 "semestre_nome": semestre.nome if semestre else None
             })

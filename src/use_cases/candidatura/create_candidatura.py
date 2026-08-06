@@ -4,6 +4,7 @@ from datetime import datetime
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
+from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -18,6 +19,7 @@ class CreateCandidaturaUseCase:
         self.repository = CandidaturaRepository(db)
         self.banca_repository = BancaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
+        self.equipe_projeto_repository = EquipeProjetoRepository(db)
 
     def execute(self, request: CreateCandidaturaRequest, usuario_id: int):
         banca = self.banca_repository.get_by_id(request.banca_id)
@@ -32,6 +34,15 @@ class CreateCandidaturaUseCase:
             if status == "realizada":
                 raise RegraDeNegocioError("Não é possível se candidatar: esta banca já foi realizada")
             raise RegraDeNegocioError("Não é possível se candidatar: esta banca ainda não tem data marcada")
+
+        # Ninguém avalia o próprio grupo: nem quem coordena o projeto, nem
+        # quem está na equipe alocada a esta banca.
+        eh_do_grupo = banca.coordenador_id == usuario_id or any(
+            e.usuario_id == usuario_id
+            for e in self.equipe_projeto_repository.get_by_banca(request.banca_id)
+        )
+        if eh_do_grupo:
+            raise RegraDeNegocioError("Você não pode se candidatar à banca do seu próprio grupo")
 
         candidaturas_existentes = self.repository.get_by_banca(request.banca_id)
         configuracao = self.configuracao_repository.get()

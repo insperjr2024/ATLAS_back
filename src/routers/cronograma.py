@@ -9,7 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import exigir_acesso_ao_projeto, require_lideranca
+from src.middlewares.authorization import (
+    exigir_acesso_ao_projeto,
+    require_pode_definir_cronograma,
+)
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.repositories.cronograma_repository import (
     CronogramaEtapaRepository,
@@ -78,7 +81,7 @@ def get_cronograma(projeto_id: int, current_user=Depends(get_current_user), db: 
 
 
 @router.post("/escopos-projeto/{escopo_id}/etapas")
-def create_etapa(escopo_id: int, request: EtapaRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def create_etapa(escopo_id: int, request: EtapaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     _projeto_do_escopo(escopo_id, current_user, db)
     result = _executar(lambda: CreateEtapaUseCase(db).execute(escopo_id, request, current_user.id))
     if not result:
@@ -87,7 +90,7 @@ def create_etapa(escopo_id: int, request: EtapaRequest, current_user=Depends(req
 
 
 @router.put("/cronograma/etapas/{etapa_id}")
-def update_etapa_intervalo(etapa_id: int, request: EtapaIntervaloRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def update_etapa_intervalo(etapa_id: int, request: EtapaIntervaloRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """⭐ É esta que o arrasto chama — um gesto, uma requisição, por intervalo."""
     _projeto_da_etapa(etapa_id, current_user, db)
     result = _executar(lambda: UpdateEtapaIntervaloUseCase(db).execute(etapa_id, request))
@@ -97,7 +100,7 @@ def update_etapa_intervalo(etapa_id: int, request: EtapaIntervaloRequest, curren
 
 
 @router.patch("/cronograma/etapas/{etapa_id}")
-def update_etapa_detalhe(etapa_id: int, request: EtapaDetalheRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def update_etapa_detalhe(etapa_id: int, request: EtapaDetalheRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     _projeto_da_etapa(etapa_id, current_user, db)
     result = _executar(lambda: UpdateEtapaDetalheUseCase(db).execute(etapa_id, request))
     if not result:
@@ -106,19 +109,19 @@ def update_etapa_detalhe(etapa_id: int, request: EtapaDetalheRequest, current_us
 
 
 @router.delete("/cronograma/etapas/{etapa_id}", status_code=204)
-def delete_etapa(etapa_id: int, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def delete_etapa(etapa_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     _projeto_da_etapa(etapa_id, current_user, db)
     _executar(lambda: DeleteEtapaUseCase(db).execute(etapa_id))
 
 
 @router.post("/projetos/{projeto_id}/marcos")
-def create_marco(projeto_id: int, request: MarcoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def create_marco(projeto_id: int, request: MarcoRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     return _executar(lambda: CreateMarcoUseCase(db).execute(projeto_id, request, current_user.id))
 
 
 @router.delete("/cronograma/marcos/{marco_id}", status_code=204)
-def delete_marco(marco_id: int, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def delete_marco(marco_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     marco = CronogramaMarcoRepository(db).get_by_id(marco_id)
     if not marco:
         raise HTTPException(status_code=404, detail="Marco não encontrado")
@@ -127,7 +130,7 @@ def delete_marco(marco_id: int, current_user=Depends(require_lideranca), db: Ses
 
 
 @router.post("/escopos-projeto/{escopo_id}/oficializar")
-def oficializar(escopo_id: int, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+def oficializar(escopo_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """§5.3: cravar o cronograma. Depois disso, mudar exige reajuste (§5.6)."""
     _projeto_do_escopo(escopo_id, current_user, db)
     result = _executar(lambda: OficializarCronogramaUseCase(db).execute(escopo_id))

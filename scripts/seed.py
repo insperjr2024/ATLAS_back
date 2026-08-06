@@ -16,7 +16,9 @@ from src.models.cargo_model import CargoModel
 from src.models.configuracao_model import ConfiguracaoModel
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
 from src.models.escopo_model import EscopoModel
+from src.models.formulario_model import FormularioModel
 from src.models.frente_model import FrenteModel
+from src.models.pergunta_model import PerguntaModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_frente_model import ProjetoFrenteModel
 from src.models.projeto_membro_model import ProjetoMembroModel
@@ -24,6 +26,7 @@ from src.models.projeto_model import ProjetoModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.semestre_model import SemestreModel
 from src.models.tarefa_coluna_model import TarefaColunaModel
+from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.usuario_model import UsuarioModel
 from src.utils.senha import hash_senha
@@ -38,35 +41,118 @@ FRENTES = [
     ("Engenharia de Processos", 2),
 ]
 
-# O catálogo do §4 do briefing.
+# O catálogo do §4 do briefing — nomes já alinhados com o formulário de
+# avaliação de bancas (ver BLOCOS_TECNICOS abaixo).
 ESCOPOS = {
     "Business": [
         "Análise Mercadológica",
         "Plano Estratégico de Marketing",
         "Plano Operacional",
-        "Viabilidade Financeira",
+        "Plano Financeiro",
     ],
     "Direito": [
-        "Elaboração e/ou Revisão Contratual",
+        "Elaboração Contratual",
+        "Revisão Contratual",
         "Planejamento Consultivo Societário",
         "Planejamento Consultivo de Propriedade Industrial",
-        "Planejamento e Análise Tributária",
+        "Planejamento Consultivo Tributário",
     ],
     "Tech": [
         "Desenvolvimento Tech",
         "AI e Automações",
+        "Análise de Dados",
+        "Desenvolvimento Web (Mock-Up)",
+        "Desenvolvimento Web (Front/Back)",
     ],
     "Engenharia de Processos": [
         "Simulação e Otimização de Processos",
     ],
 }
 
+# Uma pergunta por bloco técnico do formulário de avaliação de bancas, por
+# escopo — pergunta.escopo_id aponta pra cá. Espelhado na migration
+# ff536b09e0a2 para bancos que já existiam antes deste seed.
+BLOCOS_TECNICOS: dict[str, list[str]] = {
+    "Análise Mercadológica": [
+        "Storytelling",
+        "Solução Consistente",
+        "Embasamento de Hipóteses/Soluções",
+        "Clareza de Recomendações/Insights",
+    ],
+    "Plano Operacional": [
+        "Storytelling",
+        "Plano de Ação",
+        "Uso de Ferramentas",
+        "Tangibilidade das Recomendações",
+    ],
+    "Plano Estratégico de Marketing": [
+        "Storytelling",
+        "Plano de Ação",
+        "Uso de Ferramentas",
+        "Tangibilidade das Recomendações",
+    ],
+    "Plano Financeiro": [
+        "Premissas Utilizadas",
+        "Organização do Excel",
+        "Apresentação de Resultados",
+    ],
+    "Análise de Dados": [
+        "Qualidade do Código",
+        "Relevância dos Dados",
+        "Clareza dos Resultados",
+    ],
+    "Desenvolvimento Web (Mock-Up)": [
+        "Experiência de Uso",
+        "Coerência com Público-Alvo",
+        "Organização da Figma",
+    ],
+    "Desenvolvimento Web (Front/Back)": [
+        "Organização do Código",
+        "Coerência com Figma",
+        "Usabilidade e UX",
+    ],
+    "Planejamento Consultivo Tributário": [
+        "Aderência na Simulação",
+        "Organização do Excel",
+        "Clareza e Recomendações/Insights",
+        "Estrutura do Parecer",
+    ],
+    "Planejamento Consultivo Societário": [
+        "Solução Coerente para o Cliente",
+        "Enquadramento Correto",
+        "Mapeamento dos Documentos/Processos Corretos",
+        "Estrutura do Parecer",
+    ],
+    "Planejamento Consultivo de Propriedade Industrial": [
+        "Pesquisa INPI Completa",
+        "Estrutura do Parecer",
+        "Sugestão Coerente para o Cliente",
+    ],
+    "Elaboração Contratual": [
+        "Segurança Jurídica/Equilíbrio Contratual",
+        "Nível de Personalização",
+        "Clareza (considerando organização e escrita)",
+        "Previsibilidade Coerente (gestão de riscos)",
+    ],
+    "Revisão Contratual": [
+        "Clareza (considerando organização e escrita)",
+        "Comparação Clara entre Cláusula Antiga e Nova",
+        "Justificativas para Alteração Coerente",
+    ],
+    # Simulação e Otimização de Processos, Desenvolvimento Tech e AI e
+    # Automações nascem sem pergunta própria — a diretoria cadastra as dela.
+}
+
+BLOCO_FINAL_UNIVERSAL = ["Design Visual", "Clareza de Texto", "Visuais Completos"]
+
 CARGOS = [
-    # (nome, definir_formulario, agendar_banca, gerenciar_cargos)
-    ("Diretor de Projetos", True, True, True),
-    ("Gerente de Frente", False, True, False),
-    ("Coordenador", False, True, False),
-    ("Membro", False, False, False),
+    # (nome, criar_projeto, editar_equipe, gerir_membros, marcar_kickoff,
+    #  definir_cronograma, aprovar_reajuste, criar_tarefa, mover_editar_tarefa,
+    #  ver_proprios_projetos, ver_monitoramento) — as 10 caixas do §3.
+    ("Diretor de Projetos", True, True, True, True, True, True, True, True, True, True),
+    ("Gerente de Frente", True, True, False, True, True, False, True, True, True, True),
+    ("Coordenador", False, False, False, True, True, False, True, True, True, False),
+    ("Membro", False, False, False, True, False, False, True, True, True, False),
 ]
 
 # (nome, email, posicao, cargo, frentes, status)
@@ -148,18 +234,28 @@ def obter_ou_criar(db, model, filtros: dict, valores: dict | None = None):
 
 
 def projetos_da_demo(hoje, frentes, catalogo, usuarios):
-    """Os dois projetos da demo, com as datas ancoradas em `hoje`.
+    """Os projetos da demo, com as datas ancoradas em `hoje`.
 
-    **Alfa** é o caminho feliz: sinérgico, um escopo correndo com banca já
-    realizada e aprovada (a entrega está liberada) e outro ainda não iniciado
-    (a contagem não corre).
+    Cada um existe para exercitar UM caminho do monitoramento (§7). Sem essa
+    variedade a tela abre com tudo vermelho ou tudo vazio, e não dá para
+    conferir se as regras funcionam:
 
-    **Beta** existe para a aba Atrasos ter o que mostrar: a banca dele venceu
-    e ninguém marcou `realizado_em` — é exatamente o estado `atrasada` que
-    não existia no sistema antes da F5. Sem um caso assim, o placar da gestão
-    dá 100% e não dá para saber se a costura funcionou.
+    | Projeto  | O que ele prova                                            |
+    |----------|------------------------------------------------------------|
+    | Alfa     | caminho feliz: banca realizada, entrega liberada (§5.5)     |
+    | Beta     | banca venceu sem acontecer — o estado `atrasada`            |
+    | Gama     | atraso SÓ do cliente: cinza, não pesa contra o time (§7.4)  |
+    | Delta    | dois motivos no mesmo projeto: a soma contra o pior isolado |
+    | Épsilon  | o degrau LEVE da rampa de severidade (âmbar)                |
+    | Zeta     | quadro zerado; marco = última tarefa, não o kickoff         |
+    | Eta      | tarefa vencida sem atraso de marco — execução ≠ §7.4        |
+
+    Alfa, Beta e Delta ficam sem tarefa nenhuma de propósito: alimentam a
+    lista "Projetos sem tarefa atribuída" com idades diferentes, para os três
+    degraus de `nivelSemTarefa` aparecerem juntos na tela.
     """
     dias = lambda n: hoje - timedelta(days=n)  # noqa: E731
+    futuro = lambda n: hoje + timedelta(days=n)  # noqa: E731
 
     ana = usuarios["ana@al.insper.edu.br"].id
     duda = usuarios["duda@al.insper.edu.br"].id
@@ -237,13 +333,13 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
             ],
             "escopos": [
                 {
-                    "escopo_id": catalogo["Elaboração e/ou Revisão Contratual"].id,
+                    "escopo_id": catalogo["Elaboração Contratual"].id,
                     "frente_id": frentes["Direito"].id,
                     "dias_uteis_vendidos": 12,
                     "status": "em_andamento",
                     "data_inicio": dias(21),
                     "data_entrega_planejada": dias(2),
-                    # 🚨 Venceu e NÃO aconteceu: `realizado_em` vazio → atrasada.
+                    # Venceu e NÃO aconteceu: `realizado_em` vazio → atrasada.
                     "_banca": {
                         "data_hora": datetime.combine(dias(5), time(10, 0)),
                         "realizado_em": None,
@@ -251,6 +347,253 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
                     },
                 },
             ],
+        },
+        # ─── Gama · atraso que NÃO é do time ──────────────────────────────
+        # A entrega escorregou por agenda do cliente (`tipo_atraso_entrega =
+        # externo`). O §7.4 manda não pesar isso contra o time, então na aba
+        # de Atrasos ele aparece em CINZA, com a pílula "espera do cliente",
+        # e entra na contagem "N só por agenda do cliente". A banca está
+        # realizada de propósito: se ela também estivesse atrasada, o projeto
+        # deixaria de ser "só externo" e o caso sumiria.
+        {
+            "nome": "Projeto Gama",
+            "coordenador_id": ana,
+            "frente_ids": [frentes["Business"].id],
+            "campos": {
+                "cliente": "Mercado São Jorge",
+                "descricao": "Viabilidade financeira da abertura de uma segunda loja.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(35),
+                "dia_reuniao_padrao": 1,  # segunda
+                "criado_por": usuarios["gil@gmail.com"].id,
+            },
+            "equipe": [
+                (ana, "coordenador"),
+                (usuarios["bia@gmail.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(50), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(35), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(28), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["Plano Financeiro"].id,
+                    "frente_id": frentes["Business"].id,
+                    "dias_uteis_vendidos": 18,
+                    "status": "em_andamento",
+                    "data_inicio": dias(28),
+                    "data_entrega_planejada": dias(9),
+                    "tipo_atraso_entrega": "externo",
+                    "_banca": {
+                        "data_hora": datetime.combine(dias(12), time(14, 0)),
+                        "realizado_em": datetime.combine(dias(12), time(15, 0)),
+                        "resultado": "aprovada",
+                    },
+                },
+            ],
+            # Tem tarefa em dia: fica FORA da lista "sem tarefa atribuída",
+            # para o caso externo aparecer limpo na aba de Atrasos.
+            "tarefas": [
+                ("Levantar custos da segunda loja", "bia@gmail.com", futuro(6), "em_andamento", dias(4)),
+                ("Montar projeção de fluxo de caixa", "bia@gmail.com", futuro(10), "a_fazer", dias(2)),
+            ],
+        },
+        # ─── Delta · dois motivos no mesmo projeto ────────────────────────
+        # Uma banca vencida há muito (crítico) e uma entrega interna vencida
+        # há pouco (leve). É o caso que o número grande sozinho mentia: a
+        # SOMA dos dois passa de 10 e leria como crítico mesmo que nenhum
+        # motivo isolado fosse. Aqui a soma vem rotulada como "soma" e a cor
+        # sai do pior motivo. Sem tarefa nenhuma de propósito — também é o
+        # pior caso da lista "sem tarefa atribuída".
+        {
+            "nome": "Projeto Delta",
+            "coordenador_id": duda,
+            "frente_ids": [frentes["Direito"].id],
+            "campos": {
+                "cliente": "Transportadora Vale",
+                "descricao": "Reestruturação societária e revisão tributária.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(45),
+                "dia_reuniao_padrao": 4,  # quinta
+                "criado_por": usuarios["dani@al.insper.edu.br"].id,
+            },
+            "equipe": [
+                (duda, "coordenador"),
+                (usuarios["caio@icloud.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(60), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(45), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(38), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["Planejamento Consultivo Tributário"].id,
+                    "frente_id": frentes["Direito"].id,
+                    "dias_uteis_vendidos": 14,
+                    "status": "em_andamento",
+                    "data_inicio": dias(38),
+                    "_banca": {
+                        "data_hora": datetime.combine(dias(24), time(9, 0)),
+                        "realizado_em": None,
+                        "resultado": None,
+                    },
+                },
+                {
+                    "escopo_id": catalogo["Planejamento Consultivo Societário"].id,
+                    "frente_id": frentes["Direito"].id,
+                    "dias_uteis_vendidos": 10,
+                    "status": "em_andamento",
+                    "data_inicio": dias(30),
+                    "data_entrega_planejada": dias(4),
+                    "tipo_atraso_entrega": "interno",
+                },
+            ],
+        },
+        # ─── Épsilon · o degrau LEVE da rampa ─────────────────────────────
+        # Banca vencida há poucos dias úteis: cai em "até 3 dias", o âmbar.
+        # Sem um caso assim a legenda tem três degraus e a tela só mostra
+        # vermelho, e não dá para conferir se a rampa inteira funciona.
+        {
+            "nome": "Projeto Épsilon",
+            "coordenador_id": ana,
+            "frente_ids": [frentes["Business"].id],
+            "campos": {
+                "cliente": "Café da Praça",
+                "descricao": "Plano operacional para a expansão do delivery.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(12),
+                "dia_reuniao_padrao": 3,  # quarta
+                "criado_por": usuarios["gil@gmail.com"].id,
+            },
+            "equipe": [
+                (ana, "coordenador"),
+                (usuarios["bia@gmail.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(20), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(12), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(6), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["Plano Operacional"].id,
+                    "frente_id": frentes["Business"].id,
+                    "dias_uteis_vendidos": 10,
+                    "status": "em_andamento",
+                    "data_inicio": dias(6),
+                    "_banca": {
+                        "data_hora": datetime.combine(dias(3), time(11, 0)),
+                        "realizado_em": None,
+                        "resultado": None,
+                    },
+                },
+            ],
+            "tarefas": [
+                ("Mapear rotas de entrega", "bia@gmail.com", futuro(5), "em_andamento", dias(2)),
+            ],
+            # "Realizou reunião" é AUSÊNCIA DE LINHA na janela seg–dom, não um
+            # campo. Só Épsilon e Eta registram: os outros aparecem como "não"
+            # justamente por não terem linha nenhuma.
+            "reunioes": [hoje - timedelta(days=hoje.weekday())],
+        },
+        # ─── Zeta · quadro zerado, marco = ÚLTIMA TAREFA ──────────────────
+        # O único projeto da demo que exercita o ramo `"ultima_tarefa"` do
+        # `_marco_sem_tarefa`. Todas as tarefas foram concluídas e nenhuma
+        # nova entrou desde então: `sem_tarefas` é falso (já teve tarefa) mas
+        # `sem_tarefas_ativas` é verdadeiro — situações que a diretoria trata
+        # diferente. A coluna "Sem tarefa nova há" conta desde a ÚLTIMA
+        # TAREFA CRIADA, não desde o kickoff.
+        {
+            "nome": "Projeto Zeta",
+            "coordenador_id": usuarios["caio@icloud.com"].id,
+            "frente_ids": [frentes["Tech"].id],
+            "campos": {
+                "cliente": "Clínica Bem Viver",
+                "descricao": "Automação do agendamento de consultas.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(60),
+                "dia_reuniao_padrao": 2,  # terça
+                "criado_por": usuarios["gabi@al.insper.edu.br"].id,
+            },
+            "equipe": [
+                (usuarios["caio@icloud.com"].id, "coordenador"),
+                (usuarios["bia@gmail.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(75), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(60), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(53), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["AI e Automações"].id,
+                    "frente_id": frentes["Tech"].id,
+                    "dias_uteis_vendidos": 20,
+                    "status": "em_andamento",
+                    "data_inicio": dias(53),
+                    "_banca": {
+                        "data_hora": datetime.combine(dias(30), time(10, 0)),
+                        "realizado_em": datetime.combine(dias(30), time(11, 30)),
+                        "resultado": "aprovada",
+                    },
+                },
+            ],
+            "tarefas": [
+                ("Levantar requisitos do agendamento", "caio@icloud.com", dias(40), "concluido", dias(50)),
+                ("Prototipar o fluxo de confirmação", "bia@gmail.com", dias(32), "concluido", dias(42)),
+                ("Integrar com o WhatsApp", "caio@icloud.com", dias(20), "concluido", dias(26)),
+            ],
+        },
+        # ─── Eta · tarefas VENCIDAS ───────────────────────────────────────
+        # Quadro com tarefa em atraso, para a coluna "Vencidas" e a de
+        # "Atraso" (o pior do quadro, em dias úteis) saírem do zero. Note que
+        # este projeto NÃO está atrasado pelo §7.4 — banca e entrega estão em
+        # dia. É a distinção entre as duas abas: atraso de execução não é
+        # atraso de marco.
+        {
+            "nome": "Projeto Eta",
+            "coordenador_id": usuarios["caio@icloud.com"].id,
+            "frente_ids": [frentes["Tech"].id],
+            "campos": {
+                "cliente": "Escola Girassol",
+                "descricao": "Portal de comunicação com os responsáveis.",
+                "status": "em_andamento",
+                "dias_ambientacao": 5,
+                "data_kickoff": dias(22),
+                "dia_reuniao_padrao": 5,  # sexta
+                "criado_por": usuarios["gabi@al.insper.edu.br"].id,
+            },
+            "equipe": [
+                (usuarios["caio@icloud.com"].id, "coordenador"),
+                (usuarios["bia@gmail.com"].id, "consultor"),
+            ],
+            "historico": [
+                (None, "vendido", datetime.combine(dias(32), time(9, 0))),
+                ("vendido", "ambientacao", datetime.combine(dias(22), time(9, 0))),
+                ("ambientacao", "em_andamento", datetime.combine(dias(15), time(9, 0))),
+            ],
+            "escopos": [
+                {
+                    "escopo_id": catalogo["Desenvolvimento Tech"].id,
+                    "frente_id": frentes["Tech"].id,
+                    "dias_uteis_vendidos": 16,
+                    "status": "em_andamento",
+                    "data_inicio": dias(15),
+                    "data_entrega_planejada": hoje + timedelta(days=10),
+                },
+            ],
+            "tarefas": [
+                ("Montar a tela de avisos", "bia@gmail.com", dias(11), "a_fazer", dias(14)),
+                ("Configurar envio de e-mail", "caio@icloud.com", dias(4), "em_andamento", dias(9)),
+                ("Escrever os testes do portal", "bia@gmail.com", futuro(8), "a_fazer", dias(3)),
+            ],
+            "reunioes": [hoje - timedelta(days=hoje.weekday())],
         },
     ]
 
@@ -261,6 +604,7 @@ def executar():
     criados = {
         "frente": 0, "escopo": 0, "cargo": 0, "usuario": 0, "dia": 0,
         "projeto": 0, "escopo_vendido": 0, "banca": 0, "coluna": 0,
+        "tarefa": 0, "reuniao": 0,
     }
 
     try:
@@ -283,17 +627,28 @@ def executar():
                 escopo.ativo = True
                 criados["escopo"] += novo
 
-        # 3 · Cargos (permissões do módulo de bancas)
+        # 3 · Cargos (as 10 permissões da tabela do §3)
         cargos = {}
-        for nome, formulario, banca, gerenciar in CARGOS:
+        for (
+            nome, criar_projeto, editar_equipe, gerir_membros, marcar_kickoff,
+            definir_cronograma, aprovar_reajuste, criar_tarefa, mover_editar_tarefa,
+            ver_proprios_projetos, ver_monitoramento,
+        ) in CARGOS:
             cargo, novo = obter_ou_criar(
                 db,
                 CargoModel,
                 {"nome": nome},
                 {
-                    "pode_definir_formulario": formulario,
-                    "pode_agendar_banca": banca,
-                    "pode_gerenciar_cargos": gerenciar,
+                    "pode_criar_projeto": criar_projeto,
+                    "pode_editar_equipe": editar_equipe,
+                    "pode_gerir_membros": gerir_membros,
+                    "pode_marcar_kickoff": marcar_kickoff,
+                    "pode_definir_cronograma": definir_cronograma,
+                    "pode_aprovar_reajuste": aprovar_reajuste,
+                    "pode_criar_tarefa": criar_tarefa,
+                    "pode_mover_editar_tarefa": mover_editar_tarefa,
+                    "pode_ver_proprios_projetos": ver_proprios_projetos,
+                    "pode_ver_monitoramento": ver_monitoramento,
                 },
             )
             cargos[nome] = cargo
@@ -315,6 +670,34 @@ def executar():
                 {"tipo": tipo, "descricao": descricao},
             )
             criados["dia"] += novo
+
+        # 4b · Formulário de avaliação padrão + perguntas por escopo
+        escopos_por_nome = {e.nome: e for e in db.query(EscopoModel).all()}
+        formulario, novo = obter_ou_criar(
+            db, FormularioModel, {"semestre_id": semestre.id, "ativo": True}
+        )
+        criados["formulario"] = criados.get("formulario", 0) + novo
+        ordem = 0
+        for nome_escopo, perguntas in BLOCOS_TECNICOS.items():
+            escopo = escopos_por_nome.get(nome_escopo)
+            if not escopo:
+                continue
+            for texto in perguntas:
+                ordem += 1
+                _, criado = obter_ou_criar(
+                    db, PerguntaModel,
+                    {"formulario_id": formulario.id, "texto": texto},
+                    {"ordem": ordem, "tipo_resposta": "nota", "escopo_id": escopo.id},
+                )
+                criados["pergunta"] = criados.get("pergunta", 0) + criado
+        for texto in BLOCO_FINAL_UNIVERSAL:
+            ordem += 1
+            _, criado = obter_ou_criar(
+                db, PerguntaModel,
+                {"formulario_id": formulario.id, "texto": texto},
+                {"ordem": ordem, "tipo_resposta": "nota", "escopo_id": None},
+            )
+            criados["pergunta"] = criados.get("pergunta", 0) + criado
 
         # 5 · Membros pré-cadastrados (§10 — ninguém se auto-registra)
         usuarios_por_email = {}
@@ -399,6 +782,54 @@ def executar():
                     )
                     criados["banca"] += 1
 
+            # As colunas do projeto precisam existir ANTES das tarefas dele: a
+            # tarefa aponta para uma coluna e não guarda mais status próprio.
+            # O bloco geral abaixo (seção 7) cobre os projetos que já existiam;
+            # este cobre os que acabaram de nascer, para as tarefas terem onde
+            # cair. `obter_ou_criar` é idempotente, então não duplica.
+            colunas_do_projeto = {}
+            for chave, nome_col, cor, ordem, encerra in COLUNAS_TAREFA:
+                coluna, novo = obter_ou_criar(
+                    db, TarefaColunaModel,
+                    {"projeto_id": projeto.id, "chave": chave},
+                    {"nome": nome_col, "cor": cor, "ordem": ordem, "encerra_tarefa": encerra},
+                )
+                colunas_do_projeto[chave] = coluna.id
+                criados["coluna"] += novo
+
+            # `criado_em` é explícito porque é ELE que o §7.2 usa como marco de
+            # "sem tarefa nova há N dias". Deixar o server_default carimbar
+            # `now()` faria toda a demo nascer com 0 dias e a coluna morta.
+            #
+            # O 4º item da tupla era o status da tarefa; virou a CHAVE da
+            # coluna do kanban. Os valores não mudaram ("a_fazer",
+            # "em_andamento", "concluido") porque são exatamente as chaves de
+            # `COLUNAS_TAREFA` — mudou o que eles significam.
+            for titulo, email, prazo, chave_coluna, criada_em in spec.get("tarefas", []):
+                db.add(
+                    TarefaModel(
+                        projeto_id=projeto.id,
+                        titulo=titulo,
+                        responsavel_id=usuarios_por_email[email].id,
+                        prazo=prazo,
+                        coluna_id=colunas_do_projeto[chave_coluna],
+                        criado_por=spec["coordenador_id"],
+                        criado_em=datetime.combine(criada_em, time(9, 0)),
+                        movida_em=datetime.combine(criada_em, time(9, 0)),
+                    )
+                )
+                criados["tarefa"] += 1
+
+            for data_reuniao in spec.get("reunioes", []):
+                db.add(
+                    ReuniaoSemanalModel(
+                        projeto_id=projeto.id,
+                        data_reuniao=data_reuniao,
+                        registrado_por=spec["coordenador_id"],
+                    )
+                )
+                criados["reuniao"] += 1
+
         # 7 · Colunas do kanban — um conjunto POR PROJETO.
         #
         # Varre todos os projetos do banco (não só os recém-criados): um seed
@@ -427,12 +858,18 @@ def executar():
         for chave, total in criados.items():
             print(f"  {chave:8} +{total}")
         print(f"\n  Gestão ativa: {nome_sem} ({inicio:%d/%m/%Y} a {fim:%d/%m/%Y})")
-        print(f"  {len(DIAS_NAO_LETIVOS)} dias não letivos carregados")
+        print(
+            f"  {len(DIAS_NAO_LETIVOS) + len(dias_nao_letivos_moveis(hoje))} "
+            "dias não letivos carregados"
+        )
+        # Setas em ASCII: o console do Windows abre em cp1252 e `→` derruba o
+        # script com UnicodeEncodeError DEPOIS do commit — o seed funciona mas
+        # termina cuspindo traceback, e parece que falhou.
         print(f"\n  Login de qualquer usuário com a senha: {SENHA_PADRAO}")
-        print("    dani@al.insper.edu.br  → diretor")
-        print("    gil@gmail.com          → gerente (Business)")
-        print("    ana@al.insper.edu.br   → coordenador (Business)")
-        print("    caio@icloud.com        → consultor (Tech)")
+        print("    dani@al.insper.edu.br  -> diretor")
+        print("    gil@gmail.com          -> gerente (Business)")
+        print("    ana@al.insper.edu.br   -> coordenador (Business)")
+        print("    caio@icloud.com        -> consultor (Tech)")
 
     except Exception:
         db.rollback()
