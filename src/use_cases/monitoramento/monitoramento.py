@@ -669,14 +669,20 @@ class AlocacaoUseCase(_BaseMonitoramento):
             for u in usuarios.values()
             if entra(u, "consultor") and u.posicao == "consultor"
         ]
-        # As duas tabelas respondem perguntas OPOSTAS, por isso ordenam ao
-        # contrário uma da outra:
-        #   · coordenadores — "quem é o gargalo?" → mais carregado primeiro;
-        #   · consultores   — "quem pega o próximo projeto?" → menos
-        #     carregado primeiro, com os disponíveis (0 projetos) no topo.
+        # As duas tabelas respondem a MESMA pergunta: "quem pega o próximo
+        # projeto?". Por isso ordenam igual — menos carregado primeiro, com os
+        # disponíveis (0 projetos) no topo.
+        #
+        # Coordenadores ordenavam ao contrário, do mais carregado, para
+        # responder "quem é o gargalo?" — o §7.3 destaca que coordenador
+        # costuma ser gargalo. A diretoria pediu a inversão em 2026-08-05, e
+        # essa leitura NÃO se perdeu: ela passou para o card de quem está no
+        # limite de carga, acima das tabelas, que é onde o sobrecarregado
+        # aparece agora. Sem esse card, inverter aqui esconderia o gargalo.
+        #
         # O nome é o desempate, senão pessoas com a mesma carga trocam de
         # lugar a cada refresh (a ordem vinha do dicionário de usuários).
-        coordenadores.sort(key=lambda x: (-x["total"], x["nome"]))
+        coordenadores.sort(key=lambda x: (x["total"], x["nome"]))
         consultores.sort(key=lambda x: (x["total"], x["nome"]))
 
         return {
