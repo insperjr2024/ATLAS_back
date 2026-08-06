@@ -127,9 +127,11 @@ class _BaseMonitoramento:
         return [d.data for d in self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)]
 
     def _projetos_visiveis(self, current_user, frente_id: Optional[int]) -> List[ProjetoModel]:
+        # Projeto arquivado é histórico (§12) — não deve inflar nenhum KPI,
+        # tabela ou cronograma do monitoramento da gestão atual.
         query = aplicar_recorte_visao(
             self.db.query(ProjetoModel), current_user, self.db, frente_id
-        )
+        ).filter(ProjetoModel.arquivado_em.is_(None))
         return query.all()
 
     def _encerra_por_coluna(self) -> Dict[int, bool]:

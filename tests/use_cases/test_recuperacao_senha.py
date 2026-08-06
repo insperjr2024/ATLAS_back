@@ -225,6 +225,19 @@ class TestRedefinirSenha:
         assert usuario.senha_hash != "hash_antigo"
         assert token.usado_em == AGORA
 
+    def test_tira_a_conta_do_estado_de_senha_provisoria(self):
+        """Quem foi cadastrado e, em vez de usar a senha do e-mail, pediu
+        "esqueci minha senha" está definindo a senha dele AQUI. Sem isto sairia
+        com senha própria e ainda assim preso na tela de primeiro acesso."""
+        cru, token = self._token_valido()
+        usuario = UsuarioFake()
+        usuario.senha_provisoria = True
+        uc = montar_redefinicao(usuario, tokens=(token,))
+
+        uc.execute(RedefinirSenhaRequest(token=cru, nova_senha="senhanova123"), agora=AGORA)
+
+        assert usuario.senha_provisoria is False
+
     def test_o_mesmo_token_nao_serve_duas_vezes(self):
         """O motivo de existir a tabela em vez de um JWT."""
         cru, token = self._token_valido()

@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
-    require_diretor,
-    require_gestao,
+    require_pode_administrar_desempenho,
+    require_pode_editar_formularios_desempenho,
     require_self,
     require_self_mentor_ou_gestao,
 )
@@ -64,7 +64,7 @@ router = APIRouter(tags=["avaliação de desempenho"], dependencies=[Depends(get
 # ---------------------------------------------------------------- lotes
 
 @router.post("/desempenho/lotes")
-def create_lote(request: CreateDesempenhoLoteRequest, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def create_lote(request: CreateDesempenhoLoteRequest, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     return CreateDesempenhoLoteUseCase(db).execute(request)
 
 
@@ -74,7 +74,7 @@ def list_lotes(abertos: bool = True, db: Session = Depends(get_db)):
 
 
 @router.put("/desempenho/lotes/{lote_id}")
-def update_lote(lote_id: int, request: UpdateDesempenhoLoteRequest, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def update_lote(lote_id: int, request: UpdateDesempenhoLoteRequest, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     result = UpdateDesempenhoLoteUseCase(db).execute(lote_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Lote não encontrado")
@@ -82,7 +82,7 @@ def update_lote(lote_id: int, request: UpdateDesempenhoLoteRequest, _=Depends(re
 
 
 @router.delete("/desempenho/lotes/{lote_id}", status_code=204)
-def delete_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def delete_lote(lote_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     try:
         deleted = DeleteDesempenhoLoteUseCase(db).execute(lote_id)
     except ResourceInUseError:
@@ -96,7 +96,7 @@ def delete_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(g
 
 
 @router.post("/desempenho/lotes/{lote_id}/abrir")
-def abrir_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def abrir_lote(lote_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     result = AbrirLoteUseCase(db).execute(lote_id)
     if not result:
         raise HTTPException(status_code=404, detail="Lote não encontrado")
@@ -104,7 +104,7 @@ def abrir_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(ge
 
 
 @router.post("/desempenho/lotes/{lote_id}/fechar")
-def fechar_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def fechar_lote(lote_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     result = FecharLoteUseCase(db).execute(lote_id)
     if not result:
         raise HTTPException(status_code=404, detail="Lote não encontrado")
@@ -112,7 +112,7 @@ def fechar_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(g
 
 
 @router.post("/desempenho/lotes/{lote_id}/seguir-datas")
-def seguir_datas_lote(lote_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def seguir_datas_lote(lote_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     result = SeguirDatasLoteUseCase(db).execute(lote_id)
     if not result:
         raise HTTPException(status_code=404, detail="Lote não encontrado")
@@ -120,7 +120,7 @@ def seguir_datas_lote(lote_id: int, _=Depends(require_gestao), db: Session = Dep
 
 
 @router.get("/desempenho/lotes/{lote_id}/pendencias")
-def get_pendencias(lote_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def get_pendencias(lote_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     result = GetPendenciasLoteUseCase(db).execute(lote_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Lote não encontrado")
@@ -142,7 +142,7 @@ def update_formulario(
     tipo: str,
     papel: str,
     request: UpdateDesempenhoFormularioRequest,
-    _=Depends(require_diretor),
+    _=Depends(require_pode_editar_formularios_desempenho),
     db: Session = Depends(get_db),
 ):
     result = UpdateDesempenhoFormularioUseCase(db).execute(tipo, papel, request)
@@ -166,12 +166,12 @@ def create_avaliacao(
 
 
 @router.get("/desempenho/avaliacoes")
-def list_avaliacoes(_=Depends(require_gestao), db: Session = Depends(get_db)):
+def list_avaliacoes(_=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     return ListDesempenhoAvaliacoesUseCase(db).execute()
 
 
 @router.get("/desempenho/avaliacoes/{avaliacao_id}")
-def get_avaliacao(avaliacao_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def get_avaliacao(avaliacao_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     result = GetDesempenhoAvaliacaoUseCase(db).execute(avaliacao_id)
     if not result:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
@@ -179,7 +179,7 @@ def get_avaliacao(avaliacao_id: int, _=Depends(require_gestao), db: Session = De
 
 
 @router.delete("/desempenho/avaliacoes/{avaliacao_id}", status_code=204)
-def delete_avaliacao(avaliacao_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def delete_avaliacao(avaliacao_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     deleted = DeleteDesempenhoAvaliacaoUseCase(db).execute(avaliacao_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
@@ -189,7 +189,7 @@ def delete_avaliacao(avaliacao_id: int, _=Depends(require_gestao), db: Session =
 # ---------------------------------------------------------------- mentorias
 
 @router.post("/desempenho/mentorias")
-def create_mentoria(request: CreateMentoriaRequest, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def create_mentoria(request: CreateMentoriaRequest, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     try:
         return CreateMentoriaUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -197,7 +197,7 @@ def create_mentoria(request: CreateMentoriaRequest, _=Depends(require_gestao), d
 
 
 @router.delete("/desempenho/mentorias/{mentoria_id}", status_code=204)
-def delete_mentoria(mentoria_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def delete_mentoria(mentoria_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     deleted = DeleteMentoriaUseCase(db).execute(mentoria_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Mentoria não encontrada")
@@ -205,14 +205,14 @@ def delete_mentoria(mentoria_id: int, _=Depends(require_gestao), db: Session = D
 
 
 @router.get("/desempenho/mentorias")
-def list_mentorias(_=Depends(require_gestao), db: Session = Depends(get_db)):
+def list_mentorias(_=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     return ListMentoriasUseCase(db).execute()
 
 
 # ---------------------------------------------------------------- pdi
 
 @router.post("/desempenho/pdi/pastas")
-def create_pdi_pasta(request: CreatePdiPastaRequest, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def create_pdi_pasta(request: CreatePdiPastaRequest, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     try:
         return CreatePdiPastaUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -228,7 +228,7 @@ def list_pdi_pastas(_=Depends(get_current_user), db: Session = Depends(get_db)):
 def update_pdi_pasta(
     pasta_id: int,
     request: UpdatePdiPastaRequest,
-    _=Depends(require_gestao),
+    _=Depends(require_pode_administrar_desempenho),
     db: Session = Depends(get_db),
 ):
     result = UpdatePdiPastaUseCase(db).execute(pasta_id, request)
@@ -238,7 +238,7 @@ def update_pdi_pasta(
 
 
 @router.delete("/desempenho/pdi/pastas/{pasta_id}", status_code=204)
-def delete_pdi_pasta(pasta_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def delete_pdi_pasta(pasta_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     try:
         deleted = DeletePdiPastaUseCase(db).execute(pasta_id)
     except ResourceInUseError:
@@ -252,7 +252,7 @@ def delete_pdi_pasta(pasta_id: int, _=Depends(require_gestao), db: Session = Dep
 def create_pdi_item(
     pasta_id: int,
     request: CreatePdiItemRequest,
-    _=Depends(require_gestao),
+    _=Depends(require_pode_administrar_desempenho),
     db: Session = Depends(get_db),
 ):
     try:
@@ -270,7 +270,7 @@ def list_pdi_itens(pasta_id: int, _=Depends(get_current_user), db: Session = Dep
 def update_pdi_item(
     item_id: int,
     request: UpdatePdiItemRequest,
-    _=Depends(require_gestao),
+    _=Depends(require_pode_administrar_desempenho),
     db: Session = Depends(get_db),
 ):
     result = UpdatePdiItemUseCase(db).execute(item_id, request)
@@ -280,7 +280,7 @@ def update_pdi_item(
 
 
 @router.delete("/desempenho/pdi/itens/{item_id}", status_code=204)
-def delete_pdi_item(item_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def delete_pdi_item(item_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     try:
         deleted = DeletePdiItemUseCase(db).execute(item_id)
     except ResourceInUseError:
@@ -291,7 +291,7 @@ def delete_pdi_item(item_id: int, _=Depends(require_gestao), db: Session = Depen
 
 
 @router.get("/desempenho/pdi/itens/{item_id}/pendencias")
-def get_pendencias_pdi(item_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+def get_pendencias_pdi(item_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     return ListPendenciasPdiUseCase(db).execute(item_id)
 
 

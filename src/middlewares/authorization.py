@@ -2,12 +2,12 @@
 
 Duas dimensões que convivem, e não devem ser confundidas:
 
-- **`cargo`** (as 10 caixas da tabela do §3) → quem DECIDE em runtime. São as
-  10 ações da tabela do briefing, editáveis na tela de Cargos.
+- **`cargo`** (as 10 caixas da tabela do §3 + as 4 que estenderam essa tabela
+  depois — Avaliação de Desempenho, formulários dela, Núcleo e Configurações)
+  → quem DECIDE em runtime, editável na tela de Cargos.
 - **`posicao`** (diretor · gerente · coordenador · consultor) → define o PADRÃO
-  com que cada cargo nasce (ver a migration `7514970fac39`) e ainda tranca o
-  que ficou de fora da tabela: formulário de banca, núcleo/configurações,
-  cargos e a Avaliação de Desempenho.
+  com que cada cargo nasce (ver a migration `7514970fac39`); `require_diretor`
+  e `require_posicao(...)` ainda travam o que não virou caixa de cargo.
 
 O recorte de visão (`aplicar_recorte_visao`) é a regra mais importante daqui:
 o front só ESCONDE, quem DECIDE é o backend.
@@ -87,6 +87,35 @@ require_pode_ver_proprios_projetos = _dependencia_permissao(
 # 10. Monitoramento e alocação
 require_pode_ver_monitoramento = _dependencia_permissao(
     "pode_ver_monitoramento", "Você não tem permissão para ver o monitoramento")
+
+# -------------------------------------------------- extensão além das 10 do §3
+#
+# O briefing não define permissão pra estas áreas — o docstring do módulo as
+# lista como "o que ficou de fora da tabela" e elas nasceram travadas só por
+# posição (diretor, ou diretor+gerente). A pedido explícito do usuário
+# (2026-08-06), viraram caixas de cargo como as outras 10, pra dar pra
+# delegar sem precisar tornar alguém "diretor" inteiro.
+# `pode_administrar_configuracoes` é a mais sensível: quem a tem edita cargos,
+# inclusive o próprio — mas só quem já tem a caixa consegue concedê-la a
+# outro cargo, então a auto-escalada exige já ter a permissão de largada.
+
+require_pode_administrar_desempenho = _dependencia_permissao(
+    "pode_administrar_desempenho",
+    "Você não tem permissão para administrar a Avaliação de Desempenho",
+)
+
+require_pode_editar_formularios_desempenho = _dependencia_permissao(
+    "pode_editar_formularios_desempenho",
+    "Você não tem permissão para editar os formulários de Avaliação de Desempenho",
+)
+
+require_pode_ver_nucleo = _dependencia_permissao(
+    "pode_ver_nucleo", "Você não tem permissão para ver o Núcleo")
+
+require_pode_administrar_configuracoes = _dependencia_permissao(
+    "pode_administrar_configuracoes",
+    "Você não tem permissão para administrar as configurações",
+)
 
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):

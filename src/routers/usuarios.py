@@ -13,6 +13,7 @@ from src.middlewares.authorization import (
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.auth.senha_provisoria import ReenviarSenhaProvisoriaUseCase
 from src.use_cases.banca.get_bancas_para_avaliar import GetBancasParaAvaliarUseCase
 from src.use_cases.usuario.get_desempenho import GetDesempenhoUseCase
 from src.use_cases.usuario.get_usuario import GetUsuarioUseCase, ListUsuariosUseCase
@@ -79,6 +80,30 @@ def transferir_diretoria(
         return TransferirDiretoriaUseCase(db).execute(request, alterado_por=current_user.id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/usuarios/{usuario_id}/senha-provisoria")
+def reenviar_senha_provisoria(
+    usuario_id: int,
+    _=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """Reemite a senha de primeiro acesso e manda de novo por e-mail.
+
+    🔒 Diretoria, a mesma régua do cadastro — e não `pode_gerir_membros`:
+    reenviar DERRUBA a senha atual da pessoa, então quem pudesse fazer isso
+    entraria na conta de qualquer um, inclusive de um diretor.
+
+    A senha em claro volta na resposta porque é a única chance de vê-la: quem
+    reemitiu consegue repassá-la se o e-mail não sair (`email_enviado: false`).
+    """
+    try:
+        resultado = ReenviarSenhaProvisoriaUseCase(db).execute(usuario_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    return resultado
 
 
 @router.delete("/usuarios/{usuario_id}", status_code=204)

@@ -126,9 +126,6 @@ class GetCronogramaUseCase:
                 }
                 for d in dias_nao_letivos
             ],
-            # F11 ainda não existe; o campo já vem para o banner do front não
-            # precisar mudar de forma depois.
-            "reajuste_pendente": None,
         }
 
     def _janela(self, projeto, escopos, etapas, marcos, bancas, referencia):

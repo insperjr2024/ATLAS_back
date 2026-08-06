@@ -3,7 +3,11 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import require_diretor
-from src.middlewares.validate_user_auth_token import get_current_user
+from src.middlewares.validate_user_auth_token import (
+    get_current_user,
+    get_current_user_em_definicao_de_senha,
+)
+from src.use_cases.auth.definir_senha import DefinirSenhaUseCase, DefinirSenhaRequest
 from src.use_cases.auth.listar_primeiros_nomes import ListarPrimeirosNomesUseCase
 from src.use_cases.auth.login import LoginUseCase, LoginRequest
 from src.use_cases.auth.redefinir_senha import RedefinirSenhaUseCase, RedefinirSenhaRequest
@@ -15,10 +19,16 @@ from src.use_cases.auth.solicitar_recuperacao import (
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.token import criar_access_token
 
-# Rotas sem token: login e a recuperação de senha. O registro fica no router
-# protegido abaixo — o §10 do briefing é explícito em que ninguém se
-# auto-registra. A recuperação PRECISA ser pública: quem esqueceu a senha não
-# tem como se autenticar para pedir a troca.
+# Rotas que NÃO passam pela trava do `get_current_user`. São duas famílias:
+#
+# - sem token nenhum: login e a recuperação de senha. A recuperação precisa ser
+#   pública — quem esqueceu a senha não tem como se autenticar para pedir a
+#   troca. O registro NÃO entra aqui: o §10 é explícito em que ninguém se
+#   auto-registra, então ele fica no router protegido, exigindo diretoria.
+# - com token, mas durante o primeiro acesso: `me`, `renovar` e `definir-senha`
+#   pedem `get_current_user_em_definicao_de_senha` no próprio `Depends`. Elas
+#   precisam responder para quem ainda está com senha provisória, ou a pessoa
+#   entra e não tem como sair do estado.
 router_publico = APIRouter(tags=["auth"])
 
 router = APIRouter(tags=["auth"], dependencies=[Depends(get_current_user)])
@@ -78,8 +88,27 @@ def registrar(request: RegistrarRequest, _=Depends(require_diretor), db: Session
         raise HTTPException(status_code=422, detail=str(e))
 
 
-@router.post("/auth/renovar")
-def renovar(current_user=Depends(get_current_user)):
+@router_publico.post("/auth/definir-senha")
+def definir_senha(
+    request: DefinirSenhaRequest,
+    current_user=Depends(get_current_user_em_definicao_de_senha),
+    db: Session = Depends(get_db),
+):
+    """⭐ O primeiro acesso: trocar a senha provisória do e-mail pela própria.
+
+    Fica no router PÚBLICO (que não tem a trava no `dependencies`), mas exige
+    token — a autenticação vem do `Depends` explícito, na versão que não cobra
+    a definição de senha. Sem isso, a rota que TIRA a pessoa do estado
+    provisório seria bloqueada pelo próprio estado.
+    """
+    try:
+        return DefinirSenhaUseCase(db).execute(current_user, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router_publico.post("/auth/renovar")
+def renovar(current_user=Depends(get_current_user_em_definicao_de_senha)):
     """Devolve um token novo, com o prazo cheio, para quem já está logado.
 
     ⭐ É o que faz a sessão ser deslizante: o front chama isto toda vez que a
@@ -97,8 +126,8 @@ def renovar(current_user=Depends(get_current_user)):
     }
 
 
-@router.get("/auth/me")
-def get_me(current_user=Depends(get_current_user)):
+@router_publico.get("/auth/me")
+def get_me(current_user=Depends(get_current_user_em_definicao_de_senha)):
     return {
         "id": current_user.id,
         "nome": current_user.nome,
@@ -109,4 +138,8 @@ def get_me(current_user=Depends(get_current_user)):
         "posicao": current_user.posicao,
         "status": current_user.status,
         "ativo": current_user.ativo,
+        # ⭐ Verdadeiro = a senha atual é a provisória do e-mail de cadastro.
+        # É por este campo que o front manda a pessoa para /definir-senha; o
+        # 403 das outras rotas é a rede de segurança, não o caminho normal.
+        "senha_provisoria": current_user.senha_provisoria,
     }

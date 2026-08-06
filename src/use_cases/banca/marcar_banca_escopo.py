@@ -24,6 +24,7 @@ from src.repositories.projeto_remarcacao_banca_repository import ProjetoRemarcac
 from src.repositories.projeto_repository import ProjetoRepository
 from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.piso_banca import calcular_piso_banca
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar import notificar
@@ -228,9 +229,12 @@ class RegistrarRealizacaoBancaUseCase:
         self.repository = BancaRepository(db)
         from src.repositories.candidatura_repository import CandidaturaRepository
         from src.repositories.configuracao_repository import ConfiguracaoRepository
+        from src.repositories.frente_repository import FrenteRepository
 
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
+        self.banca_frente_repository = BancaFrenteRepository(db)
+        self.frente_repository = FrenteRepository(db)
 
     def execute(
         self,
@@ -273,9 +277,16 @@ class RegistrarRealizacaoBancaUseCase:
     def _exigir_composicao(self, banca, request, eh_diretor: bool) -> None:
         """A banca não fecha com menos gente que o combinado (§8).
 
-        📐 O mínimo é `configuracao.vagas_por_banca`, ou o
+        📐 O mínimo é a SOMA do `piso_banca` das frentes vinculadas (§8:
+        Business 3 · Tech 2 · Eng. de Processos 2 · Direito 1), ou o
         `piso_minimo_override` quando a diretoria já afrouxou esta banca
-        específica na hora de marcar.
+        específica. Vem de `calcular_piso_banca`, o mesmo caminho do push
+        automático.
+
+        ⚠ NÃO é `configuracao.vagas_por_banca`: aquilo é o TETO de quantos
+        cabem na banca (`create_candidatura` recusa em "banca lotada"), e usar
+        o teto como piso reprovaria quase toda banca — 5 alocados exigidos
+        onde o §8 pede 3.
 
         A saída é `forcar`, e só para a diretoria — é ela que libera exceção às
         regras de composição no §8. Sem essa porta, uma banca que aconteceu com
@@ -283,10 +294,11 @@ class RegistrarRealizacaoBancaUseCase:
         exatamente por isso: a nota de rodapé viraria dado errado no
         monitoramento.
         """
-        configuracao = self.configuracao_repository.get()
-        minimo = banca.piso_minimo_override
-        if minimo is None:
-            minimo = configuracao.vagas_por_banca if configuracao else 5
+        vinculos = self.banca_frente_repository.get_by_banca(banca.id)
+        frentes = [
+            f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f
+        ]
+        minimo = calcular_piso_banca(banca, frentes)
 
         alocados = len(self.candidatura_repository.get_by_banca(banca.id))
         if alocados >= minimo:

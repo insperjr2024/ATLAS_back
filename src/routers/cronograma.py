@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.authorization import (
     exigir_acesso_ao_projeto,
+    require_pode_aprovar_reajuste,
     require_pode_definir_cronograma,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -33,6 +34,9 @@ from src.use_cases.cronograma.update_cronograma import (
     UpdateEtapaDetalheUseCase,
     UpdateEtapaIntervaloUseCase,
 )
+from src.use_cases.cronograma_reajuste.listar_pendentes import ListarReajustesPendentesUseCase
+from src.use_cases.cronograma_reajuste.responder import ResponderReajusteRequest, ResponderReajusteUseCase
+from src.use_cases.cronograma_reajuste.solicitar import SolicitarReajusteRequest, SolicitarReajusteUseCase
 from src.utils.cronograma_guard import CronogramaOficializadoError, http_conflito_cronograma
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -137,3 +141,42 @@ def oficializar(escopo_id: int, current_user=Depends(require_pode_definir_cronog
     if not result:
         raise HTTPException(status_code=404, detail="Escopo não encontrado")
     return result
+
+
+@router.post("/escopos-projeto/{escopo_id}/reajuste")
+def solicitar_reajuste(
+    escopo_id: int,
+    request: SolicitarReajusteRequest,
+    current_user=Depends(require_pode_definir_cronograma),
+    db: Session = Depends(get_db),
+):
+    """§5.6: pedido do coordenador pra reabrir um cronograma já
+    oficializado. Notifica a diretoria — só ela responde."""
+    _projeto_do_escopo(escopo_id, current_user, db)
+    try:
+        return SolicitarReajusteUseCase(db).execute(escopo_id, request, current_user)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/reajustes/pendentes")
+def listar_reajustes_pendentes(
+    current_user=Depends(require_pode_aprovar_reajuste), db: Session = Depends(get_db)
+):
+    """§5.6: fila só da diretoria — "o gerente não aprova reajustes"."""
+    return ListarReajustesPendentesUseCase(db).execute()
+
+
+@router.patch("/reajustes/{solicitacao_id}/responder")
+def responder_reajuste(
+    solicitacao_id: int,
+    request: ResponderReajusteRequest,
+    current_user=Depends(require_pode_aprovar_reajuste),
+    db: Session = Depends(get_db),
+):
+    """Aprovar destrava o cronograma (limpa `cronograma_oficializado_em`);
+    rejeitar mantém a trava. Os dois exigem justificativa (§5.6)."""
+    try:
+        return ResponderReajusteUseCase(db).execute(solicitacao_id, request, current_user)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))

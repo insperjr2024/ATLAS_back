@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.banca_status import calcular_status_banca
 from src.utils.contagem_dias import calcular_contagem_projeto
 
@@ -64,6 +66,8 @@ class ListEscoposProjetoUseCase:
         self.catalogo_repository = EscopoRepository(db)
         self.banca_repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.reajuste_repository = CronogramaReajusteRepository(db)
+        self.usuario_repository = UsuarioRepository(db)
 
     def execute(self, projeto_id: int, referencia: Optional[date] = None) -> List[dict]:
         escopos = self.repository.get_by_projeto(projeto_id)
@@ -86,6 +90,13 @@ class ListEscoposProjetoUseCase:
             escopos, historico, dias_nao_letivos, referencia=referencia
         )
 
+        # §5.6: pendente do escopo, pra tela decidir entre "Solicitar
+        # reajuste" e "Aguardando aprovação da diretoria" sem pedir de novo.
+        pendentes = {
+            e.id: self.reajuste_repository.get_pendente_do_escopo(e.id) for e in escopos
+        }
+        nomes_usuario = {u.id: u.nome for u in self.usuario_repository.get_all()}
+
         return [
             serializar_escopo(
                 e,
@@ -93,12 +104,22 @@ class ListEscoposProjetoUseCase:
                 catalogo,
                 bancas.get(e.id),
                 escopos_da_banca,
+                pendentes.get(e.id),
+                nomes_usuario,
             )
             for e in escopos
         ]
 
 
-def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None, escopos_da_banca=None) -> dict:
+def serializar_escopo(
+    escopo,
+    contagem,
+    catalogo_por_id,
+    banca=None,
+    escopos_da_banca=None,
+    reajuste_pendente=None,
+    nomes_usuario=None,
+) -> dict:
     return {
         "id": escopo.id,
         "projeto_id": escopo.projeto_id,
@@ -134,4 +155,15 @@ def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None, escopos_da_
             else None
         ),
         "entrega_liberada": bool(banca and banca.realizado_em),
+        "reajuste_pendente": (
+            {
+                "id": reajuste_pendente.id,
+                "motivo": reajuste_pendente.motivo,
+                "solicitado_por": reajuste_pendente.solicitado_por,
+                "solicitado_por_nome": (nomes_usuario or {}).get(reajuste_pendente.solicitado_por),
+                "criado_em": reajuste_pendente.criado_em,
+            }
+            if reajuste_pendente
+            else None
+        ),
     }

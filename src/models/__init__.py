@@ -27,6 +27,7 @@ from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_justificativa_atraso_model import ProjetoJustificativaAtrasoModel
 from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
+from src.models.cronograma_reajuste_solicitacao_model import CronogramaReajusteSolicitacaoModel
 from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.tarefa_comentario_model import TarefaComentarioModel
 from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
