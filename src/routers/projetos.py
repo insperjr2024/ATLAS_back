@@ -60,6 +60,12 @@ from src.use_cases.projeto.update_configuracoes import (
     UpdateDiasAmbientacaoRequest,
     UpdateDiasAmbientacaoUseCase,
 )
+from src.use_cases.projeto.excluir_justificativa_atraso import ExcluirJustificativaAtrasoUseCase
+from src.use_cases.projeto.excluir_remarcacao_banca import ExcluirRemarcacaoBancaUseCase
+from src.use_cases.projeto.registrar_justificativa_atraso import (
+    RegistrarJustificativaAtrasoRequest,
+    RegistrarJustificativaAtrasoUseCase,
+)
 from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatusUseCase
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
 from src.repositories.projeto_repository import ProjetoRepository
@@ -171,6 +177,51 @@ def update_status(projeto_id: int, request: UpdateStatusRequest, current_user=De
 def get_historico(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     return GetHistoricoProjetoUseCase(db).execute(projeto_id)
+
+
+@router.post("/projetos/{projeto_id}/justificativa-atraso")
+def registrar_justificativa_atraso(
+    projeto_id: int,
+    request: RegistrarJustificativaAtrasoRequest,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """§7.4 — só a diretoria registra o porquê de um atraso."""
+    try:
+        result = RegistrarJustificativaAtrasoUseCase(db).execute(
+            projeto_id, request, registrado_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.delete("/projetos/{projeto_id}/justificativa-atraso/{justificativa_id}", status_code=204)
+def excluir_justificativa_atraso(
+    projeto_id: int,
+    justificativa_id: int,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """§7.4 — não é edição de rotina, é pra corrigir engano/teste."""
+    sucesso = ExcluirJustificativaAtrasoUseCase(db).execute(projeto_id, justificativa_id)
+    if not sucesso:
+        raise HTTPException(status_code=404, detail="Justificativa não encontrada")
+
+
+@router.delete("/projetos/{projeto_id}/remarcacao-banca/{remarcacao_id}", status_code=204)
+def excluir_remarcacao_banca(
+    projeto_id: int,
+    remarcacao_id: int,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """§5.6 — mesma lógica: correção de engano/teste, não rotina."""
+    sucesso = ExcluirRemarcacaoBancaUseCase(db).execute(projeto_id, remarcacao_id)
+    if not sucesso:
+        raise HTTPException(status_code=404, detail="Remarcação não encontrada")
 
 
 @router.patch("/projetos/{projeto_id}/arquivar")

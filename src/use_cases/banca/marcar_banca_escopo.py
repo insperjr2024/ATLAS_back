@@ -20,6 +20,7 @@ from src.repositories.banca_repository import BancaRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.repositories.projeto_remarcacao_banca_repository import ProjetoRemarcacaoBancaRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
@@ -49,8 +50,15 @@ class MarcarBancaEscopoUseCase:
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.catalogo_repository = EscopoRepository(db)
+        self.remarcacao_repository = ProjetoRemarcacaoBancaRepository(db)
 
-    def execute(self, escopo_id: int, request: MarcarBancaEscopoRequest, eh_diretor: bool = False):
+    def execute(
+        self,
+        escopo_id: int,
+        request: MarcarBancaEscopoRequest,
+        eh_diretor: bool = False,
+        registrado_por: Optional[int] = None,
+    ):
         escopo = self.escopo_repository.get_by_id(escopo_id)
         if not escopo:
             return None
@@ -78,6 +86,17 @@ class MarcarBancaEscopoUseCase:
             if data_anterior != banca.data_hora:
                 notificar_banca_remarcada(
                     self.db, projeto, banca.id, self._nome(escopo), data_anterior, banca.data_hora
+                )
+                # §5.6: a justificativa exigida acima finalmente vai pra algum
+                # lugar — sem isso, ela era validada e jogada fora.
+                self.remarcacao_repository.create(
+                    projeto_id=projeto.id,
+                    banca_id=banca.id,
+                    projeto_escopo_id=escopo.id,
+                    data_anterior=data_anterior,
+                    data_nova=banca.data_hora,
+                    justificativa=request.justificativa.strip(),
+                    registrado_por=registrado_por,
                 )
         else:
             coordenador = next(

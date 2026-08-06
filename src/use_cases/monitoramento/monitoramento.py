@@ -33,6 +33,9 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_justificativa_atraso_repository import (
+    ProjetoJustificativaAtrasoRepository,
+)
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
@@ -111,6 +114,7 @@ class _BaseMonitoramento:
         self.situacao_repository = SituacaoCargaRepository(db)
         self.frente_repository = FrenteRepository(db)
         self.usuario_frente_repository = UsuarioFrenteRepository(db)
+        self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -932,29 +936,23 @@ class AtrasosUseCase(_BaseMonitoramento):
         projetos = self._projetos_visiveis(current_user, frente_id)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
+        justificativas_por_projeto = _agrupar(
+            self.justificativa_repository.get_by_projetos([p.id for p in projetos]), "projeto_id"
+        )
 
         por_projeto = []
         for p in projetos:
             atraso = atrasos[p.id]
             if not atraso.atrasado:
                 continue
+            justificativas = justificativas_por_projeto.get(p.id, [])
             por_projeto.append(
                 {
                     "projeto_id": p.id,
                     "projeto_nome": p.nome,
                     "status": p.status,
                     "dias_totais": atraso.dias_totais,
-                    "motivos": [
-                        {
-                            "tipo": m.tipo,
-                            "descricao": m.descricao,
-                            "dias": m.dias,
-                            "escopo": m.escopo_nome,
-                            "projeto_escopo_id": m.projeto_escopo_id,
-                            "data_referencia": m.data_referencia,
-                        }
-                        for m in atraso.motivos
-                    ],
+                    "motivos": [self._motivo_dict(m, justificativas) for m in atraso.motivos],
                 }
             )
         por_projeto.sort(key=lambda x: -x["dias_totais"])
@@ -990,6 +988,57 @@ class AtrasosUseCase(_BaseMonitoramento):
                 por_coordenador.values(), key=lambda x: -x["dias_acumulados"]
             ),
         }
+
+    def _motivo_dict(self, motivo, justificativas) -> dict:
+        cobrindo = self._justificativa_cobrindo(motivo, justificativas)
+        return {
+            "tipo": motivo.tipo,
+            "descricao": motivo.descricao,
+            "dias": motivo.dias,
+            "escopo": motivo.escopo_nome,
+            "projeto_escopo_id": motivo.projeto_escopo_id,
+            "data_referencia": motivo.data_referencia,
+            "justificado": cobrindo is not None,
+            # §7.4: o selo "justificado" do front tem que levar pra nota de
+            # verdade no histórico — sem o id, ele só conseguia dizer
+            # "alguém respondeu", não *onde* está a resposta.
+            "justificativa_id": cobrindo.id if cobrindo else None,
+        }
+
+    def _justificativa_cobrindo(self, motivo, justificativas):
+        """§7.4: o projeto continua vermelho mesmo depois de justificado —
+        "o alerta é automático" não muda por causa da nota. O aviso é só pra
+        dizer que a diretoria já perguntou e já registrou o porquê, então não
+        cobra de novo o que já foi respondido.
+
+        O aviso é POR MOTIVO (escopo + tipo), não por projeto: o mesmo escopo
+        pode estar atrasado em banca E entrega ao mesmo tempo, e uma nota só
+        cobre as duas se for uma nota geral (sem escopo/tipo escolhidos).
+        Ordem de especificidade, da mais ampla pra mais estreita:
+          1. nota geral do projeto (sem escopo) — cobre qualquer motivo;
+          2. nota do escopo sem tipo — cobre os motivos DESTE escopo;
+          3. nota do escopo com tipo — cobre só ESTE motivo.
+
+        Uma nota só conta pro atraso ATUAL: se o atraso deste motivo começou
+        depois da nota, ela era de uma rodada anterior (já resolvida) e não
+        cobre a de agora.
+
+        Devolve a nota mais RECENTE que cobre — se houver mais de uma, é a
+        que reflete melhor "o que a diretoria disse por último" sobre isto.
+        """
+        def cobre(j) -> bool:
+            if j.projeto_escopo_id is not None and j.projeto_escopo_id != motivo.projeto_escopo_id:
+                return False
+            if j.tipo is not None and j.tipo != motivo.tipo:
+                return False
+            if motivo.data_referencia is None:
+                return True
+            return j.registrado_em.date() >= motivo.data_referencia
+
+        candidatas = [j for j in justificativas if cobre(j)]
+        if not candidatas:
+            return None
+        return max(candidatas, key=lambda j: j.registrado_em)
 
 
 class TarefasGeraisUseCase(_BaseMonitoramento):
