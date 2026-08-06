@@ -20,6 +20,9 @@ class UsuarioFake:
         self.ativo = status == "ativo"
         self.email_insper = f"{nome.split()[0].lower()}@al.insper.edu.br"
         self.cargo_id = 4
+        # Diretor em exercício já fez o primeiro acesso — `serializar_usuario`
+        # devolve este campo desde que a senha provisória passou a existir.
+        self.senha_provisoria = False
 
 
 class UsuarioRepositoryFake:

@@ -47,6 +47,44 @@ class EmailSender:
             smtp.send_message(mensagem)
 
 
+def montar_email_senha_provisoria(nome: str, senha: str, link_login: str) -> tuple[str, str, str]:
+    """O e-mail de boas-vindas com a senha de primeiro acesso.
+
+    A senha vai no CORPO, não atrás de um link, porque é assim que o fluxo foi
+    pedido: a pessoa entra com ela e o próprio ATLAS a obriga a escolher outra
+    antes de liberar qualquer tela. Por isso o texto diz que ela é temporária —
+    quem recebe precisa saber que não vale a pena memorizá-la.
+
+    Em `<code>` no HTML: fonte monoespaçada separa `O` de `0` na leitura, e a
+    senha é feita justamente para ser lida e digitada à mão.
+    """
+    assunto = "Seu acesso ao ATLAS - senha provisória"
+
+    texto = (
+        f"Olá, {nome}.\n\n"
+        f"A sua conta no ATLAS foi criada. Entre com esta senha provisória:\n\n"
+        f"{senha}\n\n"
+        f"Acesse: {link_login}\n\n"
+        f"Assim que entrar, o sistema vai pedir para você escolher a SUA senha "
+        f"— a provisória deixa de valer nesse momento, e até lá o resto da "
+        f"plataforma fica bloqueado.\n\n"
+        f"Se você não esperava este e-mail, avise a diretoria.\n"
+    )
+
+    html = (
+        f"<p>Olá, {nome}.</p>"
+        f"<p>A sua conta no ATLAS foi criada. Entre com esta senha provisória:</p>"
+        f'<p style="font-size:18px"><code>{senha}</code></p>'
+        f'<p><a href="{link_login}">Acessar o ATLAS</a></p>'
+        f"<p>Assim que entrar, o sistema vai pedir para você escolher a "
+        f"<strong>sua</strong> senha — a provisória deixa de valer nesse "
+        f"momento, e até lá o resto da plataforma fica bloqueado.</p>"
+        f"<p>Se você não esperava este e-mail, avise a diretoria.</p>"
+    )
+
+    return assunto, texto, html
+
+
 def montar_email_recuperacao(nome: str, link: str, minutos: int) -> tuple[str, str, str]:
     """O conteúdo do e-mail de redefinição: `(assunto, texto, html)`.
 

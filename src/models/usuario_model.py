@@ -20,6 +20,14 @@ class UsuarioModel(Base):
     nome = Column(String(150), nullable=False)
     email_insper = Column(String(150), unique=True, nullable=False)
     senha_hash = Column(String(255), nullable=False)
+    #: ⭐ A senha atual é a PROVISÓRIA que foi por e-mail no cadastro, e a
+    #: pessoa ainda não escolheu a dela. Enquanto isto for verdade, o login
+    #: funciona mas a plataforma fica travada (`get_current_user`): a única
+    #: coisa que responde é a tela de definir senha.
+    #:
+    #: Nasce `False` para todo mundo que já estava cadastrado — quem já tem
+    #: senha própria não é empurrado para tela nenhuma.
+    senha_provisoria = Column(Boolean, nullable=False, default=False, server_default="0")
     cargo_id = Column(Integer, ForeignKey("cargo.id"), nullable=False)
     posicao = Column(
         Enum("diretor", "gerente", "coordenador", "consultor", name="posicao_usuario"),
