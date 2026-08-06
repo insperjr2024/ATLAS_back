@@ -56,6 +56,12 @@ from src.use_cases.projeto.update_kickoff import (
     UpdateKickoffUseCase,
 )
 from src.use_cases.projeto.update_descricao import UpdateDescricaoRequest, UpdateDescricaoUseCase
+from src.use_cases.projeto.update_configuracoes import (
+    UpdateDiaReuniaoPadraoRequest,
+    UpdateDiaReuniaoPadraoUseCase,
+    UpdateDiasAmbientacaoRequest,
+    UpdateDiasAmbientacaoUseCase,
+)
 from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatusUseCase
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
 from src.repositories.projeto_repository import ProjetoRepository
@@ -128,6 +134,24 @@ def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest
 def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateDescricaoUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/dias-ambientacao")
+def update_dias_ambientacao(projeto_id: int, request: UpdateDiasAmbientacaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDiasAmbientacaoUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/dia-reuniao-padrao")
+def update_dia_reuniao_padrao(projeto_id: int, request: UpdateDiaReuniaoPadraoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDiaReuniaoPadraoUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
