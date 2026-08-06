@@ -12,6 +12,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_repository import BancaRepository
+from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
@@ -163,15 +166,95 @@ class DeleteTarefaUseCase:
 
 class ReuniaoRequest(BaseModel):
     data_reuniao: date
+    #: ⭐ Sobre qual escopo foi. Vazio = reunião geral do projeto — ela conta
+    #: para o §7.2 ("projeto sem reunião na semana") mas não inicia contagem.
+    projeto_escopo_id: Optional[int] = None
 
 
 def serializar_reuniao(reuniao) -> dict:
     return {
         "id": reuniao.id,
         "projeto_id": reuniao.projeto_id,
+        "projeto_escopo_id": reuniao.projeto_escopo_id,
         "data_reuniao": reuniao.data_reuniao,
         "registrado_por": reuniao.registrado_por,
     }
+
+
+def _nome_do_escopo(escopo, catalogo_repository) -> str:
+    """Mesma régua do resto do sistema: "Outro" tem nome customizado e não tem
+    linha de catálogo (§4)."""
+    if escopo.nome_customizado:
+        return escopo.nome_customizado
+    do_catalogo = (
+        catalogo_repository.get_by_id(escopo.escopo_id) if escopo.escopo_id else None
+    )
+    return do_catalogo.nome if do_catalogo else "escopo"
+
+
+def _exigir_escopo_do_projeto(db: Session, projeto_id: int, projeto_escopo_id: int):
+    escopo = ProjetoEscopoRepository(db).get_by_id(projeto_escopo_id)
+    if not escopo or escopo.projeto_id != projeto_id:
+        raise RegraDeNegocioError("Escopo não encontrado neste projeto")
+    if escopo.status == "cancelado":
+        raise RegraDeNegocioError("Este escopo foi cancelado")
+    return escopo
+
+
+def _exigir_banca_marcada(db: Session, escopo) -> None:
+    """§5.4: *"a contagem só recomeça quando o coordenador marca a reunião
+    inicial do próximo escopo **e a data da banca dele**"*.
+
+    São as duas metades da mesma decisão, e por isso a primeira reunião de um
+    escopo é barrada enquanto a segunda não existir. Escopo que já está
+    correndo não passa por aqui — a banca dele já foi cobrada na largada.
+    """
+    banca = BancaRepository(db).get_by_projeto_escopo(escopo.id)
+    if banca and banca.data_hora:
+        return
+    nome = _nome_do_escopo(escopo, EscopoRepository(db))
+    raise RegraDeNegocioError(
+        f"Antes da reunião inicial de '{nome}', marque a data da banca dele — "
+        "a contagem de dias só começa com as duas (§5.4)"
+    )
+
+
+def sincronizar_inicio_do_escopo(db: Session, projeto_escopo_id: Optional[int]) -> bool:
+    """⭐ `projeto_escopo.data_inicio` = a data da PRIMEIRA reunião do escopo.
+
+    Não é um campo digitado: é derivado das reuniões registradas, recalculado
+    a cada criar/mover/apagar. É isso que faz "movi a reunião inicial de quarta
+    para quinta" e "apaguei a reunião errada" acertarem a contagem sozinhos,
+    sem ninguém lembrar de corrigir uma data em outra tela.
+
+    🔒 Escopo entregue não se mexe: `data_entrega_real` congelou a janela
+    (§5.4) e reabrir o início mudaria dias já fechados.
+
+    Devolve `True` quando a contagem começou agora — é o que a rota usa para
+    avisar a tela.
+    """
+    if not projeto_escopo_id:
+        return False
+
+    repository = ProjetoEscopoRepository(db)
+    escopo = repository.get_by_id(projeto_escopo_id)
+    if not escopo or escopo.data_entrega_real or escopo.status == "cancelado":
+        return False
+
+    reunioes = ReuniaoSemanalRepository(db).get_by_escopo(projeto_escopo_id)
+    primeira = reunioes[0].data_reuniao if reunioes else None
+    if primeira == escopo.data_inicio:
+        return False
+
+    if primeira is None:
+        # Sumiu a última reunião do escopo: ele volta a não ter começado, e a
+        # contagem devolve zero de novo (regra 1 de `contagem_dias.py`).
+        repository.update(projeto_escopo_id, data_inicio=None, status="nao_iniciado")
+        return False
+
+    comecou_agora = escopo.data_inicio is None
+    repository.update(projeto_escopo_id, data_inicio=primeira, status="em_andamento")
+    return comecou_agora
 
 
 class ListReunioesUseCase:
@@ -192,7 +275,11 @@ class ListReunioesUseCase:
 
 
 class CreateReuniaoUseCase:
+    """Registrar a reunião da semana — e, quando ela é a primeira de um escopo,
+    dar a largada na contagem dele (§5.4)."""
+
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ReuniaoSemanalRepository(db)
         self.projeto_repository = ProjetoRepository(db)
 
@@ -202,18 +289,31 @@ class CreateReuniaoUseCase:
         if self.repository.get_por_data(projeto_id, request.data_reuniao):
             raise RegraDeNegocioError("Já existe uma reunião registrada neste dia")
 
+        if request.projeto_escopo_id:
+            escopo = _exigir_escopo_do_projeto(
+                self.db, projeto_id, request.projeto_escopo_id
+            )
+            # A banca só é cobrada na LARGADA: escopo já correndo registra as
+            # reuniões seguintes sem nova exigência.
+            if escopo.data_inicio is None:
+                _exigir_banca_marcada(self.db, escopo)
+
         reuniao = self.repository.create(
             projeto_id=projeto_id,
+            projeto_escopo_id=request.projeto_escopo_id,
             data_reuniao=request.data_reuniao,
             registrado_por=registrado_por,
         )
-        return serializar_reuniao(reuniao)
+        iniciou = sincronizar_inicio_do_escopo(self.db, request.projeto_escopo_id)
+        return {**serializar_reuniao(reuniao), "escopo_iniciado": iniciou}
 
 
 class UpdateReuniaoUseCase:
-    """Mover a reunião de dia (registrou quarta, aconteceu quinta)."""
+    """Mover a reunião de dia (registrou quarta, aconteceu quinta) ou corrigir
+    sobre qual escopo ela foi."""
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ReuniaoSemanalRepository(db)
 
     def execute(self, reuniao_id: int, request: ReuniaoRequest):
@@ -223,14 +323,40 @@ class UpdateReuniaoUseCase:
         existente = self.repository.get_por_data(reuniao.projeto_id, request.data_reuniao)
         if existente and existente.id != reuniao_id:
             raise RegraDeNegocioError("Já existe uma reunião registrada neste dia")
-        return serializar_reuniao(
-            self.repository.update(reuniao_id, data_reuniao=request.data_reuniao)
+
+        escopo_anterior = reuniao.projeto_escopo_id
+        # `exclude_unset`: quem só move o dia não manda o escopo, e não pode
+        # perder o vínculo por omissão. Mandar `null` explícito é que desliga.
+        dados = request.dict(exclude_unset=True)
+        escopo_alvo = dados.get("projeto_escopo_id", escopo_anterior)
+
+        if escopo_alvo and escopo_alvo != escopo_anterior:
+            escopo = _exigir_escopo_do_projeto(self.db, reuniao.projeto_id, escopo_alvo)
+            if escopo.data_inicio is None:
+                _exigir_banca_marcada(self.db, escopo)
+
+        atualizada = self.repository.update(
+            reuniao_id,
+            data_reuniao=request.data_reuniao,
+            projeto_escopo_id=escopo_alvo,
         )
+        # Os DOIS lados: o escopo que perdeu a reunião pode ter perdido a
+        # largada dele, e o que ganhou pode estar começando agora.
+        iniciou = sincronizar_inicio_do_escopo(self.db, escopo_alvo)
+        if escopo_anterior and escopo_anterior != escopo_alvo:
+            sincronizar_inicio_do_escopo(self.db, escopo_anterior)
+        return {**serializar_reuniao(atualizada), "escopo_iniciado": iniciou}
 
 
 class DeleteReuniaoUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ReuniaoSemanalRepository(db)
 
     def execute(self, reuniao_id: int) -> bool:
-        return self.repository.delete(reuniao_id)
+        reuniao = self.repository.get_by_id(reuniao_id)
+        escopo_id = reuniao.projeto_escopo_id if reuniao else None
+        apagou = self.repository.delete(reuniao_id)
+        if apagou:
+            sincronizar_inicio_do_escopo(self.db, escopo_id)
+        return apagou

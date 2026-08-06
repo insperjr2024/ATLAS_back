@@ -30,8 +30,6 @@ from src.use_cases.projeto_escopo.update_escopo_projeto import (
     ClassificarAtrasoEntregaRequest,
     ClassificarAtrasoEntregaUseCase,
     DeleteEscopoProjetoUseCase,
-    IniciarEscopoRequest,
-    IniciarEscopoUseCase,
     RegistrarEntregaEscopoRequest,
     RegistrarEntregaEscopoUseCase,
     UpdateEscopoProjetoRequest,
@@ -290,14 +288,10 @@ def delete_escopo(escopo_id: int, current_user=Depends(require_gestao), db: Sess
         raise HTTPException(status_code=422, detail=str(e))
 
 
-@router.patch("/escopos-projeto/{escopo_id}/inicio")
-def iniciar_escopo(escopo_id: int, request: IniciarEscopoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
-    """⭐ Marcar a reunião inicial do escopo — é o que faz a contagem recomeçar (§5.4)."""
-    _projeto_do_escopo(escopo_id, current_user, db)
-    try:
-        return IniciarEscopoUseCase(db).execute(escopo_id, request)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+# ⭐ A reunião inicial do escopo (§5.4) mora em
+# `POST /projetos/{id}/reunioes`, com `projeto_escopo_id` — registrar a reunião
+# no calendário É o que faz a contagem começar. Não há endpoint para digitar
+# `data_inicio` direto.
 
 
 @router.patch("/escopos-projeto/{escopo_id}/entrega")
