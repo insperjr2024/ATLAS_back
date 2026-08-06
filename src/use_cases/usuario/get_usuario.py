@@ -18,6 +18,7 @@ def serializar_usuario(usuario, projetos_alocados: int = 0):
         "posicao": usuario.posicao,
         "status": usuario.status,
         "ativo": usuario.ativo,
+        "semestre_graduacao": usuario.semestre_graduacao,
         "projetos_alocados": projetos_alocados,
     }
 
