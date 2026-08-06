@@ -4,7 +4,7 @@ diretoria mantém e que todo o resto referencia."""
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -22,6 +22,7 @@ from src.use_cases.dia_nao_letivo.get_dia_nao_letivo import (
     GetDiasNaoUteisUseCase,
     ListDiasNaoLetivosUseCase,
 )
+from src.use_cases.dia_nao_letivo.ler_calendario_pdf import LerCalendarioPdfUseCase
 from src.use_cases.calendario.get_eventos import GetEventosCalendarioUseCase
 from src.use_cases.semestre.get_semestre import GetSemestreAtivoUseCase
 from src.utils.exceptions import RegraDeNegocioError
@@ -236,8 +237,35 @@ def create_dias_nao_letivos(
 
 
 @router.get("/semestres/{semestre_id}/dias-nao-letivos")
-def list_dias_nao_letivos(semestre_id: int, db: Session = Depends(get_db)):
-    return ListDiasNaoLetivosUseCase(db).execute(semestre_id)
+def list_dias_nao_letivos(
+    semestre_id: int,
+    frente_id: Optional[int] = Query(None, description="Calendário base desta frente"),
+    apenas_da_frente: bool = Query(False, description="Corta os dias globais da resposta"),
+    db: Session = Depends(get_db),
+):
+    return ListDiasNaoLetivosUseCase(db).execute(semestre_id, frente_id, apenas_da_frente)
+
+
+@router.post("/semestres/{semestre_id}/dias-nao-letivos/ler-pdf")
+async def ler_calendario_pdf(
+    semestre_id: int,
+    arquivo: UploadFile = File(..., description="Calendário acadêmico do Insper em PDF"),
+    frente_id: Optional[int] = Query(None),
+    _=Depends(require_pode_gerenciar_cargos),
+    db: Session = Depends(get_db),
+):
+    """Lê o PDF e DEVOLVE o que encontrou — não grava nada.
+
+    A gravação é um POST separado, depois de a diretoria conferir na tela. A
+    leitura é posicional e pode errar se o Insper mudar o layout; salvar direto
+    contaminaria o cálculo de dias úteis de todos os projetos sem ninguém ver.
+    """
+    if not (arquivo.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=422, detail="Envie o calendário em PDF")
+    try:
+        return LerCalendarioPdfUseCase(db).execute(semestre_id, arquivo.file, frente_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.delete("/semestres/{semestre_id}/dias-nao-letivos", status_code=204)
