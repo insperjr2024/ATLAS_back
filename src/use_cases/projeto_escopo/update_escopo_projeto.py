@@ -15,6 +15,7 @@ from src.repositories.banca_repository import BancaRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.notificacao.eventos import notificar_entrega, notificar_entrega_alterada
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -77,31 +78,10 @@ class UpdateEscopoProjetoUseCase:
         return {"id": escopo.id}
 
 
-class IniciarEscopoRequest(BaseModel):
-    data_inicio: date
-
-
-class IniciarEscopoUseCase:
-    """⭐ É este endpoint que faz a contagem RECOMEÇAR (§5.4).
-
-    "A contagem só recomeça quando o coordenador marca a reunião inicial do
-    próximo escopo" — marcar essa reunião é preencher `data_inicio` aqui.
-    """
-
-    def __init__(self, db: Session):
-        self.repository = ProjetoEscopoRepository(db)
-
-    def execute(self, escopo_id: int, request: IniciarEscopoRequest):
-        escopo = self.repository.get_by_id(escopo_id)
-        if not escopo:
-            return None
-        if escopo.data_entrega_real:
-            raise RegraDeNegocioError("Este escopo já foi entregue")
-
-        atualizado = self.repository.update(
-            escopo_id, data_inicio=request.data_inicio, status="em_andamento"
-        )
-        return {"id": atualizado.id, "data_inicio": atualizado.data_inicio, "status": atualizado.status}
+# ⭐ Não existe mais um "iniciar escopo" digitado à parte. A `data_inicio` do
+# §5.4 nasce da reunião inicial registrada no calendário de reuniões semanais
+# (`use_cases/tarefa/tarefas.py`), que é a única porta que a escreve — ter duas
+# faria a contagem depender de qual delas foi usada por último.
 
 
 class RegistrarEntregaEscopoRequest(BaseModel):
@@ -131,15 +111,21 @@ class RegistrarEntregaEscopoUseCase:
         if not escopo.data_inicio:
             raise RegraDeNegocioError("Este escopo ainda não foi iniciado")
 
+        # 🔒 A trava do §5.5: nada vai ao cliente sem passar por banca.
+        #
+        # O que ela lê é a banca ter ACONTECIDO, não um veredito de aprovação —
+        # a diretoria decidiu que aprovar/rejeitar não faz parte do processo.
+        # A regra que o case pede continua de pé: sem banca realizada, sem
+        # entrega. O que saiu foi o passo extra depois dela.
         banca = self.banca_repository.get_by_projeto_escopo(escopo_id)
         if not banca:
             raise RegraDeNegocioError(
-                "A entrega só é liberada depois da banca do escopo ser aprovada — "
+                "A entrega só é liberada depois da banca do escopo acontecer — "
                 "este escopo ainda não tem banca marcada"
             )
-        if banca.resultado != "aprovada":
+        if not banca.realizado_em:
             raise RegraDeNegocioError(
-                "A entrega só é liberada depois da banca do escopo ser aprovada"
+                "A entrega só é liberada depois da banca do escopo ser realizada"
             )
 
         atualizado = self.repository.update(
@@ -183,6 +169,7 @@ class ClassificarAtrasoEntregaUseCase:
 
 class DeleteEscopoProjetoUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoEscopoRepository(db)
         self.banca_repository = BancaRepository(db)
 
@@ -191,4 +178,11 @@ class DeleteEscopoProjetoUseCase:
             raise RegraDeNegocioError(
                 "Não é possível remover um escopo que já tem banca marcada"
             )
+        # As reuniões daquele escopo não somem junto: elas ACONTECERAM, e o
+        # §7.2 conta "projeto sem reunião na semana" pela ausência de linha.
+        # Elas voltam a ser reuniões gerais do projeto — e, sem a FK pendurada,
+        # o delete não esbarra na integridade referencial.
+        reuniao_repository = ReuniaoSemanalRepository(self.db)
+        for reuniao in reuniao_repository.get_by_escopo(escopo_id):
+            reuniao_repository.update(reuniao.id, projeto_escopo_id=None)
         return self.repository.delete(escopo_id)

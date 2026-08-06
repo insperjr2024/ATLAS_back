@@ -94,7 +94,10 @@ class GetCronogramaUseCase:
             # frente aqui faria a ambientação do mesmo projeto terminar em datas
             # diferentes conforme o escopo que estivesse selecionado na tela.
             "faixas_derivadas": self._faixas_derivadas(
-                projeto, escopos, [d.data for d in dias_nao_letivos if d.frente_id is None]
+                projeto,
+                escopos,
+                [d.data for d in dias_nao_letivos if d.frente_id is None],
+                self.banca_repository.mapa_por_escopo([e.id for e in escopos]),
             ),
             "janela": {"inicio": inicio, "fim": fim},
             # A gestão corrente, à parte da janela. A janela é larga de
@@ -161,8 +164,34 @@ class GetCronogramaUseCase:
         ano_base = min(min(candidatas).year, referencia.year)
         return date(ano_base, 1, 1), date(referencia.year + 1, 12, 31)
 
-    def _faixas_derivadas(self, projeto, escopos, dias_nao_letivos):
+    def _faixas_derivadas(self, projeto, escopos, dias_nao_letivos, bancas_por_escopo):
         faixas = []
+
+        # ⭐ O PERÍODO DE CADA ESCOPO: da reunião inicial (que é o que preenche
+        # `data_inicio`, §5.4) até a banca dele. São as duas pontas que o
+        # coordenador crava, e é a janela em que os dias vendidos correm — por
+        # isso ela é pintada no calendário, e não só somada na barra de dias.
+        #
+        # Sem uma das pontas não há faixa: escopo não iniciado não tem período,
+        # e banca sem data não tem onde fechar. Derivada, nunca gravada —
+        # mover a reunião ou remarcar a banca redesenha a faixa sozinho.
+        for escopo in escopos:
+            banca = bancas_por_escopo.get(escopo.id)
+            fim_banca = banca.data_hora.date() if banca and banca.data_hora else None
+            if not escopo.data_inicio or not fim_banca:
+                continue
+            faixas.append(
+                {
+                    "tipo": "escopo",
+                    "projeto_escopo_id": escopo.id,
+                    "inicio": escopo.data_inicio,
+                    # Banca marcada ANTES da reunião inicial existe (remarcação
+                    # para trás): a faixa vira o dia só, em vez de sumir por
+                    # intervalo invertido.
+                    "fim": max(fim_banca, escopo.data_inicio),
+                    "rotulo": "Período do escopo",
+                }
+            )
 
         # A ambientação: kickoff + N dias úteis (§5.3).
         if projeto.data_kickoff and projeto.dias_ambientacao > 0:
@@ -173,6 +202,7 @@ class GetCronogramaUseCase:
                 faixas.append(
                     {
                         "tipo": "ambientacao",
+                        "projeto_escopo_id": None,
                         "inicio": projeto.data_kickoff,
                         "fim": fim,
                         "rotulo": f"Ambientação ({projeto.dias_ambientacao} dias úteis)",
@@ -193,6 +223,7 @@ class GetCronogramaUseCase:
             faixas.append(
                 {
                     "tipo": "pausa",
+                    "projeto_escopo_id": None,
                     "inicio": ultima_entrega + timedelta(days=1),
                     "fim": date.today(),
                     "rotulo": "Parado entre escopos",

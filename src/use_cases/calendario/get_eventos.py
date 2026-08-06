@@ -106,13 +106,19 @@ class GetEventosCalendarioUseCase:
             )
             for r in reunioes:
                 projeto = projetos.get(r.projeto_id)
+                # O escopo da reunião entra no título: é ele que diz de onde
+                # saiu a `data_inicio` de quem começou naquela semana (§5.4).
+                sobre = nome_escopo(escopos.get(r.projeto_escopo_id)) if r.projeto_escopo_id else ""
                 eventos.append(
                     {
                         "tipo": "reuniao",
                         "data": r.data_reuniao,
                         "projeto_id": r.projeto_id,
                         "projeto_nome": projeto.nome if projeto else "",
-                        "titulo": f"Reunião semanal — {projeto.nome if projeto else ''}",
+                        "titulo": (
+                            f"Reunião semanal — {projeto.nome if projeto else ''}"
+                            + (f" · {sobre}" if sobre else "")
+                        ),
                         "referencia_id": r.id,
                         "status": None,
                     }

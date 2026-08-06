@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.projeto_repository import ProjetoRepository
 from src.use_cases.notificacao.eventos import notificar_entrega_alterada
+from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 
 
 class UpdateKickoffRequest(BaseModel):
@@ -22,13 +23,23 @@ class UpdateKickoffUseCase:
     """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
 
     def execute(self, projeto_id: int, request: UpdateKickoffRequest):
         projeto = self.repository.update(projeto_id, data_kickoff=request.data_kickoff)
         if not projeto:
             return None
-        return {"id": projeto.id, "data_kickoff": projeto.data_kickoff, "status": projeto.status}
+        # 🤖 O kickoff é de onde a ambientação conta: corrigi-lo para trás pode
+        # já ter encerrado a janela (§5.3). Recheca na hora, para o status não
+        # ficar desencontrado da data até a passada da madrugada.
+        EncerrarAmbientacaoUseCase(self.db).executar_para(projeto_id)
+        atualizado = self.repository.get_by_id(projeto_id)
+        return {
+            "id": atualizado.id,
+            "data_kickoff": atualizado.data_kickoff,
+            "status": atualizado.status,
+        }
 
 
 class UpdateEntregaClienteRequest(BaseModel):

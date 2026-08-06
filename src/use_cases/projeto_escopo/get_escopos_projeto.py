@@ -118,8 +118,8 @@ def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None, escopos_da_
         "restantes": contagem.restantes,
         "estourou": contagem.estourou,
         "em_contagem": contagem.em_contagem,
-        # 🔒 A trava do §5.5 na forma que a tela precisa: o cadeado só abre
-        # quando a banca do escopo saiu aprovada.
+        # 🔒 A trava do §5.5 na forma que a tela precisa: o cadeado abre
+        # quando a banca do escopo é REALIZADA.
         "banca": (
             {
                 "id": banca.id,
@@ -133,5 +133,5 @@ def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None, escopos_da_
             if banca
             else None
         ),
-        "entrega_liberada": bool(banca and banca.resultado == "aprovada"),
+        "entrega_liberada": bool(banca and banca.realizado_em),
     }

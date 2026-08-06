@@ -53,3 +53,16 @@ class ReuniaoSemanalRepository(BaseRepository[ReuniaoSemanalModel]):
 
     def get_por_data(self, projeto_id: int, data_reuniao: date):
         return self.first_by(projeto_id=projeto_id, data_reuniao=data_reuniao)
+
+    def get_by_escopo(self, projeto_escopo_id: int) -> List[ReuniaoSemanalModel]:
+        """As reuniões deste escopo, da mais antiga para a mais nova.
+
+        A primeira da lista é a "reunião inicial" do §5.4 — é dela que sai a
+        `data_inicio` do escopo.
+        """
+        return (
+            self.db.query(ReuniaoSemanalModel)
+            .filter(ReuniaoSemanalModel.projeto_escopo_id == projeto_escopo_id)
+            .order_by(ReuniaoSemanalModel.data_reuniao)
+            .all()
+        )
