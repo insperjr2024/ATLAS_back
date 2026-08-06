@@ -236,6 +236,11 @@ def list_reunioes(projeto_id: int, current_user=Depends(get_current_user), db: S
 
 @router.post("/projetos/{projeto_id}/reunioes")
 def create_reuniao(projeto_id: int, request: ReuniaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """⭐ Registrar a reunião da semana — e sobre qual escopo ela foi.
+
+    Quando é a PRIMEIRA reunião de um escopo, é esta chamada que preenche
+    `projeto_escopo.data_inicio` e faz a contagem do §5.4 começar a correr.
+    """
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         result = CreateReuniaoUseCase(db).execute(projeto_id, request, registrado_por=current_user.id)
@@ -248,7 +253,8 @@ def create_reuniao(projeto_id: int, request: ReuniaoRequest, current_user=Depend
 
 @router.patch("/reunioes/{reuniao_id}")
 def update_reuniao(reuniao_id: int, request: ReuniaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Mover a reunião de dia — registrou quarta, aconteceu quinta."""
+    """Mover a reunião de dia — registrou quarta, aconteceu quinta — ou
+    corrigir sobre qual escopo ela foi. A `data_inicio` do escopo acompanha."""
     _acesso_pela_reuniao(reuniao_id, current_user, db)
     try:
         return UpdateReuniaoUseCase(db).execute(reuniao_id, request)
