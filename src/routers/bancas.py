@@ -124,10 +124,16 @@ def push_alocacao_automatica(_=Depends(require_diretor), db: Session = Depends(g
 
 
 @router.post("/bancas/{banca_id}/realizar")
-def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
-    """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre."""
+def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_user=Depends(get_current_user), _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre.
+
+    Exige o mínimo de gente alocada; `forcar` passa por cima, e só para a
+    diretoria — é ela que libera exceção de composição (§8).
+    """
     try:
-        result = RegistrarRealizacaoBancaUseCase(db).execute(banca_id, request)
+        result = RegistrarRealizacaoBancaUseCase(db).execute(
+            banca_id, request, eh_diretor=current_user.posicao == "diretor"
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:
@@ -203,8 +209,19 @@ def get_historico_bancas(
 
 @router.post("/candidaturas")
 def create_candidatura(request: CreateCandidaturaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Inscrição própria — ou alocação de outra pessoa, se for a diretoria.
+
+    Escalar alguém mexe na agenda dele sem que tenha pedido, então essa porta
+    é da diretoria (§8: é ela quem faz a alocação por push).
+    """
+    alvo = request.usuario_id or current_user.id
+    if alvo != current_user.id and current_user.posicao != "diretor":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas o Diretor de Projetos pode alocar outra pessoa numa banca",
+        )
     try:
-        return CreateCandidaturaUseCase(db).execute(request, usuario_id=current_user.id)
+        return CreateCandidaturaUseCase(db).execute(request, usuario_id=alvo)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

@@ -92,15 +92,21 @@ class RegistrarEntregaEscopoUseCase:
         if not escopo.data_inicio:
             raise RegraDeNegocioError("Este escopo ainda não foi iniciado")
 
+        # 🔒 A trava do §5.5: nada vai ao cliente sem passar por banca.
+        #
+        # O que ela lê é a banca ter ACONTECIDO, não um veredito de aprovação —
+        # a diretoria decidiu que aprovar/rejeitar não faz parte do processo.
+        # A regra que o case pede continua de pé: sem banca realizada, sem
+        # entrega. O que saiu foi o passo extra depois dela.
         banca = self.banca_repository.get_by_projeto_escopo(escopo_id)
         if not banca:
             raise RegraDeNegocioError(
-                "A entrega só é liberada depois da banca do escopo ser aprovada — "
+                "A entrega só é liberada depois da banca do escopo acontecer — "
                 "este escopo ainda não tem banca marcada"
             )
-        if banca.resultado != "aprovada":
+        if not banca.realizado_em:
             raise RegraDeNegocioError(
-                "A entrega só é liberada depois da banca do escopo ser aprovada"
+                "A entrega só é liberada depois da banca do escopo ser realizada"
             )
 
         atualizado = self.repository.update(
