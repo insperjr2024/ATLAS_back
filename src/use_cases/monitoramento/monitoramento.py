@@ -162,12 +162,26 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         no_prazo = [p for p in em_curso if not atrasos[p.id].atrasado_por_banca]
         placar = round(len(no_prazo) / len(em_curso) * 100, 1) if em_curso else 100.0
 
+        # ⚠ Este percentual NÃO é o complemento do placar acima, e os dois
+        # aparecem lado a lado na tela. O placar conta só banca atrasada; este
+        # conta QUALQUER motivo, inclusive entrega. A diferença são os projetos
+        # atrasados só por entrega, que o §7.1 manda deixar de fora do placar
+        # porque dependem da agenda do cliente.
+        #
+        # Medido no banco de demonstração: placar 47,4% e atrasados 68,4% —
+        # `100 - placar` daria 52,6%, que não é nenhum dos dois. Por isso os
+        # rótulos na tela precisam dizer o que cada um mede.
+        atrasados = [p for p in em_curso if atrasos[p.id].atrasado]
+        percentual_atrasados = (
+            round(len(atrasados) / len(em_curso) * 100, 1) if em_curso else 0.0
+        )
+
         return {
             "kpis": {
                 "total": len(projetos),
                 "em_execucao": sum(1 for p in projetos if p.status in STATUS_EM_EXECUCAO),
                 "perto_de_finalizar": sum(1 for p in projetos if p.status in STATUS_PERTO_DO_FIM),
-                "atrasados": sum(1 for p in em_curso if atrasos[p.id].atrasado),
+                "atrasados": len(atrasados),
                 "pausados": sum(1 for p in projetos if p.status == "pausado"),
                 "finalizados": sum(1 for p in projetos if p.status == "finalizado"),
             },
@@ -175,6 +189,13 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             "placar_gestao": {
                 "percentual": placar,
                 "no_prazo": len(no_prazo),
+                "total_ativos": len(em_curso),
+            },
+            # Irmão do placar de propósito: mesma base `em_curso`, calculados
+            # no mesmo lugar. Separados, um dia divergiriam.
+            "atrasados_gestao": {
+                "percentual": percentual_atrasados,
+                "atrasados": len(atrasados),
                 "total_ativos": len(em_curso),
             },
             "entregas": self._entregas(projetos, ctx, semestre, hoje),
