@@ -18,6 +18,7 @@ from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequ
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
+from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.use_cases.banca.marcar_banca_escopo import (
     LiberarExcecaoChoqueRequest,
     LiberarExcecaoChoqueUseCase,
@@ -55,12 +56,41 @@ from src.utils.exceptions import RegraDeNegocioError
 router = APIRouter(tags=["bancas"], dependencies=[Depends(get_current_user)])
 
 
+def _exigir_acesso_a_banca(banca_id: int, current_user, db: Session) -> None:
+    """§3 nas rotas que agem sobre UMA banca.
+
+    `require_pode_definir_cronograma` só olha o cargo, e cargo não é escopo:
+    sem isto, toda coordenadora podia realizar, aprovar ou apagar a banca de
+    qualquer projeto — inclusive de um que ela recebe 404 ao tentar abrir. E
+    aprovar banca é o que LIBERA a entrega ao cliente (§5.5).
+
+    O caminho é banca → `banca_escopo` → `projeto_escopo` → projeto, e a
+    checagem é a mesma `exigir_acesso_ao_projeto` do resto da plataforma (404,
+    não 403: quem não enxerga o projeto não deve nem saber que ele existe).
+
+    ⚠ Banca sem vínculo com escopo nenhum é a banca LEGADA, cadastrada antes de
+    `banca_escopo` existir — não há projeto a partir do qual decidir. Essas
+    continuam valendo só o cargo, senão o legado ficaria inadministrável.
+    """
+    from src.repositories.banca_escopo_repository import BancaEscopoRepository
+    from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+
+    escopo_ids = BancaEscopoRepository(db).get_escopo_ids(banca_id)
+    projeto_escopo_repository = ProjetoEscopoRepository(db)
+    for escopo_id in escopo_ids:
+        escopo = projeto_escopo_repository.get_by_id(escopo_id)
+        if escopo:
+            exigir_acesso_ao_projeto(escopo.projeto_id, current_user, db)
+
+
 # ---------------------------------------------------------------- bancas
 
 @router.post("/bancas")
 def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     try:
-        return CreateBancaUseCase(db).execute(request, coordenador_id=current_user.id)
+        return CreateBancaUseCase(db).execute(
+            request, coordenador_id=current_user.id, eh_diretor=current_user.posicao == "diretor"
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -84,19 +114,33 @@ def get_notas_por_pergunta(banca_id: int, _=Depends(require_diretor), db: Sessio
 
 
 @router.patch("/bancas/{banca_id}")
-def update_banca(banca_id: int, request: UpdateBancaRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
-    result = UpdateBancaUseCase(db).execute(banca_id, request)
+def update_banca(banca_id: int, request: UpdateBancaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    _exigir_acesso_a_banca(banca_id, current_user, db)
+    try:
+        result = UpdateBancaUseCase(db).execute(
+            banca_id, request, eh_diretor=current_user.posicao == "diretor"
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return result
 
 
 @router.delete("/bancas/{banca_id}", status_code=204)
-def delete_banca(banca_id: int, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+def delete_banca(banca_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    _exigir_acesso_a_banca(banca_id, current_user, db)
     deleted = DeleteBancaUseCase(db).execute(banca_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return None
+
+
+@router.post("/bancas/push-alocacao")
+def push_alocacao_automatica(_=Depends(require_diretor), db: Session = Depends(get_db)):
+    """Roda na hora a mesma alocação automática por rodízio do agendador
+    diário (§8) — para a diretoria disparar manualmente e para teste."""
+    return PushAlocacaoAutomaticaUseCase(db).execute()
 
 
 # ------------------------------------------------------- realização e resultado (F5)
@@ -109,10 +153,16 @@ def delete_banca(banca_id: int, _=Depends(require_pode_definir_cronograma), db: 
 
 
 @router.post("/bancas/{banca_id}/realizar")
-def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
-    """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre."""
+def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_user=Depends(get_current_user), _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre.
+
+    Exige o mínimo de gente alocada; `forcar` passa por cima, e só para a
+    diretoria — é ela que libera exceção de composição (§8).
+    """
     try:
-        result = RegistrarRealizacaoBancaUseCase(db).execute(banca_id, request)
+        result = RegistrarRealizacaoBancaUseCase(db).execute(
+            banca_id, request, eh_diretor=current_user.posicao == "diretor"
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:
@@ -121,8 +171,9 @@ def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, _=Depends
 
 
 @router.patch("/bancas/{banca_id}/resultado")
-def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """🔒 É o resultado que libera a entrega ao cliente (§5.5, §8)."""
+    _exigir_acesso_a_banca(banca_id, current_user, db)
     try:
         result = RegistrarResultadoBancaUseCase(db).execute(banca_id, request)
     except RegraDeNegocioError as e:
@@ -188,8 +239,19 @@ def get_historico_bancas(
 
 @router.post("/candidaturas")
 def create_candidatura(request: CreateCandidaturaRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Inscrição própria — ou alocação de outra pessoa, se for a diretoria.
+
+    Escalar alguém mexe na agenda dele sem que tenha pedido, então essa porta
+    é da diretoria (§8: é ela quem faz a alocação por push).
+    """
+    alvo = request.usuario_id or current_user.id
+    if alvo != current_user.id and current_user.posicao != "diretor":
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas o Diretor de Projetos pode alocar outra pessoa numa banca",
+        )
     try:
-        return CreateCandidaturaUseCase(db).execute(request, usuario_id=current_user.id)
+        return CreateCandidaturaUseCase(db).execute(request, usuario_id=alvo)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

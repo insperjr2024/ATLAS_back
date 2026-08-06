@@ -8,7 +8,7 @@ banca pelo cronograma escreve em `banca`, exatamente a mesma linha que
 sincronização: é a mesma linha lida duas vezes.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -21,8 +21,11 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.use_cases.notificacao.eventos import notificar_banca_remarcada
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.notificar import notificar
 
 
 class MarcarBancaEscopoRequest(BaseModel):
@@ -38,6 +41,7 @@ class MarcarBancaEscopoRequest(BaseModel):
 
 class MarcarBancaEscopoUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = BancaRepository(db)
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.projeto_repository = ProjetoRepository(db)
@@ -67,7 +71,14 @@ class MarcarBancaEscopoUseCase:
                 )
             if not (request.justificativa or "").strip():
                 raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
+            data_anterior = existente.data_hora
             banca = self.repository.update(existente.id, data_hora=request.data_hora)
+            # Depois do update e só se a data realmente mudou: salvar a mesma
+            # data (por causa de outra edição na mesma request) não é remarcação.
+            if data_anterior != banca.data_hora:
+                notificar_banca_remarcada(
+                    self.db, projeto, banca.id, self._nome(escopo), data_anterior, banca.data_hora
+                )
         else:
             coordenador = next(
                 (
@@ -180,6 +191,9 @@ class RegistrarRealizacaoRequest(BaseModel):
     realizado_em: Optional[datetime] = None
     #: Quem de fato compareceu — confirma as candidaturas listadas.
     presentes: Optional[list[int]] = None
+    #: Registrar mesmo com menos gente que o mínimo. Só a diretoria (§8: a
+    #: exceção às regras de composição é liberada por ela).
+    forcar: bool = False
 
 
 class RegistrarRealizacaoBancaUseCase:
@@ -191,33 +205,94 @@ class RegistrarRealizacaoBancaUseCase:
     """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = BancaRepository(db)
         from src.repositories.candidatura_repository import CandidaturaRepository
+        from src.repositories.configuracao_repository import ConfiguracaoRepository
 
         self.candidatura_repository = CandidaturaRepository(db)
+        self.configuracao_repository = ConfiguracaoRepository(db)
 
-    def execute(self, banca_id: int, request: RegistrarRealizacaoRequest):
+    def execute(
+        self,
+        banca_id: int,
+        request: RegistrarRealizacaoRequest,
+        eh_diretor: bool = False,
+    ):
         banca = self.repository.get_by_id(banca_id)
         if not banca:
             return None
         if not banca.data_hora:
             raise RegraDeNegocioError("Uma banca sem data não pode ser marcada como realizada")
 
+        self._exigir_composicao(banca, request, eh_diretor)
+
         realizado_em = request.realizado_em or banca.data_hora
         banca = self.repository.update(banca_id, realizado_em=realizado_em)
 
+        candidaturas = self.candidatura_repository.get_by_banca(banca_id)
         if request.presentes is not None:
             presentes = set(request.presentes)
-            for candidatura in self.candidatura_repository.get_by_banca(banca_id):
+            for candidatura in candidaturas:
                 self.candidatura_repository.update(
                     candidatura.id, confirmado=candidatura.usuario_id in presentes
                 )
+            avisar = presentes
+        else:
+            # Sem lista de presença, avisa todo mundo que era candidato — não
+            # deixar de notificar por falta de dado é melhor que silenciar.
+            avisar = {c.usuario_id for c in candidaturas}
+
+        self._notificar_prazo_avaliacao(banca, avisar)
 
         return {
             "id": banca.id,
             "realizado_em": banca.realizado_em,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
         }
+
+    def _exigir_composicao(self, banca, request, eh_diretor: bool) -> None:
+        """A banca não fecha com menos gente que o combinado (§8).
+
+        📐 O mínimo é `configuracao.vagas_por_banca`, ou o
+        `piso_minimo_override` quando a diretoria já afrouxou esta banca
+        específica na hora de marcar.
+
+        A saída é `forcar`, e só para a diretoria — é ela que libera exceção às
+        regras de composição no §8. Sem essa porta, uma banca que aconteceu com
+        4 pessoas ficaria "atrasada" para sempre, e o §7.4 mede atraso
+        exatamente por isso: a nota de rodapé viraria dado errado no
+        monitoramento.
+        """
+        configuracao = self.configuracao_repository.get()
+        minimo = banca.piso_minimo_override
+        if minimo is None:
+            minimo = configuracao.vagas_por_banca if configuracao else 5
+
+        alocados = len(self.candidatura_repository.get_by_banca(banca.id))
+        if alocados >= minimo:
+            return
+
+        if not request.forcar:
+            raise RegraDeNegocioError(
+                f"Esta banca tem {alocados} de {minimo} pessoas alocadas. "
+                "Só a diretoria pode registrá-la assim mesmo."
+            )
+        if not eh_diretor:
+            raise RegraDeNegocioError(
+                "Apenas o Diretor de Projetos pode registrar uma banca abaixo do mínimo"
+            )
+
+    def _notificar_prazo_avaliacao(self, banca, usuario_ids) -> None:
+        prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+        mensagem = (
+            f"A banca de {banca.nome_projeto} foi realizada. Você tem até "
+            f"{prazo:%d/%m/%Y} para enviar sua avaliação."
+        )
+        for usuario_id in usuario_ids:
+            notificar(
+                self.db, usuario_id, mensagem, banca_id=banca.id, tipo="avaliacao_pendente"
+            )
 
 
 class RegistrarResultadoRequest(BaseModel):

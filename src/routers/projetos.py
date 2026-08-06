@@ -22,13 +22,14 @@ from src.use_cases.projeto_escopo.create_escopo_projeto import (
     CreateEscopoProjetoUseCase,
     EscopoVendidoRequest,
 )
-from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
+from src.use_cases.projeto_escopo.get_escopos_projeto import (
+    ListEscoposProjetoUseCase,
+    ListTodosEscoposVendidosUseCase,
+)
 from src.use_cases.projeto_escopo.update_escopo_projeto import (
     ClassificarAtrasoEntregaRequest,
     ClassificarAtrasoEntregaUseCase,
     DeleteEscopoProjetoUseCase,
-    IniciarEscopoRequest,
-    IniciarEscopoUseCase,
     RegistrarEntregaEscopoRequest,
     RegistrarEntregaEscopoUseCase,
     UpdateEscopoProjetoRequest,
@@ -51,6 +52,13 @@ from src.use_cases.projeto.update_kickoff import (
     UpdateEntregaClienteUseCase,
     UpdateKickoffRequest,
     UpdateKickoffUseCase,
+)
+from src.use_cases.projeto.update_descricao import UpdateDescricaoRequest, UpdateDescricaoUseCase
+from src.use_cases.projeto.update_configuracoes import (
+    UpdateDiaReuniaoPadraoRequest,
+    UpdateDiaReuniaoPadraoUseCase,
+    UpdateDiasAmbientacaoRequest,
+    UpdateDiasAmbientacaoUseCase,
 )
 from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatusUseCase
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
@@ -105,10 +113,7 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
 @router.patch("/projetos/{projeto_id}/kickoff")
 def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    try:
-        result = UpdateKickoffUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    result = UpdateKickoffUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
@@ -118,6 +123,33 @@ def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=
 def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateEntregaClienteUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/descricao")
+def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDescricaoUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/dias-ambientacao")
+def update_dias_ambientacao(projeto_id: int, request: UpdateDiasAmbientacaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDiasAmbientacaoUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/dia-reuniao-padrao")
+def update_dia_reuniao_padrao(projeto_id: int, request: UpdateDiaReuniaoPadraoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateDiaReuniaoPadraoUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
@@ -217,6 +249,15 @@ def list_escopos(projeto_id: int, current_user=Depends(get_current_user), db: Se
     return ListEscoposProjetoUseCase(db).execute(projeto_id)
 
 
+@router.get("/escopos-projeto")
+def list_todos_escopos_vendidos(db: Session = Depends(get_db)):
+    """Nome de todo escopo vendido, de todos os projetos — usado pela página
+    Bancas pra resolver `projeto_escopo_ids`. Sem recorte de visão de
+    propósito: bancas já são globais (§8), então o escopo/projeto de
+    qualquer uma também é."""
+    return ListTodosEscoposVendidosUseCase(db).execute()
+
+
 @router.post("/projetos/{projeto_id}/escopos")
 def create_escopo(projeto_id: int, request: EscopoVendidoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
@@ -247,14 +288,10 @@ def delete_escopo(escopo_id: int, current_user=Depends(require_gestao), db: Sess
         raise HTTPException(status_code=422, detail=str(e))
 
 
-@router.patch("/escopos-projeto/{escopo_id}/inicio")
-def iniciar_escopo(escopo_id: int, request: IniciarEscopoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
-    """⭐ Marcar a reunião inicial do escopo — é o que faz a contagem recomeçar (§5.4)."""
-    _projeto_do_escopo(escopo_id, current_user, db)
-    try:
-        return IniciarEscopoUseCase(db).execute(escopo_id, request)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+# ⭐ A reunião inicial do escopo (§5.4) mora em
+# `POST /projetos/{id}/reunioes`, com `projeto_escopo_id` — registrar a reunião
+# no calendário É o que faz a contagem começar. Não há endpoint para digitar
+# `data_inicio` direto.
 
 
 @router.patch("/escopos-projeto/{escopo_id}/entrega")

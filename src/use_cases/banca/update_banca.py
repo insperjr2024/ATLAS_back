@@ -13,6 +13,8 @@ class UpdateBancaRequest(BaseModel):
     escopo_id: Optional[int] = None
     coordenador_id: Optional[int] = None
     data_hora: Optional[datetime] = None
+    #: Só a diretoria altera — ver `require_diretor` no use case.
+    piso_minimo_override: Optional[int] = None
 
 
 class UpdateBancaUseCase:
@@ -20,8 +22,11 @@ class UpdateBancaUseCase:
         self.repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
 
-    def execute(self, banca_id: int, request: UpdateBancaRequest):
+    def execute(self, banca_id: int, request: UpdateBancaRequest, eh_diretor: bool = False):
         data = request.dict(exclude_unset=True)
+
+        if "piso_minimo_override" in data and not eh_diretor:
+            raise RegraDeNegocioError("Só a diretoria pode alterar o piso mínimo de uma banca")
 
         existente = self.repository.get_by_id(banca_id)
         if not existente:
@@ -53,7 +58,8 @@ class UpdateBancaUseCase:
             "projeto_escopo_ids": escopo_ids,
             "realizado_em": banca.realizado_em,
             "resultado": banca.resultado,
-            "status": calcular_status_banca(banca.data_hora, banca.realizado_em)
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "piso_minimo_override": banca.piso_minimo_override,
         }
 
 

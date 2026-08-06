@@ -132,7 +132,10 @@ def delete_pergunta(pergunta_id: int, _=Depends(require_diretor), db: Session = 
 
 @router.post("/avaliacoes")
 def create_avaliacao(request: CreateAvaliacaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return CreateAvaliacaoUseCase(db).execute(request, avaliador_id=current_user.id)
+    try:
+        return CreateAvaliacaoUseCase(db).execute(request, avaliador_id=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/avaliacoes-pendentes")

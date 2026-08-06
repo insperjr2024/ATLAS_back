@@ -5,31 +5,31 @@ from sqlalchemy.orm import Session
 
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.status_projeto import (
-    aplicar_transicao_manual,
+    destinos_validos,
     pausar,
     retomar,
-    status_anterior_manual,
     transicao_manual_valida,
-    transicao_volta_valida,
 )
 
 
 class UpdateStatusRequest(BaseModel):
-    #: A próxima etapa, a ANTERIOR (volta), ou "pausado" / "retomar".
+    #: Qualquer etapa ativa, ou "pausado" / "retomar".
     status_novo: str
 
 
 class UpdateStatusUseCase:
     """✋ As transições manuais do §4 — Coord (Dir/Ger herdam); Cons não.
 
-    Anda para frente e **para trás**, um passo por vez. A volta existe porque
-    avançar sem desfazer deixa um clique errado travando o projeto até alguém
-    mexer no banco. Toda transição, nos dois sentidos, grava no histórico.
+    Livre entre as etapas ativas, nos dois sentidos (inclusive reabrir um
+    projeto finalizado). Vendido só sai pra Ambientação, e só com kickoff já
+    marcado. Toda transição, em qualquer sentido, grava no histórico.
     """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
 
@@ -39,6 +39,7 @@ class UpdateStatusUseCase:
             return None
 
         anterior = projeto.status
+        tem_kickoff = projeto.data_kickoff is not None
 
         if request.status_novo == "pausado":
             novo_status, status_a_guardar = pausar(anterior)
@@ -48,21 +49,16 @@ class UpdateStatusUseCase:
             novo_status = retomar(projeto.status_antes_pausa)
             self.repository.update(projeto_id, status=novo_status, status_antes_pausa=None)
 
-        elif transicao_volta_valida(anterior, request.status_novo):
-            # A volta nunca mexe em `data_kickoff`: Ambientação é o piso, e
-            # de lá não se regride para Vendido.
-            novo_status = request.status_novo
-            self.repository.update(projeto_id, status=novo_status)
-
-        elif transicao_manual_valida(anterior, request.status_novo):
+        elif transicao_manual_valida(anterior, request.status_novo, tem_kickoff):
             novo_status = request.status_novo
             self.repository.update(projeto_id, status=novo_status)
 
         else:
+            destinos = destinos_validos(anterior, tem_kickoff)
+            descricao = ", ".join(f"'{d}'" for d in destinos) if destinos else "nenhuma (kickoff ainda não marcado)"
             raise RegraDeNegocioError(
-                f"'{request.status_novo}' não é um passo válido a partir de "
-                f"'{anterior}'. O projeto anda uma etapa por vez: "
-                f"{_descrever_passos(anterior)}."
+                f"'{request.status_novo}' não é um destino válido a partir de "
+                f"'{anterior}'. Etapas disponíveis: {descricao}."
             )
 
         self.historico_repository.create(
@@ -71,20 +67,15 @@ class UpdateStatusUseCase:
             status_novo=novo_status,
             alterado_por=alterado_por,
         )
+
+        # 🤖 Entrou em Ambientação com a janela já vencida (kickoff antigo, ou
+        # o projeto ficou parado em Vendido): a virada é imediata, e não na
+        # passada da madrugada — a alternativa seria a tela mostrar
+        # "Ambientação" por um dia sabendo que ela acabou. As duas linhas
+        # ficam no histórico, que é o registro fiel do que aconteceu.
+        if novo_status == "ambientacao" and EncerrarAmbientacaoUseCase(self.db).executar_para(
+            projeto_id
+        ):
+            return {"id": projeto_id, "status_anterior": anterior, "status": "em_andamento"}
+
         return {"id": projeto_id, "status_anterior": anterior, "status": novo_status}
-
-
-def _descrever_passos(status_atual: str) -> str:
-    """Os destinos válidos daqui, para a mensagem de erro ser acionável."""
-    from src.utils.status_projeto import TRANSICOES_MANUAIS
-
-    opcoes = []
-    anterior = status_anterior_manual(status_atual)
-    if anterior:
-        opcoes.append(f"voltar para '{anterior}'")
-    proximo = TRANSICOES_MANUAIS.get(status_atual)
-    if proximo:
-        opcoes.append(f"avançar para '{proximo}'")
-    if status_atual == "pausado":
-        opcoes.append("'retomar'")
-    return ", ".join(opcoes) if opcoes else "não há transição manual daqui"

@@ -1,8 +1,13 @@
+from datetime import datetime, timedelta
 from typing import List, Dict
 from src.models.candidatura_model import CandidaturaModel
 from src.models.avaliacao_model import AvaliacaoModel
 from src.models.banca_model import BancaModel
 from src.utils.banca_status import banca_ja_ocorreu, calcular_status_banca
+
+#: §8 — quem avalia tem 2 dias corridos a partir da banca realizada. Depois
+#: disso o envio é bloqueado (`create_avaliacao.py`), não só destacado.
+PRAZO_AVALIACAO_DIAS = 2
 
 
 def calcular_avaliacoes_pendentes(
@@ -24,10 +29,13 @@ def calcular_avaliacoes_pendentes(
             continue
         if (banca.id, c.usuario_id) in submetidas:
             continue
+        prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
         resultado.append({
             "usuario_id": c.usuario_id,
             "banca_id": banca.id,
             "nome_projeto": banca.nome_projeto,
-            "data_hora": banca.data_hora
+            "data_hora": banca.data_hora,
+            "prazo_avaliacao": prazo,
+            "prazo_expirado": datetime.now() > prazo,
         })
     return resultado

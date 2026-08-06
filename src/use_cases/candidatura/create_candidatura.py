@@ -1,4 +1,6 @@
 from sqlalchemy.orm import Session
+from typing import Optional
+
 from pydantic import BaseModel
 from datetime import datetime
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -12,6 +14,9 @@ from src.utils.exceptions import RegraDeNegocioError
 class CreateCandidaturaRequest(BaseModel):
     banca_id: int
     confirmado: bool = False
+    #: Alocar OUTRA pessoa. Só a diretoria — o router faz a checagem, porque é
+    #: lá que se sabe quem está chamando. Sem isto, cada um só se inscreve.
+    usuario_id: Optional[int] = None
 
 
 class CreateCandidaturaUseCase:

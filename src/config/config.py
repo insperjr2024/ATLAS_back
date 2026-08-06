@@ -6,7 +6,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    #: 7 dias. O token é renovado a cada vez que a plataforma abre (ver
+    #: `POST /auth/renovar`), então quem usa toda semana nunca reloga; o prazo
+    #: só corre para sessão abandonada.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     UPLOADS_DIR: str = "uploads"
 
     # ─── Recuperação de senha ────────────────────────────────────────────

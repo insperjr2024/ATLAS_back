@@ -42,6 +42,10 @@ from src.models.desempenho_avaliacao_model import DesempenhoAvaliacaoModel
 from src.models.desempenho_avaliacao_nota_model import DesempenhoAvaliacaoNotaModel
 from src.models.desempenho_mentoria_model import DesempenhoMentoriaModel
 
+# Notificação e troca de candidatura de banca (§6, §8).
+from src.models.notificacao_model import NotificacaoModel
+from src.models.solicitacao_troca_model import SolicitacaoTrocaModel
+
 # Recuperação de senha — o token de uso único do "esqueci minha senha".
 from src.models.token_recuperacao_model import TokenRecuperacaoModel
 
