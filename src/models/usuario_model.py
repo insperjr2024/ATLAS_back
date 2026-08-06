@@ -42,3 +42,6 @@ class UsuarioModel(Base):
         server_default="ativo",
     )
     ativo = Column(Boolean, default=True, nullable=False)
+    # 1º a 8º semestre da graduação — nullable porque diretoria/gerência não
+    # necessariamente são alunos de graduação em curso.
+    semestre_graduacao = Column(Integer, nullable=True)

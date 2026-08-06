@@ -3,6 +3,13 @@ from src.database.database import Base
 
 
 class ConfiguracaoModel(Base):
+    """Ajustes globais do sistema — uma linha só, editável pela diretoria.
+
+    A carga de trabalho NÃO mora aqui: ela é uma escala de estados por papel,
+    em `situacao_carga`. Um número único não descrevia o que a diretoria
+    precisava dizer ("2 é o ideal, 3 já é demais").
+    """
+
     __tablename__ = "configuracao"
 
     id = Column(Integer, primary_key=True, index=True)

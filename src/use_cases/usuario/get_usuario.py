@@ -18,6 +18,7 @@ def serializar_usuario(usuario, projetos_alocados: int = 0):
         "posicao": usuario.posicao,
         "status": usuario.status,
         "ativo": usuario.ativo,
+        "semestre_graduacao": usuario.semestre_graduacao,
         # ⭐ "ainda não fez o primeiro acesso": a tela de Membros marca essas
         # linhas e oferece o reenvio da senha provisória.
         "senha_provisoria": usuario.senha_provisoria,

@@ -23,8 +23,15 @@ from sqlalchemy.orm import Session
 from src.middlewares.authorization import aplicar_recorte_visao
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.situacao_carga_repository import (
+    SituacaoCargaRepository,
+    faixa_mais_alta,
+    resolver as resolver_situacao,
+)
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.frente_repository import FrenteRepository
+from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
@@ -41,7 +48,6 @@ from src.utils.condicoes_alerta import (
     detectar_condicoes,
 )
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
-from src.utils.tarefa_status import eh_vencida, esta_ativa, janela_semana
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
@@ -52,6 +58,39 @@ from src.utils.tarefa_status import (
 
 STATUS_EM_EXECUCAO = ("ambientacao", "em_andamento", "validacao_bancas")
 STATUS_PERTO_DO_FIM = ("envio_tep", "periodo_ajustes")
+
+#: Até quantos projetos cada papel carrega sem ficar sobrecarregado.
+#:
+#: É o número que a diretoria descreveu: 2 projetos para um consultor, 4 para um
+#: coordenador. Quem passa disso não *devolve* capacidade — um consultor com 3
+#: projetos conta 0 vaga, nunca −1, porque a sobrecarga dele não tira do núcleo
+#: a chance de vender para outra pessoa.
+#:
+#: ⚠ **Fixo aqui, e NÃO lido da escala de `situacao_carga`** — decisão do João
+#: em 2026-08-06. Consequência a conhecer: a escala é editável em Configurações,
+#: então ela pode passar a discordar destes números. Hoje já discorda no
+#: coordenador (a escala marca "Carga alta" a partir de 3, não de 5), e nesse
+#: caso a pílula de situação da tabela e o card de capacidade falam da mesma
+#: pessoa de formas diferentes.
+TETO_POR_PAPEL = {"consultor": 2, "coordenador": 4}
+
+#: As etapas de um projeto EM CURSO, na ordem do ciclo de vida.
+#:
+#: A ordem é o dado, não enfeite: status é uma sequência, e a pizza da Visão
+#: geral desenha as fatias nesta ordem para se ler como funil. Ordenar por
+#: quantidade — como a lista que ela substituiu fazia — embaralha as etapas e
+#: some com a leitura de onde o portfólio empaca.
+#:
+#: `finalizado` e `pausado` ficam de fora porque a pizza conta os ativos, e é o
+#: que faz a soma das fatias bater com o número do meio.
+ETAPAS_EM_CURSO = (
+    "vendido",
+    "ambientacao",
+    "em_andamento",
+    "validacao_bancas",
+    "envio_tep",
+    "periodo_ajustes",
+)
 
 
 class _BaseMonitoramento:
@@ -69,6 +108,9 @@ class _BaseMonitoramento:
         self.semestre_repository = SemestreRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.coluna_repository = TarefaColunaRepository(db)
+        self.situacao_repository = SituacaoCargaRepository(db)
+        self.frente_repository = FrenteRepository(db)
+        self.usuario_frente_repository = UsuarioFrenteRepository(db)
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -154,10 +196,6 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         atrasos = self._atrasos(projetos, ctx, hoje)
         semestre = self.semestre_repository.get_ativo()
 
-        por_status = defaultdict(int)
-        for p in projetos:
-            por_status[p.status] += 1
-
         # Um projeto finalizado não está atrasado, e um pausado está parado
         # por decisão de gestão — nenhum dos dois pode derrubar o placar nem
         # inflar o KPI de atrasados. `em_curso` é a base de todas as métricas
@@ -169,19 +207,40 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         no_prazo = [p for p in em_curso if not atrasos[p.id].atrasado_por_banca]
         placar = round(len(no_prazo) / len(em_curso) * 100, 1) if em_curso else 100.0
 
+        # ⚠ Este percentual NÃO é o complemento do placar acima, e os dois
+        # aparecem lado a lado na tela. O placar conta só banca atrasada; este
+        # conta QUALQUER motivo, inclusive entrega. A diferença são os projetos
+        # atrasados só por entrega, que o §7.1 manda deixar de fora do placar
+        # porque dependem da agenda do cliente.
+        #
+        # Medido no banco de demonstração: placar 47,4% e atrasados 68,4% —
+        # `100 - placar` daria 52,6%, que não é nenhum dos dois. Por isso os
+        # rótulos na tela precisam dizer o que cada um mede.
+        atrasados = [p for p in em_curso if atrasos[p.id].atrasado]
+        percentual_atrasados = (
+            round(len(atrasados) / len(em_curso) * 100, 1) if em_curso else 0.0
+        )
+
         return {
             "kpis": {
                 "total": len(projetos),
                 "em_execucao": sum(1 for p in projetos if p.status in STATUS_EM_EXECUCAO),
                 "perto_de_finalizar": sum(1 for p in projetos if p.status in STATUS_PERTO_DO_FIM),
-                "atrasados": sum(1 for p in em_curso if atrasos[p.id].atrasado),
+                "atrasados": len(atrasados),
                 "pausados": sum(1 for p in projetos if p.status == "pausado"),
                 "finalizados": sum(1 for p in projetos if p.status == "finalizado"),
             },
-            "por_status": dict(por_status),
+            "por_etapa": self._por_etapa(em_curso),
             "placar_gestao": {
                 "percentual": placar,
                 "no_prazo": len(no_prazo),
+                "total_ativos": len(em_curso),
+            },
+            # Irmão do placar de propósito: mesma base `em_curso`, calculados
+            # no mesmo lugar. Separados, um dia divergiriam.
+            "atrasados_gestao": {
+                "percentual": percentual_atrasados,
+                "atrasados": len(atrasados),
                 "total_ativos": len(em_curso),
             },
             "entregas": self._entregas(projetos, ctx, semestre, hoje),
@@ -189,6 +248,36 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             "tempo_parado": self._tempo_parado(projetos, ctx, hoje),
             "atencao_agora": self._atencao_agora(projetos, ctx, atrasos, hoje),
         }
+
+    def _por_etapa(self, em_curso):
+        """A distribuição do portfólio pelas etapas do ciclo (§7.1).
+
+        ⭐ **Recebe `em_curso`, e não todos os projetos.** A pizza mostra o total
+        de ativos no meio, e é essa escolha que faz `sum(total)` bater com
+        `placar_gestao.total_ativos` **por construção** — as duas saem da mesma
+        lista, no mesmo lugar. Contar as fatias sobre `projetos` e o centro
+        sobre `em_curso` daria um gráfico onde as partes não somam o todo, que é
+        o jeito mais fácil de um gráfico mentir sem ninguém notar.
+
+        Cada etapa traz os projetos dela porque a fatia é clicável: só a
+        contagem não sustenta o "quais são esses 7?".
+
+        Etapa vazia entra com `total: 0` em vez de sumir — some da legenda faria
+        parecer que a etapa não existe, quando o que se quer saber é justamente
+        que ela está vazia.
+        """
+        agrupados = defaultdict(list)
+        for p in em_curso:
+            agrupados[p.status].append({"id": p.id, "nome": p.nome})
+
+        return [
+            {
+                "status": etapa,
+                "total": len(agrupados[etapa]),
+                "projetos": sorted(agrupados[etapa], key=lambda x: x["nome"]),
+            }
+            for etapa in ETAPAS_EM_CURSO
+        ]
 
     def _entregas(self, projetos, ctx, semestre, hoje):
         """Contador + lista + tendência semanal (§7.1) — o contraponto positivo."""
@@ -389,6 +478,19 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
     ⭐ "Ativa" e "vencida" vêm da COLUNA do kanban (`encerra_tarefa`), não de
     uma lista fixa de status — as colunas são configuráveis pela diretoria.
+
+    📅 `referencia` permite olhar uma SEMANA PASSADA, mas nem tudo volta no
+    tempo junto:
+
+    - **voltam**: `distribuiu_na_semana`, reuniões, `vencidas`, `atraso_maximo`
+      e `dias_uteis_sem_tarefa` — todos derivam de data e são recalculáveis;
+    - **volta com perda**: `ultima_movimentacao` corta em `<= fim da semana`,
+      mas subestima. `tarefa.movida_em` guarda só o carimbo da ÚLTIMA mudança;
+      tarefa que se moveu naquela semana e se moveu de novo depois teve o
+      registro antigo sobrescrito;
+    - **não voltam**: `total` e `ativas`, que dependem da coluna em que a
+      tarefa está AGORA. Sem histórico de movimentação entre colunas, não há
+      como saber onde ela estava naquela semana. A tela marca esses com "hoje".
     """
 
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
@@ -412,11 +514,44 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
         tarefas = []
         for p in projetos:
-            do_projeto = tarefas_por_projeto.get(p.id, [])
-            criadas_na_semana = [
-                t for t in do_projeto if t.criado_em and t.criado_em.date() >= inicio
+            todas_do_projeto = tarefas_por_projeto.get(p.id, [])
+            # ⚠ Tudo que responde "como estava naquela semana" olha só as
+            # tarefas que JÁ EXISTIAM até o fim dela. Sem esse corte, olhar 12
+            # semanas atrás usava tarefas criadas semanas DEPOIS: o marco de
+            # "sem tarefa nova" caía no futuro da referência, o cálculo batia
+            # no `marco >= hoje` e devolvia 0 — a tela mostrava todos os
+            # projetos saudáveis justamente nas semanas mais antigas, o oposto
+            # da realidade. `sem_tarefas` sofria do mesmo: dava o mesmo número
+            # em qualquer semana.
+            #
+            # `criado_em` é imutável, então este recorte é exato — diferente do
+            # `movida_em`, que é sobrescrito e só permite aproximar.
+            do_projeto = [
+                t for t in todas_do_projeto if t.criado_em and t.criado_em.date() <= fim
             ]
-            movimentacoes = [t.movida_em for t in do_projeto if t.movida_em]
+            # ⚠ A janela é FECHADA nos dois lados. Só com `>= inicio` o campo
+            # mentia assim que a tela ganhasse navegação: voltando 8 semanas,
+            # qualquer projeto que recebeu tarefa depois daquela segunda —
+            # inclusive meses depois — apareceria como "distribuiu". Não dava
+            # para perceber antes da navegação existir, porque a semana sempre
+            # terminava em hoje e não havia tarefa criada no futuro.
+            criadas_na_semana = [
+                t for t in do_projeto if t.criado_em and inicio <= t.criado_em.date() <= fim
+            ]
+            # Só o que já tinha acontecido até o fim da semana exibida. Sem o
+            # corte, olhar 3 semanas atrás mostrava uma data POSTERIOR à janela
+            # do cabeçalho — "semana de 06/07 a 12/07, última movimentação
+            # 05/08" —, o que lia como tela quebrada.
+            #
+            # ⚠ O número fica SUBESTIMADO, e não há como evitar: `movida_em`
+            # guarda só o carimbo da última mudança, não o histórico. Tarefa
+            # que se moveu naquela semana e se moveu de novo depois teve o
+            # registro antigo sobrescrito. Erra para menos, nunca para mais —
+            # mostra menos atividade do que houve, jamais atividade que não
+            # existiu.
+            movimentacoes = [
+                t.movida_em for t in do_projeto if t.movida_em and t.movida_em.date() <= fim
+            ]
             # "Vencida" e "ativa" saem da COLUNA do kanban, não de um status na
             # tarefa: as colunas são configuráveis pela diretoria, e o campo
             # `status` deixou de existir no modelo.
@@ -424,7 +559,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
                 t for t in do_projeto if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
             ]
             ativas = [t for t in do_projeto if esta_ativa(encerra.get(t.coluna_id, False))]
-            marco, tipo_marco = self._marco_sem_tarefa(p, do_projeto)
+            marco, tipo_marco = self._marco_sem_tarefa(p, do_projeto, fim)
 
             tarefas.append(
                 {
@@ -472,8 +607,24 @@ class ExecucaoUseCase(_BaseMonitoramento):
             for p in projetos
         ]
 
+        # Quem decide se a semana é a atual é o servidor, não o navegador: o
+        # front teria de recalcular a segunda-feira a partir do relógio local,
+        # e uma máquina com fuso ou data errada mostraria a semana errada como
+        # se fosse a de hoje.
+        semana_de_hoje = janela_semana(date.today())[0]
+        # Em semanas inteiras: a janela sempre começa numa segunda, então a
+        # diferença é múltipla de 7 e a divisão é exata.
+        semanas_atras = (semana_de_hoje - inicio).days // 7
+
         return {
-            "semana": {"inicio": inicio, "fim": fim},
+            "semana": {
+                "inicio": inicio,
+                "fim": fim,
+                "eh_atual": semanas_atras == 0,
+                "eh_passada": semanas_atras > 0,
+                #: 0 = semana atual, 1 = semana passada, 2 = duas atrás...
+                "semanas_atras": semanas_atras,
+            },
             "resumo_tarefas": {
                 "projetos": len(tarefas),
                 "sem_tarefas": sum(1 for t in tarefas if t["sem_tarefas"]),
@@ -487,7 +638,9 @@ class ExecucaoUseCase(_BaseMonitoramento):
             "reunioes": reunioes_resposta,
         }
 
-    def _marco_sem_tarefa(self, projeto, tarefas) -> Tuple[Optional[date], Optional[str]]:
+    def _marco_sem_tarefa(
+        self, projeto, tarefas, ate: date
+    ) -> Tuple[Optional[date], Optional[str]]:
         """De ONDE parte a contagem de "sem tarefa nova", e o que esse ponto é.
 
         Devolve `(data, tipo)`, ambos lidos do banco:
@@ -499,6 +652,12 @@ class ExecucaoUseCase(_BaseMonitoramento):
           execução só começa aí;
         - `(None, None)` quando o projeto ainda não tem kickoff.
 
+        `ate` é o fim da semana que se está olhando. **Kickoff posterior a ela
+        não conta**: naquela semana o projeto ainda nem tinha começado, e usá-lo
+        devolveria um marco no futuro da janela — o cálculo cairia no
+        `marco >= hoje` e diria "0 dias sem tarefa" para um projeto que sequer
+        existia. Quem chama já entrega `tarefas` recortadas pelo mesmo limite.
+
         O TIPO vai para a resposta de propósito. O front precisa escrever
         "desde o kickoff" ou "desde a última tarefa criada", e não tem como
         saber qual dos dois olhando só o número de dias. Antes ele deduzia pelo
@@ -509,7 +668,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
         criacoes = [t.criado_em.date() for t in tarefas if t.criado_em]
         if criacoes:
             return max(criacoes), "ultima_tarefa"
-        if projeto.data_kickoff:
+        if projeto.data_kickoff and projeto.data_kickoff <= ate:
             return projeto.data_kickoff, "kickoff"
         return None, None
 
@@ -530,12 +689,122 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
 
 class AlocacaoUseCase(_BaseMonitoramento):
-    """§7.3 — carga por pessoa. Coordenador costuma ser gargalo."""
+    """§7.3 — carga por pessoa. Coordenador costuma ser gargalo.
+
+    ⚠ **Carga é medida em PROJETOS ATIVOS, não em horas.** A checagem por grade
+    horária que o §7.3 menciona depende da F13, que não entrou nesta fatia.
+    A resposta já teve um `grade_horaria_disponivel: False` para sinalizar isso,
+    mas era constante e ninguém lia — o aviso saiu da tela em 2026-08-06 e o
+    campo foi junto. A pendência é esta linha, não um campo morto no JSON.
+    """
+
+    def _capacidade(self, coordenadores, consultores):
+        """Quantos projetos ainda cabem, por frente e por papel.
+
+        A conta é `max(0, teto − projetos da pessoa)`, somada. ⭐ **O `max(0)` é
+        o ponto:** um consultor com 3 projetos contribui 0, nunca −1. Ele está
+        sobrecarregado, mas isso não tira do núcleo a chance de vender um projeto
+        para outra pessoa — capacidade negativa de um não cancela a vaga livre do
+        colega.
+
+        **Dois números, um por papel, e não um só.** Converter em "projetos
+        vendáveis" exigiria assumir o tamanho da equipe (medi 1 coordenador e ~2
+        consultores por projeto), e essa suposição some no número final: quem
+        lesse "8 projetos" não saberia que os consultores já estão no limite e
+        que o 8 veio só dos coordenadores.
+
+        As linhas são as MESMAS que alimentam as tabelas logo abaixo — passadas
+        por parâmetro, não recalculadas. Recontar aqui abriria a porta para o
+        card dizer um número e a tabela mostrar outro.
+        """
+        frentes = {f.id: f.nome for f in self.frente_repository.get_all()}
+        por_usuario = defaultdict(list)
+        for vinculo in self.usuario_frente_repository.get_all():
+            por_usuario[vinculo.usuario_id].append(vinculo.frente_id)
+
+        # `None` é a chave de quem não tem frente cadastrada. Ele entra como uma
+        # linha "Sem frente" em vez de sumir: some faria a soma das frentes não
+        # bater com o total, sem nada na tela explicando a diferença.
+        vagas = defaultdict(lambda: {"consultor": 0, "coordenador": 0, "pessoas": set()})
+
+        def acumular(linhas, papel):
+            teto = TETO_POR_PAPEL[papel]
+            for l in linhas:
+                livre = max(0, teto - l["total"])
+                for frente_id in por_usuario.get(l["usuario_id"]) or [None]:
+                    vagas[frente_id][papel] += livre
+                    vagas[frente_id]["pessoas"].add(l["usuario_id"])
+
+        acumular(consultores, "consultor")
+        acumular(coordenadores, "coordenador")
+
+        linhas = [
+            {
+                "frente_id": fid,
+                "frente_nome": frentes.get(fid, "Sem frente") if fid else "Sem frente",
+                "consultor": v["consultor"],
+                "coordenador": v["coordenador"],
+                "pessoas": len(v["pessoas"]),
+            }
+            for fid, v in vagas.items()
+        ]
+        # Mais capacidade primeiro: a pergunta é "onde ainda dá para vender".
+        #
+        # "Sem frente" vai SEMPRE por último, mesmo tendo a maior capacidade —
+        # hoje ela junta os dois diretores, que não têm projeto e por isso somam
+        # 8 vagas. Deixá-la no topo diria que a maior oportunidade do núcleo está
+        # fora de qualquer frente, que é o oposto do que a tela quer responder.
+        linhas.sort(
+            key=lambda x: (
+                x["frente_id"] is None,
+                -(x["consultor"] + x["coordenador"]),
+                x["frente_nome"],
+            )
+        )
+
+        # ⚠ O total NÃO é a soma das linhas. Quem está em duas frentes aparece
+        # nas duas, e somar contaria a vaga dela duas vezes. Aqui a conta corre
+        # sobre as pessoas, uma vez cada.
+        return {
+            "por_frente": linhas,
+            "total": {
+                "consultor": sum(
+                    max(0, TETO_POR_PAPEL["consultor"] - l["total"]) for l in consultores
+                ),
+                "coordenador": sum(
+                    max(0, TETO_POR_PAPEL["coordenador"] - l["total"]) for l in coordenadores
+                ),
+            },
+            "teto": dict(TETO_POR_PAPEL),
+        }
 
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        # ⭐ **O filtro de frente escolhe QUEM APARECE, não como a carga é
+        # medida.** São duas listas de propósito:
+        #
+        #   `do_recorte` — os projetos da frente pedida. Define a população: só
+        #                  quem trabalha nela entra na tabela.
+        #   `projetos`   — tudo que a pessoa logada enxerga, sem o filtro. É
+        #                  sobre isto que a carga de cada um é contada.
+        #
+        # Medir a carga dentro do recorte inflava a capacidade: Caio tem 3
+        # projetos e está cheio, mas filtrando por Business só 1 deles aparecia
+        # e ele "ganhava" 2 vagas que não existem. Medido em 2026-08-06: 21
+        # pessoas nessa situação, e a capacidade total do núcleo SUBIA de 23
+        # para 31 ao estreitar o filtro — um número que só pode cair.
+        #
+        # Capacidade e sobrecarga são propriedades da PESSOA. Quem carrega 3
+        # projetos está cheio venha de onde vier o terceiro.
+        do_recorte = self._projetos_visiveis(current_user, frente_id)
+        projetos = (
+            do_recorte if frente_id is None else self._projetos_visiveis(current_user, None)
+        )
         ids = [p.id for p in projetos]
-        nomes_projeto = {p.id: p.nome for p in projetos}
+        # O projeto vai inteiro (id, nome e etapa), não só o nome: o gráfico de
+        # barras filtra a carga por etapa, e o front só consegue fazer isso sem
+        # uma requisição por troca de filtro se o status vier junto. O id abre
+        # o caminho para o chip da tabela linkar para o projeto.
+        por_id = {p.id: {"id": p.id, "nome": p.nome, "status": p.status} for p in projetos}
         # Só projetos ATIVOS contam como carga — quem coordenou algo
         # finalizado não está ocupado por isso.
         ativos = {p.id for p in projetos if p.status not in ("finalizado",)}
@@ -546,20 +815,44 @@ class AlocacaoUseCase(_BaseMonitoramento):
         carga: Dict[int, Dict[str, list]] = defaultdict(lambda: {"coordenador": [], "consultor": []})
         for m in membros:
             if m.projeto_id in ativos:
-                carga[m.usuario_id][m.papel].append(nomes_projeto.get(m.projeto_id, ""))
+                carga[m.usuario_id][m.papel].append(por_id[m.projeto_id])
+
+        # A situação de cada pessoa sai de uma ESCALA por papel, definida pela
+        # diretoria em Configurações — não de um limiar no código.
+        #
+        # Um número único não dizia o que ela precisa dizer: "2 projetos é o
+        # ideal para um consultor, 3 já é demais" são três estados, não um
+        # corte. E o ponto de saturação muda por frente e por gestão.
+        escalas = {
+            papel: self.situacao_repository.garantir_padrao(papel)
+            for papel in ("coordenador", "consultor")
+        }
+        # Quem está com demanda alta é quem cai na faixa mais alta do seu papel.
+        # A pergunta é respondida pela POSIÇÃO na escala, não pelo nome nem pela
+        # cor: nome e cor são livres, então decidir por eles deixaria o destaque
+        # à mercê de alguém escrever "Carga alta" com essa grafia ou lembrar de
+        # pintar de vermelho. Como cada papel tem sempre três faixas, esta
+        # existe por construção e o card nunca fica vazio por configuração.
+        topo = {papel: faixa_mais_alta(escala) for papel, escala in escalas.items()}
 
         def linha(usuario, papel):
-            projetos_da_pessoa = carga.get(usuario.id, {}).get(papel, [])
+            projetos_da_pessoa = sorted(
+                carga.get(usuario.id, {}).get(papel, []), key=lambda p: p["nome"]
+            )
+            total = len(projetos_da_pessoa)
+            situacao = resolver_situacao(escalas[papel], total)
             return {
                 "usuario_id": usuario.id,
                 "nome": usuario.nome,
                 "posicao": usuario.posicao,
-                "total": len(projetos_da_pessoa),
+                "total": total,
                 "projetos": projetos_da_pessoa,
-                # 3+ projetos ativos é o limiar de "carga alta" — acima disso
-                # a pessoa vira gargalo.
-                "carga_alta": len(projetos_da_pessoa) >= 3,
-                "disponivel": len(projetos_da_pessoa) == 0,
+                # A situação vem resolvida do backend: a regra é dele, e a tela
+                # reimplementá-la seria convite para divergirem.
+                "situacao": {"nome": situacao.nome, "tom": situacao.tom}
+                if situacao
+                else None,
+                "demanda_alta": situacao is not None and situacao is topo[papel],
             }
 
         # ⚠ Quem aparece na tabela tem que ser quem a pessoa logada ENXERGA.
@@ -571,7 +864,18 @@ class AlocacaoUseCase(_BaseMonitoramento):
         ve_tudo = getattr(current_user, "posicao", None) == "diretor" and frente_id is None
         na_visao = set(carga.keys())
 
+        # Com filtro de frente, a POPULAÇÃO é quem trabalha nela. A carga de
+        # cada um continua vindo de todos os projetos dela (ver o topo deste
+        # método) — filtro escolhe quem aparece, não como se mede.
+        ids_recorte = {p.id for p in do_recorte}
+        no_recorte: Dict[str, set] = defaultdict(set)
+        for m in membros:
+            if m.projeto_id in ids_recorte and m.projeto_id in ativos:
+                no_recorte[m.papel].add(m.usuario_id)
+
         def entra(usuario, papel) -> bool:
+            if frente_id is not None:
+                return usuario.id in no_recorte[papel]
             if carga.get(usuario.id, {}).get(papel):
                 return True
             if usuario.id in na_visao:
@@ -588,22 +892,35 @@ class AlocacaoUseCase(_BaseMonitoramento):
             for u in usuarios.values()
             if entra(u, "consultor") and u.posicao == "consultor"
         ]
-        # As duas tabelas respondem perguntas OPOSTAS, por isso ordenam ao
-        # contrário uma da outra:
-        #   · coordenadores — "quem é o gargalo?" → mais carregado primeiro;
-        #   · consultores   — "quem pega o próximo projeto?" → menos
-        #     carregado primeiro, com os disponíveis (0 projetos) no topo.
+        # As duas tabelas respondem a MESMA pergunta: "quem pega o próximo
+        # projeto?". Por isso ordenam igual — menos carregado primeiro, com os
+        # disponíveis (0 projetos) no topo.
+        #
+        # Coordenadores ordenavam ao contrário, do mais carregado, para
+        # responder "quem é o gargalo?" — o §7.3 destaca que coordenador
+        # costuma ser gargalo. A diretoria pediu a inversão em 2026-08-05, e
+        # essa leitura NÃO se perdeu: ela passou para o card de quem está em
+        # situação de alerta, acima das tabelas, que é onde o sobrecarregado
+        # aparece agora. Sem esse card, inverter aqui esconderia o gargalo.
+        #
         # O nome é o desempate, senão pessoas com a mesma carga trocam de
         # lugar a cada refresh (a ordem vinha do dicionário de usuários).
-        coordenadores.sort(key=lambda x: (-x["total"], x["nome"]))
+        coordenadores.sort(key=lambda x: (x["total"], x["nome"]))
         consultores.sort(key=lambda x: (x["total"], x["nome"]))
 
         return {
             "coordenadores": coordenadores,
             "consultores": consultores,
-            # A checagem de grade horária (§7.3) depende da F13, que não
-            # entrou nesta fatia — a carga por projeto já é o essencial.
-            "grade_horaria_disponivel": False,
+            "capacidade": self._capacidade(coordenadores, consultores),
+            # Quem caiu na faixa mais alta do seu papel, separado por papel.
+            #
+            # Este bloco é o que devolve a leitura de "quem é o gargalo" (§7.3),
+            # perdida quando as duas tabelas passaram a ordenar do menos
+            # carregado para o mais.
+            "demanda_alta": {
+                "coordenadores": [c for c in coordenadores if c["demanda_alta"]],
+                "consultores": [c for c in consultores if c["demanda_alta"]],
+            },
         }
 
 

@@ -3,7 +3,8 @@ e coordenadores. Não confundir com `avaliacoes.py` (feedback de banca)."""
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -40,7 +41,22 @@ from src.use_cases.desempenho_lote.update_lote import UpdateDesempenhoLoteReques
 from src.use_cases.desempenho_mentoria.create_mentoria import CreateMentoriaRequest, CreateMentoriaUseCase
 from src.use_cases.desempenho_mentoria.delete_mentoria import DeleteMentoriaUseCase
 from src.use_cases.desempenho_mentoria.get_mentoria import GetMentoradosDeUseCase, ListMentoriasUseCase
+from src.use_cases.desempenho_pdi.create_item import CreatePdiItemRequest, CreatePdiItemUseCase
+from src.use_cases.desempenho_pdi.create_pasta import CreatePdiPastaRequest, CreatePdiPastaUseCase
+from src.use_cases.desempenho_pdi.delete_envio import DeletePdiEnvioUseCase
+from src.use_cases.desempenho_pdi.delete_item import DeletePdiItemUseCase
+from src.use_cases.desempenho_pdi.delete_pasta import DeletePdiPastaUseCase
+from src.use_cases.desempenho_pdi.get_envio import ListEnviosDoUsuarioUseCase
+from src.use_cases.desempenho_pdi.get_item import ListItensDaPastaUseCase
+from src.use_cases.desempenho_pdi.get_pasta import ListPdiPastasUseCase
+from src.use_cases.desempenho_pdi.get_pendencias import ListPendenciasPdiUseCase
+from src.use_cases.desempenho_pdi.update_item import UpdatePdiItemRequest, UpdatePdiItemUseCase
+from src.use_cases.desempenho_pdi.update_pasta import UpdatePdiPastaRequest, UpdatePdiPastaUseCase
+from src.use_cases.desempenho_pdi.upload_envio import UploadPdiEnvioUseCase
+from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
+from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
+from src.utils.storage import pasta_pdi
 
 router = APIRouter(tags=["avaliação de desempenho"], dependencies=[Depends(get_current_user)])
 
@@ -193,6 +209,92 @@ def list_mentorias(_=Depends(require_gestao), db: Session = Depends(get_db)):
     return ListMentoriasUseCase(db).execute()
 
 
+# ---------------------------------------------------------------- pdi
+
+@router.post("/desempenho/pdi/pastas")
+def create_pdi_pasta(request: CreatePdiPastaRequest, _=Depends(require_gestao), db: Session = Depends(get_db)):
+    try:
+        return CreatePdiPastaUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/desempenho/pdi/pastas")
+def list_pdi_pastas(_=Depends(get_current_user), db: Session = Depends(get_db)):
+    return ListPdiPastasUseCase(db).execute()
+
+
+@router.patch("/desempenho/pdi/pastas/{pasta_id}")
+def update_pdi_pasta(
+    pasta_id: int,
+    request: UpdatePdiPastaRequest,
+    _=Depends(require_gestao),
+    db: Session = Depends(get_db),
+):
+    result = UpdatePdiPastaUseCase(db).execute(pasta_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Pasta de PDI não encontrada")
+    return result
+
+
+@router.delete("/desempenho/pdi/pastas/{pasta_id}", status_code=204)
+def delete_pdi_pasta(pasta_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+    try:
+        deleted = DeletePdiPastaUseCase(db).execute(pasta_id)
+    except ResourceInUseError:
+        raise HTTPException(status_code=409, detail="Já tem envio nesta pasta — não dá pra excluir")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Pasta de PDI não encontrada")
+    return None
+
+
+@router.post("/desempenho/pdi/pastas/{pasta_id}/itens")
+def create_pdi_item(
+    pasta_id: int,
+    request: CreatePdiItemRequest,
+    _=Depends(require_gestao),
+    db: Session = Depends(get_db),
+):
+    try:
+        return CreatePdiItemUseCase(db).execute(pasta_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/desempenho/pdi/pastas/{pasta_id}/itens")
+def list_pdi_itens(pasta_id: int, _=Depends(get_current_user), db: Session = Depends(get_db)):
+    return ListItensDaPastaUseCase(db).execute(pasta_id)
+
+
+@router.patch("/desempenho/pdi/itens/{item_id}")
+def update_pdi_item(
+    item_id: int,
+    request: UpdatePdiItemRequest,
+    _=Depends(require_gestao),
+    db: Session = Depends(get_db),
+):
+    result = UpdatePdiItemUseCase(db).execute(item_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Item de PDI não encontrado")
+    return result
+
+
+@router.delete("/desempenho/pdi/itens/{item_id}", status_code=204)
+def delete_pdi_item(item_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+    try:
+        deleted = DeletePdiItemUseCase(db).execute(item_id)
+    except ResourceInUseError:
+        raise HTTPException(status_code=409, detail="Já tem envio neste item — não dá pra excluir")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Item de PDI não encontrado")
+    return None
+
+
+@router.get("/desempenho/pdi/itens/{item_id}/pendencias")
+def get_pendencias_pdi(item_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+    return ListPendenciasPdiUseCase(db).execute(item_id)
+
+
 # ---------------------------------------------------------------- usuário-escopado
 
 @router.get("/usuarios/{usuario_id}/desempenho/fila")
@@ -224,3 +326,58 @@ def get_relatorio(
 @router.get("/usuarios/{usuario_id}/desempenho/mentorados")
 def get_meus_mentorados(usuario_id: int, _=Depends(require_self), db: Session = Depends(get_db)):
     return GetMentoradosDeUseCase(db).execute(usuario_id)
+
+
+@router.get("/usuarios/{usuario_id}/desempenho/pdi/envios")
+def list_pdi_envios(
+    usuario_id: int,
+    _=Depends(require_self_mentor_ou_gestao),
+    db: Session = Depends(get_db),
+):
+    return ListEnviosDoUsuarioUseCase(db).execute(usuario_id)
+
+
+@router.post("/usuarios/{usuario_id}/desempenho/pdi/itens/{item_id}/envio")
+def upload_pdi_envio(
+    usuario_id: int,
+    item_id: int,
+    arquivo: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return UploadPdiEnvioUseCase(db).execute(item_id, usuario_id, arquivo, current_user)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/usuarios/{usuario_id}/desempenho/pdi/itens/{item_id}/envio")
+def download_pdi_envio(
+    usuario_id: int,
+    item_id: int,
+    _=Depends(require_self_mentor_ou_gestao),
+    db: Session = Depends(get_db),
+):
+    envio = DesempenhoPdiEnvioRepository(db).get_por_item_e_mentorado(item_id, usuario_id)
+    if not envio:
+        raise HTTPException(status_code=404, detail="Nenhum envio neste item")
+    caminho = pasta_pdi() / envio.arquivo_path
+    if not caminho.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return FileResponse(caminho, filename=envio.arquivo_nome)
+
+
+@router.delete("/usuarios/{usuario_id}/desempenho/pdi/itens/{item_id}/envio", status_code=204)
+def delete_pdi_envio(
+    usuario_id: int,
+    item_id: int,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        deleted = DeletePdiEnvioUseCase(db).execute(item_id, usuario_id, current_user)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Nenhum envio nesta pasta")
+    return None
