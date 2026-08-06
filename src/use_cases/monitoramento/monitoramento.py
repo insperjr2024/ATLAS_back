@@ -51,6 +51,24 @@ from src.utils.tarefa_status import (
 STATUS_EM_EXECUCAO = ("ambientacao", "em_andamento", "validacao_bancas")
 STATUS_PERTO_DO_FIM = ("envio_tep", "periodo_ajustes")
 
+#: As etapas de um projeto EM CURSO, na ordem do ciclo de vida.
+#:
+#: A ordem é o dado, não enfeite: status é uma sequência, e a pizza da Visão
+#: geral desenha as fatias nesta ordem para se ler como funil. Ordenar por
+#: quantidade — como a lista que ela substituiu fazia — embaralha as etapas e
+#: some com a leitura de onde o portfólio empaca.
+#:
+#: `finalizado` e `pausado` ficam de fora porque a pizza conta os ativos, e é o
+#: que faz a soma das fatias bater com o número do meio.
+ETAPAS_EM_CURSO = (
+    "vendido",
+    "ambientacao",
+    "em_andamento",
+    "validacao_bancas",
+    "envio_tep",
+    "periodo_ajustes",
+)
+
 
 class _BaseMonitoramento:
     """Carrega o recorte e os dados comuns uma vez só."""
@@ -153,10 +171,6 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         atrasos = self._atrasos(projetos, ctx, hoje)
         semestre = self.semestre_repository.get_ativo()
 
-        por_status = defaultdict(int)
-        for p in projetos:
-            por_status[p.status] += 1
-
         # Um projeto finalizado não está atrasado, e um pausado está parado
         # por decisão de gestão — nenhum dos dois pode derrubar o placar nem
         # inflar o KPI de atrasados. `em_curso` é a base de todas as métricas
@@ -191,7 +205,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                 "pausados": sum(1 for p in projetos if p.status == "pausado"),
                 "finalizados": sum(1 for p in projetos if p.status == "finalizado"),
             },
-            "por_status": dict(por_status),
+            "por_etapa": self._por_etapa(em_curso),
             "placar_gestao": {
                 "percentual": placar,
                 "no_prazo": len(no_prazo),
@@ -209,6 +223,36 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             "tempo_parado": self._tempo_parado(projetos, ctx, hoje),
             "atencao_agora": self._atencao_agora(projetos, ctx, atrasos, hoje),
         }
+
+    def _por_etapa(self, em_curso):
+        """A distribuição do portfólio pelas etapas do ciclo (§7.1).
+
+        ⭐ **Recebe `em_curso`, e não todos os projetos.** A pizza mostra o total
+        de ativos no meio, e é essa escolha que faz `sum(total)` bater com
+        `placar_gestao.total_ativos` **por construção** — as duas saem da mesma
+        lista, no mesmo lugar. Contar as fatias sobre `projetos` e o centro
+        sobre `em_curso` daria um gráfico onde as partes não somam o todo, que é
+        o jeito mais fácil de um gráfico mentir sem ninguém notar.
+
+        Cada etapa traz os projetos dela porque a fatia é clicável: só a
+        contagem não sustenta o "quais são esses 7?".
+
+        Etapa vazia entra com `total: 0` em vez de sumir — some da legenda faria
+        parecer que a etapa não existe, quando o que se quer saber é justamente
+        que ela está vazia.
+        """
+        agrupados = defaultdict(list)
+        for p in em_curso:
+            agrupados[p.status].append({"id": p.id, "nome": p.nome})
+
+        return [
+            {
+                "status": etapa,
+                "total": len(agrupados[etapa]),
+                "projetos": sorted(agrupados[etapa], key=lambda x: x["nome"]),
+            }
+            for etapa in ETAPAS_EM_CURSO
+        ]
 
     def _entregas(self, projetos, ctx, semestre, hoje):
         """Contador + lista + tendência semanal (§7.1) — o contraponto positivo."""
@@ -622,7 +666,11 @@ class AlocacaoUseCase(_BaseMonitoramento):
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
         projetos = self._projetos_visiveis(current_user, frente_id)
         ids = [p.id for p in projetos]
-        nomes_projeto = {p.id: p.nome for p in projetos}
+        # O projeto vai inteiro (id, nome e etapa), não só o nome: o gráfico de
+        # barras filtra a carga por etapa, e o front só consegue fazer isso sem
+        # uma requisição por troca de filtro se o status vier junto. O id abre
+        # o caminho para o chip da tabela linkar para o projeto.
+        por_id = {p.id: {"id": p.id, "nome": p.nome, "status": p.status} for p in projetos}
         # Só projetos ATIVOS contam como carga — quem coordenou algo
         # finalizado não está ocupado por isso.
         ativos = {p.id for p in projetos if p.status not in ("finalizado",)}
@@ -633,7 +681,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
         carga: Dict[int, Dict[str, list]] = defaultdict(lambda: {"coordenador": [], "consultor": []})
         for m in membros:
             if m.projeto_id in ativos:
-                carga[m.usuario_id][m.papel].append(nomes_projeto.get(m.projeto_id, ""))
+                carga[m.usuario_id][m.papel].append(por_id[m.projeto_id])
 
         # A situação de cada pessoa sai de uma ESCALA por papel, definida pela
         # diretoria em Configurações — não de um limiar no código.
@@ -654,7 +702,9 @@ class AlocacaoUseCase(_BaseMonitoramento):
         topo = {papel: faixa_mais_alta(escala) for papel, escala in escalas.items()}
 
         def linha(usuario, papel):
-            projetos_da_pessoa = carga.get(usuario.id, {}).get(papel, [])
+            projetos_da_pessoa = sorted(
+                carga.get(usuario.id, {}).get(papel, []), key=lambda p: p["nome"]
+            )
             total = len(projetos_da_pessoa)
             situacao = resolver_situacao(escalas[papel], total)
             return {
