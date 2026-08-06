@@ -48,3 +48,6 @@ from src.models.solicitacao_troca_model import SolicitacaoTrocaModel
 
 # Recuperação de senha — o token de uso único do "esqueci minha senha".
 from src.models.token_recuperacao_model import TokenRecuperacaoModel
+
+# Os estados de carga da aba de Alocação, configuráveis pela diretoria.
+from src.models.situacao_carga_model import SituacaoCargaModel

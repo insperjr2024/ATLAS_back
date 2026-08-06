@@ -35,27 +35,41 @@ def tarefa(criada_em=None):
 
 class TestMarcoSemTarefa:
     def test_sem_tarefa_o_marco_e_o_kickoff(self):
-        assert CASO._marco_sem_tarefa(projeto(SEX_11), []) == (SEX_11, "kickoff")
+        assert CASO._marco_sem_tarefa(projeto(SEX_11), [], SEX_18) == (SEX_11, "kickoff")
 
     def test_sem_tarefa_e_sem_kickoff_nao_ha_marco(self):
         """A execução não começou (§5.2) — não há o que cobrar ainda."""
-        assert CASO._marco_sem_tarefa(projeto(None), []) == (None, None)
+        assert CASO._marco_sem_tarefa(projeto(None), [], SEX_18) == (None, None)
 
     def test_com_tarefa_o_marco_e_a_mais_recente(self):
         tarefas = [tarefa(SEX_11), tarefa(TER_15), tarefa(SEG_14)]
-        assert CASO._marco_sem_tarefa(projeto(None), tarefas) == (TER_15, "ultima_tarefa")
+        assert CASO._marco_sem_tarefa(projeto(None), tarefas, SEX_18) == (TER_15, "ultima_tarefa")
 
     def test_a_tarefa_ganha_do_kickoff(self):
         """Com tarefa criada, o relógio reinicia nela, não no kickoff."""
-        marco, tipo = CASO._marco_sem_tarefa(projeto(SEX_11), [tarefa(SEG_14)])
+        marco, tipo = CASO._marco_sem_tarefa(projeto(SEX_11), [tarefa(SEG_14)], SEX_18)
         assert (marco, tipo) == (SEG_14, "ultima_tarefa")
 
     def test_tarefa_sem_data_de_criacao_e_ignorada(self):
         tarefas = [tarefa(None), tarefa(SEG_14)]
-        assert CASO._marco_sem_tarefa(projeto(SEX_11), tarefas) == (SEG_14, "ultima_tarefa")
+        assert CASO._marco_sem_tarefa(projeto(SEX_11), tarefas, SEX_18) == (SEG_14, "ultima_tarefa")
+
+    def test_kickoff_posterior_a_semana_nao_conta(self):
+        """Olhando uma semana ANTERIOR ao kickoff, o projeto ainda não existia.
+
+        Sem esta regra o marco caía no futuro da janela, o cálculo batia no
+        `marco >= hoje` e devolvia 0 — a tela mostrava "0 dias sem tarefa" para
+        um projeto que sequer tinha começado, e quanto mais se voltava no tempo
+        mais tudo parecia saudável.
+        """
+        assert CASO._marco_sem_tarefa(projeto(SEX_18), [], SEG_14) == (None, None)
+
+    def test_kickoff_no_mesmo_dia_do_limite_conta(self):
+        """A borda é inclusiva: kickoff no domingo da semana exibida vale."""
+        assert CASO._marco_sem_tarefa(projeto(SEG_14), [], SEG_14) == (SEG_14, "kickoff")
 
     def test_so_tarefas_sem_data_caem_no_kickoff(self):
-        assert CASO._marco_sem_tarefa(projeto(SEX_11), [tarefa(None)]) == (SEX_11, "kickoff")
+        assert CASO._marco_sem_tarefa(projeto(SEX_11), [tarefa(None)], SEX_18) == (SEX_11, "kickoff")
 
 
 class TestDiasUteisSemTarefa:

@@ -31,6 +31,10 @@ from src.use_cases.cargo.get_cargo import GetCargoUseCase, ListCargosUseCase
 from src.use_cases.cargo.update_cargo import UpdateCargoUseCase, UpdateCargoRequest, DeleteCargoUseCase
 from src.use_cases.configuracao.get_configuracao import GetConfiguracaoUseCase
 from src.use_cases.configuracao.update_configuracao import UpdateConfiguracaoUseCase, UpdateConfiguracaoRequest
+from src.use_cases.situacao_carga.gerenciar_situacoes import (
+    AtualizarSituacaoRequest,
+    SituacaoCargaUseCase,
+)
 from src.use_cases.escopo.create_escopo import CreateEscopoUseCase, CreateEscopoRequest
 from src.use_cases.escopo.get_escopo import GetEscopoUseCase, ListEscoposUseCase
 from src.use_cases.escopo.update_escopo import UpdateEscopoUseCase, UpdateEscopoRequest, DeleteEscopoUseCase
@@ -320,3 +324,23 @@ def get_configuracao(db: Session = Depends(get_db)):
 @router.patch("/configuracao")
 def update_configuracao(request: UpdateConfiguracaoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
     return UpdateConfiguracaoUseCase(db).execute(request)
+
+
+# ------------------------------------------------------- situações de carga
+
+@router.get("/situacoes-carga")
+def listar_situacoes_carga(db: Session = Depends(get_db)):
+    """A escala de carga por papel (§7.3). Leitura livre — a aba de Alocação
+    precisa dela para nomear a situação de cada pessoa."""
+    return SituacaoCargaUseCase(db).listar()
+
+
+@router.patch("/situacoes-carga/{situacao_id}")
+def atualizar_situacao_carga(situacao_id: int, request: AtualizarSituacaoRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    try:
+        resultado = SituacaoCargaUseCase(db).atualizar(situacao_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Situação não encontrada")
+    return resultado
