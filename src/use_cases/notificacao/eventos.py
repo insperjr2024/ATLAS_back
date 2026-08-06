@@ -175,6 +175,49 @@ def notificar_lote_desempenho(db: Session, lote, pendencias) -> None:
         )
 
 
+def notificar_pdi_prazo_proximo(
+    db: Session, destinatario_id: int, pasta, item, mentorado_id: int, mentorado_nome: str
+) -> None:
+    """Um dia antes do prazo de um ITEM de PDI (a pasta pode exigir vários —
+    ex: Foto + Relatório, cada um com sua própria pendência) — o empurrão
+    final antes do aviso de atraso. Disparado por `rodar_lembrete_prazo_pdi`
+    (job diário).
+
+    A rota é genérica (não dá pra apontar direto pro item específico): hoje
+    o drill-down de PDI é estado local, sem rota por pessoa/pasta/item."""
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="pdi_prazo_proximo",
+        titulo=f"Amanhã é o prazo do item \"{item.nome}\" ({pasta.nome}) de {mentorado_nome}",
+        rota="/avaliacao-desempenho/mentorados",
+        payload={"pasta_id": pasta.id, "item_id": item.id, "mentorado_id": mentorado_id},
+        # Por item+mentorado+destinatário: um lembrete só (o job roda uma vez
+        # por dia, e a dedup evita duplicar se rodar de novo no mesmo dia).
+        chave_dedup=f"pdi_prazo_proximo:item={item.id}:mentorado={mentorado_id}:destinatario={destinatario_id}",
+    )
+
+
+def notificar_pdi_prazo_vencido(
+    db: Session, destinatario_id: int, pasta, item, mentorado_id: int, mentorado_nome: str
+) -> None:
+    """O dia seguinte ao prazo, pra quem ainda não recebeu o arquivo desse
+    item — uma vez só (comparar com "ontem" no job evita repetir todo dia
+    pra sempre)."""
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="pdi_prazo_vencido",
+        titulo=(
+            f"{mentorado_nome} não teve o item \"{item.nome}\" ({pasta.nome}) "
+            f"enviado até o prazo ({_formatar(pasta.prazo)})"
+        ),
+        rota="/avaliacao-desempenho/mentorados",
+        payload={"pasta_id": pasta.id, "item_id": item.id, "mentorado_id": mentorado_id},
+        chave_dedup=f"pdi_prazo_vencido:item={item.id}:mentorado={mentorado_id}:destinatario={destinatario_id}",
+    )
+
+
 def _chave_data(valor) -> str:
     """A data em formato estável para a `chave_dedup` — nunca o texto exibido,
     que muda de idioma e de formatação sem que o alerta seja outro."""

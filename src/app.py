@@ -22,9 +22,14 @@ from src.routers import (
     tarefas,
     usuarios,
 )
+from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
+from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
+from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRepository
+from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.use_cases.notificacao.eventos import notificar_pdi_prazo_proximo, notificar_pdi_prazo_vencido
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.notificar import notificar
 
@@ -114,6 +119,74 @@ def rodar_lembrete_prazo_avaliacao() -> None:
         db.close()
 
 
+def rodar_lembrete_prazo_pdi() -> None:
+    """Um aviso por ITEM de PDI vencendo amanhã (pro responsável certo — o
+    mentor num "Encontro N", a diretoria num "PDI inicial") e um aviso o dia
+    seguinte a quem perdeu o prazo (mentor + diretoria, uma vez só — mesmo
+    truque de comparar com "ontem" de `rodar_lembrete_prazo_avaliacao`). O
+    prazo é da PASTA, mas cada item dentro dela tem sua própria pendência —
+    uma pasta com Foto + Relatório pode notificar duas vezes se faltarem os
+    dois.
+
+    O envio nunca é bloqueado depois do prazo — isto é só o aviso."""
+    db = SessionLocal()
+    try:
+        hoje = datetime.now().date()
+        amanha = hoje + timedelta(days=1)
+        ontem = hoje - timedelta(days=1)
+
+        pasta_repository = DesempenhoPdiPastaRepository(db)
+        item_repository = DesempenhoPdiItemRepository(db)
+        envio_repository = DesempenhoPdiEnvioRepository(db)
+        mentoria_repository = DesempenhoMentoriaRepository(db)
+        usuario_repository = UsuarioRepository(db)
+
+        mentorias = mentoria_repository.get_all()
+        diretores = usuario_repository.get_por_posicao("diretor")
+
+        lembretes = 0
+        avisos_vencido = 0
+        for pasta in pasta_repository.get_all():
+            if pasta.prazo not in (amanha, ontem):
+                continue
+            for item in item_repository.get_da_pasta(pasta.id):
+                enviados = {e.mentorado_id for e in envio_repository.get_por_item(item.id)}
+                for mentoria in mentorias:
+                    if mentoria.mentorado_id in enviados:
+                        continue
+                    mentorado = usuario_repository.get_by_id(mentoria.mentorado_id)
+                    nome_mentorado = mentorado.nome if mentorado else f"usuário {mentoria.mentorado_id}"
+
+                    if pasta.prazo == amanha:
+                        # "PDI inicial" só a diretoria sobe — não faz sentido
+                        # lembrar o mentor de um item que ele não pode enviar.
+                        if pasta.tipo == "encontro":
+                            notificar_pdi_prazo_proximo(
+                                db, mentoria.mentor_id, pasta, item, mentoria.mentorado_id, nome_mentorado
+                            )
+                            lembretes += 1
+                        else:
+                            for diretor in diretores:
+                                notificar_pdi_prazo_proximo(
+                                    db, diretor.id, pasta, item, mentoria.mentorado_id, nome_mentorado
+                                )
+                            lembretes += 1
+                    else:  # ontem — vencido
+                        if pasta.tipo == "encontro":
+                            notificar_pdi_prazo_vencido(
+                                db, mentoria.mentor_id, pasta, item, mentoria.mentorado_id, nome_mentorado
+                            )
+                        for diretor in diretores:
+                            notificar_pdi_prazo_vencido(
+                                db, diretor.id, pasta, item, mentoria.mentorado_id, nome_mentorado
+                            )
+                        avisos_vencido += 1
+        if lembretes or avisos_vencido:
+            logger.info("Prazo de PDI: %d lembrete(s), %d item(ns) vencido(s) sem envio", lembretes, avisos_vencido)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(
@@ -134,6 +207,12 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_prazo_avaliacao,
         CronTrigger(hour=6, minute=15),
         id="lembrete_prazo_avaliacao",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_lembrete_prazo_pdi,
+        CronTrigger(hour=6, minute=30),
+        id="lembrete_prazo_pdi",
         replace_existing=True,
     )
     scheduler.start()
