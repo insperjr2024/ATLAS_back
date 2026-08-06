@@ -237,7 +237,9 @@ class RegistrarRealizacaoBancaUseCase:
             f"{prazo:%d/%m/%Y} para enviar sua avaliação."
         )
         for usuario_id in usuario_ids:
-            notificar(self.db, usuario_id, mensagem, banca_id=banca.id)
+            notificar(
+                self.db, usuario_id, mensagem, banca_id=banca.id, tipo="avaliacao_pendente"
+            )
 
 
 class RegistrarResultadoRequest(BaseModel):

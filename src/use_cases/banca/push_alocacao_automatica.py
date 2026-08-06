@@ -114,6 +114,10 @@ class PushAlocacaoAutomaticaUseCase:
                 f"Você foi alocado(a) para a banca de {banca.nome_projeto} em {data_formatada}. "
                 "Se não puder comparecer, peça uma troca em Bancas.",
                 banca_id=banca.id,
+                tipo="escalacao_banca",
+                # Com chave: o push roda repetidamente até a banca encher, e sem
+                # ela a mesma escalação viraria uma linha por passada.
+                chave=f"escalacao_banca:banca={banca.id}:usuario={usuario.id}",
             )
 
         return {

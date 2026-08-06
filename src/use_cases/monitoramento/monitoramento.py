@@ -33,6 +33,12 @@ from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaR
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
 from src.utils.banca_status import ABERTA, calcular_status_banca
+from src.utils.condicoes_alerta import (
+    KICKOFF_PENDENTE,
+    PROJETO_SEM_REUNIAO,
+    TAREFA_VENCIDA,
+    detectar_condicoes,
+)
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
 from src.utils.tarefa_status import eh_vencida, esta_ativa, janela_semana
 from src.utils.tarefa_status import (
@@ -303,65 +309,68 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         return parados
 
     def _atencao_agora(self, projetos, ctx, atrasos, hoje):
-        """§7.1: o motivo precisa ser EXPLÍCITO, nunca um rótulo genérico."""
+        """§7.1: o motivo precisa ser EXPLÍCITO, nunca um rótulo genérico.
+
+        A DETECÇÃO (kickoff pendente, sem reunião, tarefa vencida) mora em
+        `utils/condicoes_alerta.py`, compartilhada com a central de
+        notificações do §6.6 — as duas telas respondem à mesma pergunta e
+        divergiriam no primeiro caso de borda se cada uma tivesse a sua régua.
+
+        O que fica aqui é a APRESENTAÇÃO desta aba, que é diferente da do
+        sino: as tarefas vencidas vêm somadas num item por projeto (a diretoria
+        quer o tamanho do problema, não a lista) e os motivos de atraso do
+        §7.4 entram junto, vindos de `atraso_monitoramento`.
+        """
         itens = []
         inicio_semana, fim_semana_ = janela_semana(hoje)
         reunioes = self.reuniao_repository.get_by_projetos_e_janela(
             ctx["ids"], inicio_semana, fim_semana_
         )
-        projetos_com_reuniao = {r.projeto_id for r in reunioes}
-        tarefas_por_projeto = _agrupar(
-            self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
+        condicoes = detectar_condicoes(
+            projetos,
+            escopos_por_projeto=ctx["escopos_por_projeto"],
+            bancas_por_escopo=ctx["bancas_por_escopo"],
+            nomes_escopo=ctx["nomes_escopo"],
+            tarefas_por_projeto=_agrupar(
+                self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
+            ),
+            encerra_por_coluna=self._encerra_por_coluna(),
+            projetos_com_reuniao={r.projeto_id for r in reunioes},
+            hoje=hoje,
         )
-        encerra = self._encerra_por_coluna()
+        por_projeto = _agrupar(condicoes, "projeto_id")
+
+        def item(projeto, motivo, dias=None):
+            return {
+                "projeto_id": projeto.id,
+                "projeto_nome": projeto.nome,
+                "motivo": motivo,
+                "dias": dias,
+            }
 
         for p in projetos:
             if p.status == "finalizado":
                 continue
+            do_projeto = por_projeto.get(p.id, [])
+            tipos = {c.tipo for c in do_projeto}
 
-            if not p.data_kickoff:
-                itens.append(
-                    {
-                        "projeto_id": p.id,
-                        "projeto_nome": p.nome,
-                        "motivo": "kickoff não marcado",
-                        "dias": None,
-                    }
-                )
+            if KICKOFF_PENDENTE in tipos:
+                itens.append(item(p, "kickoff não marcado"))
 
             for motivo in atrasos[p.id].motivos:
-                itens.append(
-                    {
-                        "projeto_id": p.id,
-                        "projeto_nome": p.nome,
-                        "motivo": motivo.descricao,
-                        "dias": motivo.dias,
-                    }
-                )
+                itens.append(item(p, motivo.descricao, motivo.dias))
 
-            if p.id not in projetos_com_reuniao and p.data_kickoff:
-                itens.append(
-                    {
-                        "projeto_id": p.id,
-                        "projeto_nome": p.nome,
-                        "motivo": "sem reunião registrada esta semana",
-                        "dias": None,
-                    }
-                )
+            if PROJETO_SEM_REUNIAO in tipos:
+                itens.append(item(p, "sem reunião registrada esta semana"))
 
-            vencidas = [
-                t
-                for t in tarefas_por_projeto.get(p.id, [])
-                if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
-            ]
+            vencidas = [c for c in do_projeto if c.tipo == TAREFA_VENCIDA]
             if vencidas:
                 itens.append(
-                    {
-                        "projeto_id": p.id,
-                        "projeto_nome": p.nome,
-                        "motivo": f"{len(vencidas)} tarefa(s) vencida(s)",
-                        "dias": max((hoje - t.prazo).days for t in vencidas),
-                    }
+                    item(
+                        p,
+                        f"{len(vencidas)} tarefa(s) vencida(s)",
+                        max(c.dias for c in vencidas),
+                    )
                 )
 
         itens.sort(key=lambda i: (i["dias"] is None, -(i["dias"] or 0)))

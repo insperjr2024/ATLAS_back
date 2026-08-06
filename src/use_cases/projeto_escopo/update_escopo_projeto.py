@@ -12,7 +12,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_repository import ProjetoRepository
+from src.use_cases.notificacao.eventos import notificar_entrega
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -75,8 +78,11 @@ class RegistrarEntregaEscopoUseCase:
     """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoEscopoRepository(db)
         self.banca_repository = BancaRepository(db)
+        self.projeto_repository = ProjetoRepository(db)
+        self.catalogo_repository = EscopoRepository(db)
 
     def execute(self, escopo_id: int, request: RegistrarEntregaEscopoRequest):
         escopo = self.repository.get_by_id(escopo_id)
@@ -100,11 +106,28 @@ class RegistrarEntregaEscopoUseCase:
         atualizado = self.repository.update(
             escopo_id, data_entrega_real=request.data_entrega_real, status="entregue"
         )
+
+        # Depois da trava, nunca antes: notificar uma entrega que o §5.5 acabou
+        # de barrar avisaria a diretoria de algo que não aconteceu.
+        projeto = self.projeto_repository.get_by_id(atualizado.projeto_id)
+        if projeto:
+            notificar_entrega(self.db, projeto, escopo_id, self._nome_escopo(atualizado))
+
         return {
             "id": atualizado.id,
             "data_entrega_real": atualizado.data_entrega_real,
             "status": atualizado.status,
         }
+
+    def _nome_escopo(self, escopo) -> str:
+        """Mesma régra do resto do sistema: "Outro" tem nome customizado e não
+        tem linha de catálogo (§4)."""
+        if escopo.nome_customizado:
+            return escopo.nome_customizado
+        do_catalogo = (
+            self.catalogo_repository.get_by_id(escopo.escopo_id) if escopo.escopo_id else None
+        )
+        return do_catalogo.nome if do_catalogo else "escopo"
 
 
 class ClassificarAtrasoEntregaRequest(BaseModel):

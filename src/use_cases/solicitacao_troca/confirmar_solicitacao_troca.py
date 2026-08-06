@@ -64,6 +64,7 @@ class ConfirmarSolicitacaoTrocaUseCase:
             solicitacao.usuario_original_id,
             f"Sua troca para a banca de {banca.nome_projeto} foi confirmada.",
             banca_id=banca.id,
+            tipo="troca_banca",
         )
 
         return serializar_solicitacao_troca(self.repository.get_by_id(solicitacao.id))

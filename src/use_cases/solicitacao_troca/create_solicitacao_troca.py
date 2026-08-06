@@ -66,4 +66,4 @@ class CreateSolicitacaoTrocaUseCase:
         mensagem = f"Há uma solicitação de troca aberta para a banca de {banca.nome_projeto}."
         for usuario in self.usuario_repository.get_ativos():
             if usuario.id not in excluidos:
-                notificar(self.db, usuario.id, mensagem, banca_id=banca.id)
+                notificar(self.db, usuario.id, mensagem, banca_id=banca.id, tipo="troca_banca")
