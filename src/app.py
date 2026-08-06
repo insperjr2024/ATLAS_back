@@ -71,6 +71,10 @@ def rodar_lembrete_prazo_avaliacao() -> None:
                     item["usuario_id"],
                     f"Amanhã é o último dia para avaliar a banca de {item['nome_projeto']}.",
                     banca_id=item["banca_id"],
+                    # Mesmo tipo que `marcar_banca_escopo` usa ao abrir o prazo:
+                    # é a mesma pendência, um empurrão depois. Sem isto caía no
+                    # `banca_aviso` genérico e escapava do filtro da central.
+                    tipo="avaliacao_pendente",
                 )
                 lembretes += 1
             elif item["prazo_expirado"] and prazo_data == ontem:

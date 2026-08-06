@@ -16,11 +16,18 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     # 📌 eventos da PLATAFORMA (§6.6) — gravados no ato pelo use case
     "alocado_em_projeto",
     "entrega_registrada",
+    #: O plano mudou depois de combinado — §5.6 (banca) e a data prometida ao
+    #: cliente. Os dois nunca são silenciosos.
+    "banca_remarcada",
+    "entrega_alterada",
     # 📌 eventos de BANCAS (§8) — entram por `utils/notificar.py`
     "escalacao_banca",
     "troca_banca",
     "avaliacao_pendente",
     "banca_aviso",
+    #: 📌 Avaliação de Desempenho (Prioridade 2) — não é de projeto: o
+    #: destinatário é quem tem o que responder, venha do projeto que vier.
+    "lote_desempenho_aberto",
     # 🔄 condições — calculadas na leitura; a linha só nasce ao marcar como lida
     "kickoff_pendente",
     "tarefa_vencida",
