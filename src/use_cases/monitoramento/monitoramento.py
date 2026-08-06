@@ -48,7 +48,6 @@ from src.utils.condicoes_alerta import (
     detectar_condicoes,
 )
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
-from src.utils.tarefa_status import eh_vencida, esta_ativa, janela_semana
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
