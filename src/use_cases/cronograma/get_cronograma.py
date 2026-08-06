@@ -19,12 +19,12 @@ from src.repositories.cronograma_repository import (
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.semestre_repository import SemestreRepository
 from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
 from src.utils.dias_uteis import somar_dias_uteis
 
 #: Teto de segurança: uma data digitada como 2099 não pode renderizar 900
 #: blocos de mês e congelar a aba.
-MAX_MESES = 18
 
 
 class GetCronogramaUseCase:
@@ -36,6 +36,7 @@ class GetCronogramaUseCase:
         self.marco_repository = CronogramaMarcoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.banca_repository = BancaRepository(db)
+        self.semestre_repository = SemestreRepository(db)
 
     def execute(self, projeto_id: int, referencia: Optional[date] = None):
         projeto = self.projeto_repository.get_by_id(projeto_id)
@@ -50,6 +51,7 @@ class GetCronogramaUseCase:
         bancas = self.banca_repository.get_by_projeto_escopos([e.id for e in escopos])
 
         inicio, fim = self._janela(projeto, escopos, etapas, marcos, bancas, referencia)
+        semestre = self.semestre_repository.get_ativo()
         dias_nao_letivos = self.dia_nao_letivo_repository.get_por_intervalo(inicio, fim)
 
         etapas_por_escopo = {}
@@ -95,6 +97,15 @@ class GetCronogramaUseCase:
                 projeto, escopos, [d.data for d in dias_nao_letivos if d.frente_id is None]
             ),
             "janela": {"inicio": inicio, "fim": fim},
+            # A gestão corrente, à parte da janela. A janela é larga de
+            # propósito (o ano corrente e o seguinte, para a navegação ser
+            # livre); o semestre é o recorte que interessa por padrão — é o
+            # período em que o projeto de fato acontece.
+            "semestre": (
+                {"nome": semestre.nome, "inicio": semestre.inicio, "fim": semestre.fim}
+                if semestre
+                else None
+            ),
             # 📐 Cada dia carrega a FRENTE dona. O calendário acadêmico deixou
             # de ser um só: cada frente abrange cursos diferentes e cada curso
             # tem as suas semanas de avaliação. `frente_id` nulo é feriado, que
@@ -118,10 +129,17 @@ class GetCronogramaUseCase:
         }
 
     def _janela(self, projeto, escopos, etapas, marcos, bancas, referencia):
-        """Do primeiro ao último marco conhecido, com folga de um mês no fim.
+        """O ano corrente inteiro mais o seguinte — navegação livre.
 
-        A folga existe para haver tela em branco onde pintar a próxima etapa
-        sem precisar de um botão de "adicionar mês".
+        Antes a janela ia do primeiro ao último marco do projeto com um mês de
+        folga, e isso amarrava a navegação a onde alguém tinha parado de
+        pintar: para chegar em novembro era preciso pintar outubro antes. Pior,
+        o seletor de meses do export só oferecia o que estava dentro dessa
+        janela apertada.
+
+        Agora o limite é o calendário, não o conteúdo. Um projeto que começou
+        antes do ano corrente puxa o início para trás, para o histórico dele não
+        sumir da tela.
         """
         candidatas: List[date] = [referencia]
         if projeto.data_kickoff:
@@ -140,14 +158,8 @@ class GetCronogramaUseCase:
             if b.data_hora:
                 candidatas.append(b.data_hora.date())
 
-        inicio = min(candidatas).replace(day=1)
-        fim_bruto = max(candidatas)
-        # Um mês de folga depois do fim.
-        fim = (fim_bruto.replace(day=1) + timedelta(days=62)).replace(day=1) - timedelta(days=1)
-
-        # Teto de meses, contado de forma grosseira mas suficiente.
-        limite = inicio + timedelta(days=31 * MAX_MESES)
-        return inicio, min(fim, limite)
+        ano_base = min(min(candidatas).year, referencia.year)
+        return date(ano_base, 1, 1), date(referencia.year + 1, 12, 31)
 
     def _faixas_derivadas(self, projeto, escopos, dias_nao_letivos):
         faixas = []
