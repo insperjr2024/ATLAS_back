@@ -30,6 +30,8 @@ from src.repositories.situacao_carga_repository import (
 )
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.frente_repository import FrenteRepository
+from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
@@ -50,6 +52,21 @@ from src.utils.tarefa_status import (
 
 STATUS_EM_EXECUCAO = ("ambientacao", "em_andamento", "validacao_bancas")
 STATUS_PERTO_DO_FIM = ("envio_tep", "periodo_ajustes")
+
+#: Até quantos projetos cada papel carrega sem ficar sobrecarregado.
+#:
+#: É o número que a diretoria descreveu: 2 projetos para um consultor, 4 para um
+#: coordenador. Quem passa disso não *devolve* capacidade — um consultor com 3
+#: projetos conta 0 vaga, nunca −1, porque a sobrecarga dele não tira do núcleo
+#: a chance de vender para outra pessoa.
+#:
+#: ⚠ **Fixo aqui, e NÃO lido da escala de `situacao_carga`** — decisão do João
+#: em 2026-08-06. Consequência a conhecer: a escala é editável em Configurações,
+#: então ela pode passar a discordar destes números. Hoje já discorda no
+#: coordenador (a escala marca "Carga alta" a partir de 3, não de 5), e nesse
+#: caso a pílula de situação da tabela e o card de capacidade falam da mesma
+#: pessoa de formas diferentes.
+TETO_POR_PAPEL = {"consultor": 2, "coordenador": 4}
 
 #: As etapas de um projeto EM CURSO, na ordem do ciclo de vida.
 #:
@@ -86,6 +103,8 @@ class _BaseMonitoramento:
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.coluna_repository = TarefaColunaRepository(db)
         self.situacao_repository = SituacaoCargaRepository(db)
+        self.frente_repository = FrenteRepository(db)
+        self.usuario_frente_repository = UsuarioFrenteRepository(db)
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -661,10 +680,116 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
 
 class AlocacaoUseCase(_BaseMonitoramento):
-    """§7.3 — carga por pessoa. Coordenador costuma ser gargalo."""
+    """§7.3 — carga por pessoa. Coordenador costuma ser gargalo.
+
+    ⚠ **Carga é medida em PROJETOS ATIVOS, não em horas.** A checagem por grade
+    horária que o §7.3 menciona depende da F13, que não entrou nesta fatia.
+    A resposta já teve um `grade_horaria_disponivel: False` para sinalizar isso,
+    mas era constante e ninguém lia — o aviso saiu da tela em 2026-08-06 e o
+    campo foi junto. A pendência é esta linha, não um campo morto no JSON.
+    """
+
+    def _capacidade(self, coordenadores, consultores):
+        """Quantos projetos ainda cabem, por frente e por papel.
+
+        A conta é `max(0, teto − projetos da pessoa)`, somada. ⭐ **O `max(0)` é
+        o ponto:** um consultor com 3 projetos contribui 0, nunca −1. Ele está
+        sobrecarregado, mas isso não tira do núcleo a chance de vender um projeto
+        para outra pessoa — capacidade negativa de um não cancela a vaga livre do
+        colega.
+
+        **Dois números, um por papel, e não um só.** Converter em "projetos
+        vendáveis" exigiria assumir o tamanho da equipe (medi 1 coordenador e ~2
+        consultores por projeto), e essa suposição some no número final: quem
+        lesse "8 projetos" não saberia que os consultores já estão no limite e
+        que o 8 veio só dos coordenadores.
+
+        As linhas são as MESMAS que alimentam as tabelas logo abaixo — passadas
+        por parâmetro, não recalculadas. Recontar aqui abriria a porta para o
+        card dizer um número e a tabela mostrar outro.
+        """
+        frentes = {f.id: f.nome for f in self.frente_repository.get_all()}
+        por_usuario = defaultdict(list)
+        for vinculo in self.usuario_frente_repository.get_all():
+            por_usuario[vinculo.usuario_id].append(vinculo.frente_id)
+
+        # `None` é a chave de quem não tem frente cadastrada. Ele entra como uma
+        # linha "Sem frente" em vez de sumir: some faria a soma das frentes não
+        # bater com o total, sem nada na tela explicando a diferença.
+        vagas = defaultdict(lambda: {"consultor": 0, "coordenador": 0, "pessoas": set()})
+
+        def acumular(linhas, papel):
+            teto = TETO_POR_PAPEL[papel]
+            for l in linhas:
+                livre = max(0, teto - l["total"])
+                for frente_id in por_usuario.get(l["usuario_id"]) or [None]:
+                    vagas[frente_id][papel] += livre
+                    vagas[frente_id]["pessoas"].add(l["usuario_id"])
+
+        acumular(consultores, "consultor")
+        acumular(coordenadores, "coordenador")
+
+        linhas = [
+            {
+                "frente_id": fid,
+                "frente_nome": frentes.get(fid, "Sem frente") if fid else "Sem frente",
+                "consultor": v["consultor"],
+                "coordenador": v["coordenador"],
+                "pessoas": len(v["pessoas"]),
+            }
+            for fid, v in vagas.items()
+        ]
+        # Mais capacidade primeiro: a pergunta é "onde ainda dá para vender".
+        #
+        # "Sem frente" vai SEMPRE por último, mesmo tendo a maior capacidade —
+        # hoje ela junta os dois diretores, que não têm projeto e por isso somam
+        # 8 vagas. Deixá-la no topo diria que a maior oportunidade do núcleo está
+        # fora de qualquer frente, que é o oposto do que a tela quer responder.
+        linhas.sort(
+            key=lambda x: (
+                x["frente_id"] is None,
+                -(x["consultor"] + x["coordenador"]),
+                x["frente_nome"],
+            )
+        )
+
+        # ⚠ O total NÃO é a soma das linhas. Quem está em duas frentes aparece
+        # nas duas, e somar contaria a vaga dela duas vezes. Aqui a conta corre
+        # sobre as pessoas, uma vez cada.
+        return {
+            "por_frente": linhas,
+            "total": {
+                "consultor": sum(
+                    max(0, TETO_POR_PAPEL["consultor"] - l["total"]) for l in consultores
+                ),
+                "coordenador": sum(
+                    max(0, TETO_POR_PAPEL["coordenador"] - l["total"]) for l in coordenadores
+                ),
+            },
+            "teto": dict(TETO_POR_PAPEL),
+        }
 
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        # ⭐ **O filtro de frente escolhe QUEM APARECE, não como a carga é
+        # medida.** São duas listas de propósito:
+        #
+        #   `do_recorte` — os projetos da frente pedida. Define a população: só
+        #                  quem trabalha nela entra na tabela.
+        #   `projetos`   — tudo que a pessoa logada enxerga, sem o filtro. É
+        #                  sobre isto que a carga de cada um é contada.
+        #
+        # Medir a carga dentro do recorte inflava a capacidade: Caio tem 3
+        # projetos e está cheio, mas filtrando por Business só 1 deles aparecia
+        # e ele "ganhava" 2 vagas que não existem. Medido em 2026-08-06: 21
+        # pessoas nessa situação, e a capacidade total do núcleo SUBIA de 23
+        # para 31 ao estreitar o filtro — um número que só pode cair.
+        #
+        # Capacidade e sobrecarga são propriedades da PESSOA. Quem carrega 3
+        # projetos está cheio venha de onde vier o terceiro.
+        do_recorte = self._projetos_visiveis(current_user, frente_id)
+        projetos = (
+            do_recorte if frente_id is None else self._projetos_visiveis(current_user, None)
+        )
         ids = [p.id for p in projetos]
         # O projeto vai inteiro (id, nome e etapa), não só o nome: o gráfico de
         # barras filtra a carga por etapa, e o front só consegue fazer isso sem
@@ -730,7 +855,18 @@ class AlocacaoUseCase(_BaseMonitoramento):
         ve_tudo = getattr(current_user, "posicao", None) == "diretor" and frente_id is None
         na_visao = set(carga.keys())
 
+        # Com filtro de frente, a POPULAÇÃO é quem trabalha nela. A carga de
+        # cada um continua vindo de todos os projetos dela (ver o topo deste
+        # método) — filtro escolhe quem aparece, não como se mede.
+        ids_recorte = {p.id for p in do_recorte}
+        no_recorte: Dict[str, set] = defaultdict(set)
+        for m in membros:
+            if m.projeto_id in ids_recorte and m.projeto_id in ativos:
+                no_recorte[m.papel].add(m.usuario_id)
+
         def entra(usuario, papel) -> bool:
+            if frente_id is not None:
+                return usuario.id in no_recorte[papel]
             if carga.get(usuario.id, {}).get(papel):
                 return True
             if usuario.id in na_visao:
@@ -766,6 +902,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
         return {
             "coordenadores": coordenadores,
             "consultores": consultores,
+            "capacidade": self._capacidade(coordenadores, consultores),
             # Quem caiu na faixa mais alta do seu papel, separado por papel.
             #
             # Este bloco é o que devolve a leitura de "quem é o gargalo" (§7.3),
@@ -775,9 +912,6 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 "coordenadores": [c for c in coordenadores if c["demanda_alta"]],
                 "consultores": [c for c in consultores if c["demanda_alta"]],
             },
-            # A checagem de grade horária (§7.3) depende da F13, que não
-            # entrou nesta fatia — a carga por projeto já é o essencial.
-            "grade_horaria_disponivel": False,
         }
 
 
