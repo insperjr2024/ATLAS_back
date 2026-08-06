@@ -115,6 +115,27 @@ DIAS_NAO_LETIVOS = [
 ]
 
 
+def dias_nao_letivos_moveis(hoje: date):
+    """Uma semana de provas ancorada em HOJE, além do calendário fixo acima.
+
+    Sem isto o calendário do Insper não aparece na demo: as datas fixas são de
+    setembro/outubro e os projetos são ancorados em `hoje`, então os intervalos
+    de atraso quase nunca cruzam um dia não letivo — e a tela mostra dias úteis
+    que batem com dias corridos, escondendo justamente a regra do §5.4.
+
+    Colocada 2 semanas atrás, ela cai dentro do atraso dos projetos mais
+    antigos da demo, e aí "18 dias corridos" aparece como 11 dias úteis.
+
+    ⚠ Vai em Business, e não global: o tipo é `prova`, e semana de avaliação é
+    do CURSO — o backend recusa gravá-la sem frente.
+    """
+    segunda = hoje - timedelta(days=hoje.weekday() + 14)
+    return [
+        (segunda + timedelta(days=i), "prova", "Semana de provas (demo)", "Business")
+        for i in range(5)
+    ]
+
+
 def obter_ou_criar(db, model, filtros: dict, valores: dict | None = None):
     """Idempotência: só cria se ainda não existir."""
     existente = db.query(model).filter_by(**filtros).first()
@@ -286,7 +307,7 @@ def executar():
         )
         db.flush()
 
-        for data, tipo, descricao, nome_frente in DIAS_NAO_LETIVOS:
+        for data, tipo, descricao, nome_frente in DIAS_NAO_LETIVOS + dias_nao_letivos_moveis(hoje):
             frente_do_dia = frentes[nome_frente].id if nome_frente else None
             _, novo = obter_ou_criar(
                 db, DiaNaoLetivoModel,
