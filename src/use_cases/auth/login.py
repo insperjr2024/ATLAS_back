@@ -16,8 +16,13 @@ class LoginUseCase:
         self.usuario_repository = UsuarioRepository(db)
 
     def execute(self, request: LoginRequest):
-        usuario = self.usuario_repository.get_by_email_insper(request.email_insper)
-        if not usuario or not verificar_senha(request.senha, usuario.senha_hash):
+        # Copiar/colar a credencial costuma trazer um espaço ou quebra de
+        # linha junto — sem isso, e-mail/senha corretos "com espaço sobrando"
+        # caem como "Email ou senha incorretos" sem nenhuma pista do porquê.
+        email = request.email_insper.strip()
+        senha = request.senha.strip()
+        usuario = self.usuario_repository.get_by_email_insper(email)
+        if not usuario or not verificar_senha(senha, usuario.senha_hash):
             raise RegraDeNegocioError("Email ou senha incorretos")
         if not usuario.ativo:
             raise RegraDeNegocioError("Este usuário está desativado")

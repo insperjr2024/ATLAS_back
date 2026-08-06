@@ -8,6 +8,7 @@ from src.middlewares.validate_user_auth_token import (
     get_current_user_em_definicao_de_senha,
 )
 from src.use_cases.auth.definir_senha import DefinirSenhaUseCase, DefinirSenhaRequest
+from src.use_cases.auth.listar_primeiros_nomes import ListarPrimeirosNomesUseCase
 from src.use_cases.auth.login import LoginUseCase, LoginRequest
 from src.use_cases.auth.redefinir_senha import RedefinirSenhaUseCase, RedefinirSenhaRequest
 from src.use_cases.auth.registrar import RegistrarUseCase, RegistrarRequest
@@ -55,6 +56,13 @@ def esqueci_senha(request: SolicitarRecuperacaoRequest, db: Session = Depends(ge
         # Só chega aqui se o SMTP não estiver configurado — a regra de negócio
         # do fluxo em si nunca levanta erro, por decisão acima.
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@router_publico.get("/auth/membros-nomes")
+def membros_nomes(db: Session = Depends(get_db)):
+    """Decoração da tela de login — só primeiros nomes de membros ativos,
+    nada de e-mail/cargo/posição."""
+    return ListarPrimeirosNomesUseCase(db).execute()
 
 
 @router_publico.post("/auth/redefinir-senha")
