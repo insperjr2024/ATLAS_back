@@ -8,7 +8,7 @@ banca pelo cronograma escreve em `banca`, exatamente a mesma linha que
 sincronização: é a mesma linha lida duas vezes.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -21,8 +21,10 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.notificar import notificar
 
 
 class MarcarBancaEscopoRequest(BaseModel):
@@ -191,6 +193,7 @@ class RegistrarRealizacaoBancaUseCase:
     """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = BancaRepository(db)
         from src.repositories.candidatura_repository import CandidaturaRepository
 
@@ -206,18 +209,35 @@ class RegistrarRealizacaoBancaUseCase:
         realizado_em = request.realizado_em or banca.data_hora
         banca = self.repository.update(banca_id, realizado_em=realizado_em)
 
+        candidaturas = self.candidatura_repository.get_by_banca(banca_id)
         if request.presentes is not None:
             presentes = set(request.presentes)
-            for candidatura in self.candidatura_repository.get_by_banca(banca_id):
+            for candidatura in candidaturas:
                 self.candidatura_repository.update(
                     candidatura.id, confirmado=candidatura.usuario_id in presentes
                 )
+            avisar = presentes
+        else:
+            # Sem lista de presença, avisa todo mundo que era candidato — não
+            # deixar de notificar por falta de dado é melhor que silenciar.
+            avisar = {c.usuario_id for c in candidaturas}
+
+        self._notificar_prazo_avaliacao(banca, avisar)
 
         return {
             "id": banca.id,
             "realizado_em": banca.realizado_em,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
         }
+
+    def _notificar_prazo_avaliacao(self, banca, usuario_ids) -> None:
+        prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+        mensagem = (
+            f"A banca de {banca.nome_projeto} foi realizada. Você tem até "
+            f"{prazo:%d/%m/%Y} para enviar sua avaliação."
+        )
+        for usuario_id in usuario_ids:
+            notificar(self.db, usuario_id, mensagem, banca_id=banca.id)
 
 
 class RegistrarResultadoRequest(BaseModel):
