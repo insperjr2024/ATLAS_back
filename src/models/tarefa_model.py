@@ -41,6 +41,10 @@ class ReuniaoSemanalModel(Base):
     🧮 **"Projeto sem reunião na semana" é AUSÊNCIA DE LINHA** na janela
     seg–dom — não um campo. Mais de uma reunião na mesma semana = mais linhas,
     que é exatamente o que o briefing permite.
+
+    ⭐ **É daqui que sai `projeto_escopo.data_inicio`** (§5.4): a reunião diz
+    sobre QUAL escopo foi, e a primeira reunião de um escopo é a "reunião
+    inicial" que faz a contagem dele começar a correr.
     """
 
     __tablename__ = "reuniao_semanal"
@@ -50,6 +54,11 @@ class ReuniaoSemanalModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     projeto_id = Column(Integer, ForeignKey("projeto.id"), nullable=False, index=True)
+    #: Sobre qual escopo foi a reunião. Vazio = reunião geral do projeto, que
+    #: não inicia contagem nenhuma.
+    projeto_escopo_id = Column(
+        Integer, ForeignKey("projeto_escopo.id"), nullable=True, index=True
+    )
     data_reuniao = Column(Date, nullable=False, index=True)
     registrado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())

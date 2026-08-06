@@ -121,7 +121,10 @@ def create_usuario_frente(request: CreateUsuarioFrenteRequest, current_user=Depe
             status_code=403,
             detail="Apenas a diretoria pode alterar o vínculo de um membro com as frentes",
         )
-    return CreateUsuarioFrenteUseCase(db).execute(request)
+    try:
+        return CreateUsuarioFrenteUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/usuarios-frentes")

@@ -100,8 +100,11 @@ class CreateDesempenhoAvaliacaoUseCase:
         )
 
         # Regra 2.4: o front decide se volta pra escolha de tipo ou finaliza
-        # com base no que sobrar aqui.
-        fila_restante = GetFilaUsuarioUseCase(self.db).execute(avaliador_id)
+        # com base no que sobrar aqui. `get_fila` agora também traz lotes
+        # fechados há pouco tempo (regra 2.3-bis, pro aviso de "fechou"), mas
+        # esses nunca contam como "próxima pendência" — ninguém consegue
+        # responder por eles mesmo.
+        fila_restante = [item for item in GetFilaUsuarioUseCase(self.db).execute(avaliador_id) if item["aberto"]]
 
         return {
             "avaliacao": {

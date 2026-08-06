@@ -56,6 +56,33 @@ from src.utils.exceptions import RegraDeNegocioError
 router = APIRouter(tags=["bancas"], dependencies=[Depends(get_current_user)])
 
 
+def _exigir_acesso_a_banca(banca_id: int, current_user, db: Session) -> None:
+    """§3 nas rotas que agem sobre UMA banca.
+
+    `require_pode_definir_cronograma` só olha o cargo, e cargo não é escopo:
+    sem isto, toda coordenadora podia realizar, aprovar ou apagar a banca de
+    qualquer projeto — inclusive de um que ela recebe 404 ao tentar abrir. E
+    aprovar banca é o que LIBERA a entrega ao cliente (§5.5).
+
+    O caminho é banca → `banca_escopo` → `projeto_escopo` → projeto, e a
+    checagem é a mesma `exigir_acesso_ao_projeto` do resto da plataforma (404,
+    não 403: quem não enxerga o projeto não deve nem saber que ele existe).
+
+    ⚠ Banca sem vínculo com escopo nenhum é a banca LEGADA, cadastrada antes de
+    `banca_escopo` existir — não há projeto a partir do qual decidir. Essas
+    continuam valendo só o cargo, senão o legado ficaria inadministrável.
+    """
+    from src.repositories.banca_escopo_repository import BancaEscopoRepository
+    from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+
+    escopo_ids = BancaEscopoRepository(db).get_escopo_ids(banca_id)
+    projeto_escopo_repository = ProjetoEscopoRepository(db)
+    for escopo_id in escopo_ids:
+        escopo = projeto_escopo_repository.get_by_id(escopo_id)
+        if escopo:
+            exigir_acesso_ao_projeto(escopo.projeto_id, current_user, db)
+
+
 # ---------------------------------------------------------------- bancas
 
 @router.post("/bancas")
@@ -88,6 +115,7 @@ def get_notas_por_pergunta(banca_id: int, _=Depends(require_diretor), db: Sessio
 
 @router.patch("/bancas/{banca_id}")
 def update_banca(banca_id: int, request: UpdateBancaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    _exigir_acesso_a_banca(banca_id, current_user, db)
     try:
         result = UpdateBancaUseCase(db).execute(
             banca_id, request, eh_diretor=current_user.posicao == "diretor"
@@ -100,7 +128,8 @@ def update_banca(banca_id: int, request: UpdateBancaRequest, current_user=Depend
 
 
 @router.delete("/bancas/{banca_id}", status_code=204)
-def delete_banca(banca_id: int, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+def delete_banca(banca_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    _exigir_acesso_a_banca(banca_id, current_user, db)
     deleted = DeleteBancaUseCase(db).execute(banca_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
@@ -142,8 +171,9 @@ def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_u
 
 
 @router.patch("/bancas/{banca_id}/resultado")
-def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """🔒 É o resultado que libera a entrega ao cliente (§5.5, §8)."""
+    _exigir_acesso_a_banca(banca_id, current_user, db)
     try:
         result = RegistrarResultadoBancaUseCase(db).execute(banca_id, request)
     except RegraDeNegocioError as e:

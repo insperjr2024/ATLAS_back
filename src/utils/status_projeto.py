@@ -4,7 +4,14 @@
             → Envio do TEP → Período de ajustes → Finalizado
     (+ Pausado, um estado à parte, acessível de qualquer etapa ativa)
 
-✋ Toda transição é manual, escolhida de uma lista — não "um passo por vez":
+🤖 **Uma exceção, e só uma: Ambientação → Em andamento acontece sozinha**
+quando os dias úteis de ambientação acabam (§5.3). É a única etapa com data
+de fim calculável — as outras dependem de alguém decidir que o trabalho
+terminou. A regra mora em `utils/ambientacao.py` e quem a aplica é
+`use_cases/projeto/encerrar_ambientacao.py`; nada aqui precisa saber dela,
+porque de Ambientação para Em andamento já era destino válido.
+
+✋ Fora essa, toda transição é manual, escolhida de uma lista — não "um passo por vez":
 a diretoria/coordenação pode pular direto pra qualquer etapa ativa, pra
 frente ou pra trás (inclusive reabrir um projeto finalizado). A única regra
 de ordem que sobra é sair de **Vendido**: só vira Ambientação, e só depois
