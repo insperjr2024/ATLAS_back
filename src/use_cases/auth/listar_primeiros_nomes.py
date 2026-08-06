@@ -1,6 +1,7 @@
-"""Só os primeiros nomes dos membros ativos — pra decoração da tela de
-login (o globo), que é pública e não pode vazar e-mail, cargo nem nada
-além do nome de quem já está na empresa.
+"""Só "Primeiro nome + inicial do sobrenome" dos membros ativos — pra
+decoração da tela de login (o globo), que é pública e não pode vazar e-mail,
+cargo nem nada além do nome de quem já está na empresa. Mesmo formato dos
+fixos do globo (`MembersGlobe.tsx` — "Henrique M.", "Enzo P." etc).
 """
 
 import re
@@ -37,17 +38,25 @@ def _eh_fundador(nome_completo: str) -> bool:
     )
 
 
+def _nome_exibido(nome_completo: str) -> str:
+    partes = nome_completo.strip().split(" ")
+    if len(partes) < 2:
+        return partes[0]
+    return f"{partes[0]} {partes[-1][0].upper()}."
+
+
 class ListarPrimeirosNomesUseCase:
     def __init__(self, db: Session):
         self.repository = UsuarioRepository(db)
 
     def execute(self) -> List[str]:
         ativos = self.repository.get_ativos()
-        # `dict.fromkeys` tira duplicata mantendo a ordem — dois "João" na
-        # empresa não precisam de dois pontos iguais no globo.
-        primeiros_nomes = (
-            usuario.nome.strip().split(" ")[0]
+        # `dict.fromkeys` tira duplicata mantendo a ordem — dois "João N."
+        # na empresa não precisam de dois pontos iguais no globo (mas um
+        # "João N." e um "João B." são nomes diferentes, ficam os dois).
+        nomes_exibidos = (
+            _nome_exibido(usuario.nome)
             for usuario in ativos
             if not _eh_fundador(usuario.nome)
         )
-        return list(dict.fromkeys(nome for nome in primeiros_nomes if nome))
+        return list(dict.fromkeys(nome for nome in nomes_exibidos if nome))
