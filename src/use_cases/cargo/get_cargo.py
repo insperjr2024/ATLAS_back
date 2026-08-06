@@ -13,7 +13,6 @@ def serializar_cargo(cargo):
         "pode_gerir_membros": cargo.pode_gerir_membros,
         "pode_marcar_kickoff": cargo.pode_marcar_kickoff,
         "pode_definir_cronograma": cargo.pode_definir_cronograma,
-        "pode_aprovar_reajuste": cargo.pode_aprovar_reajuste,
         "pode_criar_tarefa": cargo.pode_criar_tarefa,
         "pode_mover_editar_tarefa": cargo.pode_mover_editar_tarefa,
         "pode_ver_proprios_projetos": cargo.pode_ver_proprios_projetos,

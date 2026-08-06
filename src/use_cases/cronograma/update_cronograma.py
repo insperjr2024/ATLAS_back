@@ -13,7 +13,6 @@ from src.repositories.cronograma_repository import (
     CronogramaMarcoRepository,
 )
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
-from src.utils.cronograma_guard import exigir_cronograma_editavel
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -61,7 +60,6 @@ class CreateEtapaUseCase:
         escopo = self.escopo_repository.get_by_id(projeto_escopo_id)
         if not escopo:
             return None
-        exigir_cronograma_editavel(escopo)
         _validar_intervalo(request.data_inicio, request.data_fim)
         _validar_cor(request.cor)
 
@@ -83,13 +81,11 @@ class UpdateEtapaIntervaloUseCase:
 
     def __init__(self, db: Session):
         self.repository = CronogramaEtapaRepository(db)
-        self.escopo_repository = ProjetoEscopoRepository(db)
 
     def execute(self, etapa_id: int, request: EtapaIntervaloRequest):
         etapa = self.repository.get_by_id(etapa_id)
         if not etapa:
             return None
-        exigir_cronograma_editavel(self.escopo_repository.get_by_id(etapa.projeto_escopo_id))
         _validar_intervalo(request.data_inicio, request.data_fim)
 
         atualizada = self.repository.update(
@@ -105,13 +101,11 @@ class UpdateEtapaIntervaloUseCase:
 class UpdateEtapaDetalheUseCase:
     def __init__(self, db: Session):
         self.repository = CronogramaEtapaRepository(db)
-        self.escopo_repository = ProjetoEscopoRepository(db)
 
     def execute(self, etapa_id: int, request: EtapaDetalheRequest):
         etapa = self.repository.get_by_id(etapa_id)
         if not etapa:
             return None
-        exigir_cronograma_editavel(self.escopo_repository.get_by_id(etapa.projeto_escopo_id))
         dados = request.dict(exclude_unset=True, exclude_none=True)
         if "cor" in dados:
             _validar_cor(dados["cor"])
@@ -122,13 +116,11 @@ class UpdateEtapaDetalheUseCase:
 class DeleteEtapaUseCase:
     def __init__(self, db: Session):
         self.repository = CronogramaEtapaRepository(db)
-        self.escopo_repository = ProjetoEscopoRepository(db)
 
     def execute(self, etapa_id: int) -> bool:
         etapa = self.repository.get_by_id(etapa_id)
         if not etapa:
             return False
-        exigir_cronograma_editavel(self.escopo_repository.get_by_id(etapa.projeto_escopo_id))
         return self.repository.delete(etapa_id)
 
 
@@ -179,9 +171,10 @@ class DeleteMarcoUseCase:
 class OficializarCronogramaUseCase:
     """§5.3: ao fim da ambientação, o coordenador CRAVA o cronograma.
 
-    Depois disso, mudança vira solicitação de reajuste (§5.6). A saída dessa
-    trava é o reajuste aprovado LIMPAR `cronograma_oficializado_em` — sem
-    coluna extra e sem estado "meio aberto".
+    `cronograma_oficializado_em` é só um marco informativo (aparece na tela
+    como "oficializado em X") — não bloqueia edição depois. O fluxo de
+    reajuste que travava isso foi removido a pedido do usuário (2026-08-06):
+    o cronograma continua livre pra editar como quiser, oficializado ou não.
     """
 
     def __init__(self, db: Session):
