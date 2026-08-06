@@ -28,6 +28,10 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: 📌 Avaliação de Desempenho (Prioridade 2) — não é de projeto: o
     #: destinatário é quem tem o que responder, venha do projeto que vier.
     "lote_desempenho_aberto",
+    #: 📌 PDI (relatório de mentoria) — mesmo motivo: destinatário é o
+    #: mentor (ou a diretoria), não quem "enxerga o projeto".
+    "pdi_prazo_proximo",
+    "pdi_prazo_vencido",
     # 🔄 condições — calculadas na leitura; a linha só nasce ao marcar como lida
     "kickoff_pendente",
     "tarefa_vencida",

@@ -1,7 +1,7 @@
 from typing import Literal, Optional
 
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from src.repositories.usuario_repository import UsuarioRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.cargo_repository import CargoRepository
@@ -22,6 +22,7 @@ class RegistrarRequest(BaseModel):
     senha: str
     posicao: Literal["diretor", "gerente", "coordenador", "consultor"] = "consultor"
     cargo_id: Optional[int] = None
+    semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 
 class RegistrarUseCase:
@@ -56,5 +57,6 @@ class RegistrarUseCase:
             posicao=request.posicao,
             status="ativo",
             ativo=True,
+            semestre_graduacao=request.semestre_graduacao,
         )
         return serializar_usuario(usuario)

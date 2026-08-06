@@ -41,6 +41,9 @@ from src.models.desempenho_criterio_model import DesempenhoCriterioModel
 from src.models.desempenho_avaliacao_model import DesempenhoAvaliacaoModel
 from src.models.desempenho_avaliacao_nota_model import DesempenhoAvaliacaoNotaModel
 from src.models.desempenho_mentoria_model import DesempenhoMentoriaModel
+from src.models.desempenho_pdi_pasta_model import DesempenhoPdiPastaModel
+from src.models.desempenho_pdi_item_model import DesempenhoPdiItemModel
+from src.models.desempenho_pdi_envio_model import DesempenhoPdiEnvioModel
 
 # Notificação e troca de candidatura de banca (§6, §8).
 from src.models.notificacao_model import NotificacaoModel

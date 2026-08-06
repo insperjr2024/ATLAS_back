@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoModel
@@ -21,6 +21,7 @@ class UpdateUsuarioRequest(BaseModel):
     posicao: Optional[Posicao] = None
     status: Optional[StatusUsuario] = None
     ativo: Optional[bool] = None
+    semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 
 class UpdateUsuarioUseCase:
