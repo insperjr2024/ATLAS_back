@@ -251,7 +251,7 @@ async def ler_calendario_pdf(
     semestre_id: int,
     arquivo: UploadFile = File(..., description="Calendário acadêmico do Insper em PDF"),
     frente_id: Optional[int] = Query(None),
-    _=Depends(require_pode_gerenciar_cargos),
+    _=Depends(require_diretor),
     db: Session = Depends(get_db),
 ):
     """Lê o PDF e DEVOLVE o que encontrou — não grava nada.

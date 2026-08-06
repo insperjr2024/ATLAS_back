@@ -11,6 +11,7 @@ Rodar:  uv run python -m scripts.seed
 from datetime import date, datetime, time, timedelta
 
 from src.database.database import SessionLocal
+from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
 from src.models.cargo_model import CargoModel
 from src.models.configuracao_model import ConfiguracaoModel
@@ -771,14 +772,20 @@ def executar():
                 criados["escopo_vendido"] += 1
 
                 if banca_spec:
+                    # O vínculo com o escopo saiu de `banca.projeto_escopo_id`
+                    # e virou a tabela `banca_escopo`: uma banca pode cobrir
+                    # vários escopos do projeto. O UNIQUE trocou de lado — um
+                    # escopo continua tendo no máximo uma banca.
+                    banca = BancaModel(
+                        nome_projeto=projeto.nome,
+                        escopo_id=escopo.escopo_id,
+                        coordenador_id=spec["coordenador_id"],
+                        **banca_spec,
+                    )
+                    db.add(banca)
+                    db.flush()
                     db.add(
-                        BancaModel(
-                            nome_projeto=projeto.nome,
-                            escopo_id=escopo.escopo_id,
-                            coordenador_id=spec["coordenador_id"],
-                            projeto_escopo_id=escopo.id,
-                            **banca_spec,
-                        )
+                        BancaEscopoModel(banca_id=banca.id, projeto_escopo_id=escopo.id)
                     )
                     criados["banca"] += 1
 
