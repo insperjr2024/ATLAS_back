@@ -218,6 +218,53 @@ def notificar_pdi_prazo_vencido(
     )
 
 
+def notificar_reajuste_solicitado(
+    db: Session, destinatario_id: int, projeto_id: int, projeto_escopo_id: int, nome_escopo: str, solicitante_nome: str
+) -> None:
+    """§5.6: coordenador pediu pra reabrir um cronograma já oficializado.
+    Só a diretoria recebe — é ela quem aprova, nunca o gerente."""
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="reajuste_solicitado",
+        titulo=f"{solicitante_nome} pediu reajuste de cronograma — {nome_escopo}",
+        projeto_id=projeto_id,
+        rota=f"/projetos/{projeto_id}/cronograma",
+        payload={"projeto_escopo_id": projeto_escopo_id},
+        # Por escopo+destinatário: um pedido pendente por vez (regra do use
+        # case), então não precisa de mais nada na chave pra não duplicar.
+        chave_dedup=f"reajuste_solicitado:escopo={projeto_escopo_id}:destinatario={destinatario_id}",
+    )
+
+
+def notificar_reajuste_respondido(
+    db: Session,
+    destinatario_id: int,
+    projeto_id: int,
+    projeto_escopo_id: int,
+    solicitacao_id: int,
+    nome_escopo: str,
+    aprovado: bool,
+    justificativa: str,
+) -> None:
+    """Avisa quem pediu o reajuste (§5.6) — aprovado ou rejeitado, com a
+    justificativa que a diretoria digitou."""
+    titulo = f"Reajuste {'aprovado' if aprovado else 'rejeitado'} — {nome_escopo}"
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="reajuste_respondido",
+        titulo=titulo,
+        corpo=justificativa,
+        projeto_id=projeto_id,
+        rota=f"/projetos/{projeto_id}/cronograma",
+        payload={"projeto_escopo_id": projeto_escopo_id, "aprovado": aprovado},
+        # Pela solicitação, não pelo escopo: uma solicitação só é respondida
+        # uma vez (o use case recusa responder de novo), a chave é natural.
+        chave_dedup=f"reajuste_respondido:solicitacao={solicitacao_id}",
+    )
+
+
 def _chave_data(valor) -> str:
     """A data em formato estável para a `chave_dedup` — nunca o texto exibido,
     que muda de idioma e de formatação sem que o alerta seja outro."""

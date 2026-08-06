@@ -25,6 +25,7 @@ from src.models.projeto_membro_model import ProjetoMembroModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
+from src.models.cronograma_reajuste_solicitacao_model import CronogramaReajusteSolicitacaoModel
 from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.tarefa_comentario_model import TarefaComentarioModel
 from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel

@@ -18,6 +18,10 @@ def serializar_cargo(cargo):
         "pode_mover_editar_tarefa": cargo.pode_mover_editar_tarefa,
         "pode_ver_proprios_projetos": cargo.pode_ver_proprios_projetos,
         "pode_ver_monitoramento": cargo.pode_ver_monitoramento,
+        "pode_administrar_desempenho": cargo.pode_administrar_desempenho,
+        "pode_editar_formularios_desempenho": cargo.pode_editar_formularios_desempenho,
+        "pode_ver_nucleo": cargo.pode_ver_nucleo,
+        "pode_administrar_configuracoes": cargo.pode_administrar_configuracoes,
     }
 
 

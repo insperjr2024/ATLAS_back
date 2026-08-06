@@ -4,7 +4,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.models.projeto_model import ProjetoModel
+from src.repositories.banca_repository import BancaRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
@@ -12,7 +14,9 @@ from src.repositories.projeto_status_historico_repository import ProjetoStatusHi
 from src.utils.ambientacao import fim_da_ambientacao
 
 
-def serializar_projeto_resumo(projeto, frente_repo: ProjetoFrenteRepository, membro_repo: ProjetoMembroRepository):
+def serializar_projeto_resumo(
+    projeto, frente_repo: ProjetoFrenteRepository, membro_repo: ProjetoMembroRepository, proxima_banca=None
+):
     """A forma enxuta, usada nos cards da lista (§6.2)."""
     frentes = frente_repo.get_by_projeto(projeto.id)
     membros = membro_repo.get_by_projeto(projeto.id, apenas_atuais=True)
@@ -31,6 +35,10 @@ def serializar_projeto_resumo(projeto, frente_repo: ProjetoFrenteRepository, mem
         "data_kickoff": projeto.data_kickoff,
         "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
         "arquivado_em": projeto.arquivado_em,
+        # §6.2: a banca mais próxima AINDA NÃO REALIZADA de qualquer escopo
+        # deste projeto — `None` se nenhuma estiver marcada ou todas já
+        # aconteceram.
+        "proxima_banca": proxima_banca.data_hora if proxima_banca else None,
     }
 
 
@@ -114,6 +122,8 @@ class ListProjetosUseCase:
         self.repository = ProjetoRepository(db)
         self.frente_repository = ProjetoFrenteRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.banca_repository = BancaRepository(db)
 
     def execute(self, current_user, frente_id: Optional[int] = None, incluir_arquivados: bool = False):
         from src.middlewares.authorization import aplicar_recorte_visao
@@ -122,8 +132,28 @@ class ListProjetosUseCase:
         if not incluir_arquivados:
             query = query.filter(ProjetoModel.arquivado_em.is_(None))
         projetos = query.all()
+
+        # §6.2: a banca mais próxima ainda não realizada, por projeto — busca
+        # em bloco (escopos de todos os projetos, depois bancas de todos os
+        # escopos) pra não virar uma query por card.
+        escopos = self.escopo_repository.get_by_projetos([p.id for p in projetos])
+        projeto_por_escopo = {e.id: e.projeto_id for e in escopos}
+        # Banca ↔ escopo é muitos-para-muitos (uma banca cobre vários escopos)
+        # — `mapa_por_escopo` já devolve por escopo, que é a chave que temos.
+        banca_por_escopo = self.banca_repository.mapa_por_escopo(list(projeto_por_escopo))
+        proxima_por_projeto = {}
+        for escopo_id, banca in banca_por_escopo.items():
+            if banca.data_hora is None or banca.realizado_em is not None:
+                continue
+            projeto_id = projeto_por_escopo.get(escopo_id)
+            atual = proxima_por_projeto.get(projeto_id)
+            if projeto_id and (atual is None or banca.data_hora < atual.data_hora):
+                proxima_por_projeto[projeto_id] = banca
+
         return [
-            serializar_projeto_resumo(p, self.frente_repository, self.membro_repository)
+            serializar_projeto_resumo(
+                p, self.frente_repository, self.membro_repository, proxima_por_projeto.get(p.id)
+            )
             for p in projetos
         ]
 
