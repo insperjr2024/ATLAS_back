@@ -12,7 +12,6 @@ class UpdateCargoRequest(BaseModel):
     pode_gerir_membros: Optional[bool] = None
     pode_marcar_kickoff: Optional[bool] = None
     pode_definir_cronograma: Optional[bool] = None
-    pode_aprovar_reajuste: Optional[bool] = None
     pode_criar_tarefa: Optional[bool] = None
     pode_mover_editar_tarefa: Optional[bool] = None
     pode_ver_proprios_projetos: Optional[bool] = None

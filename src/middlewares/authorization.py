@@ -2,9 +2,11 @@
 
 Duas dimensões que convivem, e não devem ser confundidas:
 
-- **`cargo`** (as 10 caixas da tabela do §3 + as 4 que estenderam essa tabela
-  depois — Avaliação de Desempenho, formulários dela, Núcleo e Configurações)
-  → quem DECIDE em runtime, editável na tela de Cargos.
+- **`cargo`** (9 das 10 caixas da tabela do §3 — "aprovar reajuste" saiu em
+  2026-08-06 junto com a feature de reajuste, que foi removida — + as 4 que
+  estenderam essa tabela depois — Avaliação de Desempenho, formulários dela,
+  Núcleo e Configurações) → quem DECIDE em runtime, editável na tela de
+  Cargos.
 - **`posicao`** (diretor · gerente · coordenador · consultor) → define o PADRÃO
   com que cada cargo nasce (ver a migration `7514970fac39`); `require_diretor`
   e `require_posicao(...)` ainda travam o que não virou caixa de cargo.
@@ -67,10 +69,6 @@ require_pode_marcar_kickoff = _dependencia_permissao(
 # 5. Definir cronograma por escopo (etapas, banca)
 require_pode_definir_cronograma = _dependencia_permissao(
     "pode_definir_cronograma", "Você não tem permissão para definir o cronograma")
-
-# 6. Aprovar reajuste de cronograma
-require_pode_aprovar_reajuste = _dependencia_permissao(
-    "pode_aprovar_reajuste", "Você não tem permissão para aprovar reajuste de cronograma")
 
 # 7. Criar tarefa
 require_pode_criar_tarefa = _dependencia_permissao(

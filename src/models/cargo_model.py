@@ -5,16 +5,17 @@ from src.database.database import Base
 class CargoModel(Base):
     """As permissões da plataforma, uma caixa por ação.
 
-    As 10 primeiras são exatamente as linhas da tabela do §3 do briefing.
-    Antes elas eram hardcoded por `posicao` (`require_gestao`,
-    `require_lideranca`, `require_diretor` direto nas rotas); agora a posição
-    só define o PADRÃO com que cada cargo nasce, e quem decide em runtime é a
-    caixa.
+    9 das 10 são as linhas da tabela do §3 do briefing — "aprovar reajuste"
+    saiu em 2026-08-06 junto com a feature de reajuste de cronograma, que foi
+    removida a pedido do usuário. Antes elas eram hardcoded por `posicao`
+    (`require_gestao`, `require_lideranca`, `require_diretor` direto nas
+    rotas); agora a posição só define o PADRÃO com que cada cargo nasce, e
+    quem decide em runtime é a caixa.
 
     As 4 seguintes (Avaliação de Desempenho, formulários dela, Núcleo,
     Configurações) não estão no §3 — nasceram travadas só por posição e
     viraram caixa a pedido explícito do usuário (2026-08-06), pro mesmo motivo
-    das 10: dar pra delegar sem precisar tornar alguém "diretor" inteiro.
+    das 9: dar pra delegar sem precisar tornar alguém "diretor" inteiro.
     """
 
     __tablename__ = "cargo"
@@ -32,8 +33,6 @@ class CargoModel(Base):
     pode_marcar_kickoff = Column(Boolean, default=False, nullable=False)
     # 5. Definir cronograma por escopo (etapas, banca)
     pode_definir_cronograma = Column(Boolean, default=False, nullable=False)
-    # 6. Aprovar reajuste de cronograma
-    pode_aprovar_reajuste = Column(Boolean, default=False, nullable=False)
     # 7. Criar tarefa
     pode_criar_tarefa = Column(Boolean, default=False, nullable=False)
     # 8. Mover e editar tarefa

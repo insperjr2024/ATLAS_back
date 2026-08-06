@@ -32,7 +32,8 @@ class ProjetoEscopoModel(Base):
     )
     # ⭐ a contagem do §5.4 só corre com isto preenchido.
     data_inicio = Column(Date, nullable=True)
-    # Carimbo do §6.4 — depois disso, mudança de cronograma vira reajuste (F11).
+    # Carimbo informativo do §5.3 — não trava mais edição do cronograma
+    # (2026-08-06: o fluxo de reajuste que fazia isso foi removido).
     cronograma_oficializado_em = Column(DateTime, nullable=True)
     data_entrega_planejada = Column(Date, nullable=True)
     # Preenchê-la congela a contagem — trava do §5.5 mora no use case de entrega.
