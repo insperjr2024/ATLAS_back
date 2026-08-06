@@ -6,6 +6,9 @@ from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.utils.banca_status import calcular_status_banca
 from src.utils.identificar_semestre import identificar_semestre
+from src.utils.piso_banca import calcular_piso_banca
+from src.repositories.banca_frente_repository import BancaFrenteRepository
+from src.repositories.frente_repository import FrenteRepository
 
 
 class GetBancaUseCase:
@@ -15,6 +18,8 @@ class GetBancaUseCase:
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.banca_frente_repository = BancaFrenteRepository(db)
+        self.frente_repository = FrenteRepository(db)
 
     def execute(self, banca_id: int):
         banca = self.repository.get_by_id(banca_id)
@@ -39,9 +44,19 @@ class GetBancaUseCase:
             "vagas": vagas,
             "alocados": len(candidaturas),
             "piso_minimo_override": banca.piso_minimo_override,
+            # O piso REAL da composição (§8), já resolvido: override, senão a
+            # soma do `piso_banca` das frentes. `vagas` acima é outra coisa —
+            # é o teto de quantos cabem. Sem este campo a tela tinha de
+            # reimplementar a regra, e usava o teto por engano.
+            "piso_minimo": self._piso(banca),
             "semestre_id": semestre.id if semestre else None,
             "semestre_nome": semestre.nome if semestre else None
         }
+
+    def _piso(self, banca) -> int:
+        vinculos = self.banca_frente_repository.get_by_banca(banca.id)
+        frentes = [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f]
+        return calcular_piso_banca(banca, frentes)
 
 
 class ListBancasUseCase:
@@ -51,6 +66,8 @@ class ListBancasUseCase:
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.banca_frente_repository = BancaFrenteRepository(db)
+        self.frente_repository = FrenteRepository(db)
 
     def execute(self):
         bancas = self.repository.get_all()
@@ -60,6 +77,9 @@ class ListBancasUseCase:
         escopos_por_banca = self.banca_escopo_repository.get_escopo_ids_por_banca(
             [b.id for b in bancas]
         )
+        # As frentes uma vez só: o piso de cada banca é a soma dos pisos delas,
+        # e buscar por banca dentro do laço seria N+1.
+        frentes_por_id = {f.id: f for f in self.frente_repository.get_all()}
         resultado = []
         for b in bancas:
             candidaturas = self.candidatura_repository.get_by_banca(b.id)
@@ -77,6 +97,14 @@ class ListBancasUseCase:
                 "vagas": vagas,
                 "alocados": len(candidaturas),
                 "piso_minimo_override": b.piso_minimo_override,
+                "piso_minimo": calcular_piso_banca(
+                    b,
+                    [
+                        frentes_por_id[v.frente_id]
+                        for v in self.banca_frente_repository.get_by_banca(b.id)
+                        if v.frente_id in frentes_por_id
+                    ],
+                ),
                 "semestre_id": semestre.id if semestre else None,
                 "semestre_nome": semestre.nome if semestre else None
             })
