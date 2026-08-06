@@ -379,6 +379,19 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
     ⭐ "Ativa" e "vencida" vêm da COLUNA do kanban (`encerra_tarefa`), não de
     uma lista fixa de status — as colunas são configuráveis pela diretoria.
+
+    📅 `referencia` permite olhar uma SEMANA PASSADA, mas nem tudo volta no
+    tempo junto:
+
+    - **voltam**: `distribuiu_na_semana`, reuniões, `vencidas`, `atraso_maximo`
+      e `dias_uteis_sem_tarefa` — todos derivam de data e são recalculáveis;
+    - **volta com perda**: `ultima_movimentacao` corta em `<= fim da semana`,
+      mas subestima. `tarefa.movida_em` guarda só o carimbo da ÚLTIMA mudança;
+      tarefa que se moveu naquela semana e se moveu de novo depois teve o
+      registro antigo sobrescrito;
+    - **não voltam**: `total` e `ativas`, que dependem da coluna em que a
+      tarefa está AGORA. Sem histórico de movimentação entre colunas, não há
+      como saber onde ela estava naquela semana. A tela marca esses com "hoje".
     """
 
     def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
@@ -402,11 +415,44 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
         tarefas = []
         for p in projetos:
-            do_projeto = tarefas_por_projeto.get(p.id, [])
-            criadas_na_semana = [
-                t for t in do_projeto if t.criado_em and t.criado_em.date() >= inicio
+            todas_do_projeto = tarefas_por_projeto.get(p.id, [])
+            # ⚠ Tudo que responde "como estava naquela semana" olha só as
+            # tarefas que JÁ EXISTIAM até o fim dela. Sem esse corte, olhar 12
+            # semanas atrás usava tarefas criadas semanas DEPOIS: o marco de
+            # "sem tarefa nova" caía no futuro da referência, o cálculo batia
+            # no `marco >= hoje` e devolvia 0 — a tela mostrava todos os
+            # projetos saudáveis justamente nas semanas mais antigas, o oposto
+            # da realidade. `sem_tarefas` sofria do mesmo: dava o mesmo número
+            # em qualquer semana.
+            #
+            # `criado_em` é imutável, então este recorte é exato — diferente do
+            # `movida_em`, que é sobrescrito e só permite aproximar.
+            do_projeto = [
+                t for t in todas_do_projeto if t.criado_em and t.criado_em.date() <= fim
             ]
-            movimentacoes = [t.movida_em for t in do_projeto if t.movida_em]
+            # ⚠ A janela é FECHADA nos dois lados. Só com `>= inicio` o campo
+            # mentia assim que a tela ganhasse navegação: voltando 8 semanas,
+            # qualquer projeto que recebeu tarefa depois daquela segunda —
+            # inclusive meses depois — apareceria como "distribuiu". Não dava
+            # para perceber antes da navegação existir, porque a semana sempre
+            # terminava em hoje e não havia tarefa criada no futuro.
+            criadas_na_semana = [
+                t for t in do_projeto if t.criado_em and inicio <= t.criado_em.date() <= fim
+            ]
+            # Só o que já tinha acontecido até o fim da semana exibida. Sem o
+            # corte, olhar 3 semanas atrás mostrava uma data POSTERIOR à janela
+            # do cabeçalho — "semana de 06/07 a 12/07, última movimentação
+            # 05/08" —, o que lia como tela quebrada.
+            #
+            # ⚠ O número fica SUBESTIMADO, e não há como evitar: `movida_em`
+            # guarda só o carimbo da última mudança, não o histórico. Tarefa
+            # que se moveu naquela semana e se moveu de novo depois teve o
+            # registro antigo sobrescrito. Erra para menos, nunca para mais —
+            # mostra menos atividade do que houve, jamais atividade que não
+            # existiu.
+            movimentacoes = [
+                t.movida_em for t in do_projeto if t.movida_em and t.movida_em.date() <= fim
+            ]
             # "Vencida" e "ativa" saem da COLUNA do kanban, não de um status na
             # tarefa: as colunas são configuráveis pela diretoria, e o campo
             # `status` deixou de existir no modelo.
@@ -414,7 +460,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
                 t for t in do_projeto if eh_vencida(t.prazo, encerra.get(t.coluna_id, False), hoje)
             ]
             ativas = [t for t in do_projeto if esta_ativa(encerra.get(t.coluna_id, False))]
-            marco, tipo_marco = self._marco_sem_tarefa(p, do_projeto)
+            marco, tipo_marco = self._marco_sem_tarefa(p, do_projeto, fim)
 
             tarefas.append(
                 {
@@ -462,8 +508,24 @@ class ExecucaoUseCase(_BaseMonitoramento):
             for p in projetos
         ]
 
+        # Quem decide se a semana é a atual é o servidor, não o navegador: o
+        # front teria de recalcular a segunda-feira a partir do relógio local,
+        # e uma máquina com fuso ou data errada mostraria a semana errada como
+        # se fosse a de hoje.
+        semana_de_hoje = janela_semana(date.today())[0]
+        # Em semanas inteiras: a janela sempre começa numa segunda, então a
+        # diferença é múltipla de 7 e a divisão é exata.
+        semanas_atras = (semana_de_hoje - inicio).days // 7
+
         return {
-            "semana": {"inicio": inicio, "fim": fim},
+            "semana": {
+                "inicio": inicio,
+                "fim": fim,
+                "eh_atual": semanas_atras == 0,
+                "eh_passada": semanas_atras > 0,
+                #: 0 = semana atual, 1 = semana passada, 2 = duas atrás...
+                "semanas_atras": semanas_atras,
+            },
             "resumo_tarefas": {
                 "projetos": len(tarefas),
                 "sem_tarefas": sum(1 for t in tarefas if t["sem_tarefas"]),
@@ -477,7 +539,9 @@ class ExecucaoUseCase(_BaseMonitoramento):
             "reunioes": reunioes_resposta,
         }
 
-    def _marco_sem_tarefa(self, projeto, tarefas) -> Tuple[Optional[date], Optional[str]]:
+    def _marco_sem_tarefa(
+        self, projeto, tarefas, ate: date
+    ) -> Tuple[Optional[date], Optional[str]]:
         """De ONDE parte a contagem de "sem tarefa nova", e o que esse ponto é.
 
         Devolve `(data, tipo)`, ambos lidos do banco:
@@ -489,6 +553,12 @@ class ExecucaoUseCase(_BaseMonitoramento):
           execução só começa aí;
         - `(None, None)` quando o projeto ainda não tem kickoff.
 
+        `ate` é o fim da semana que se está olhando. **Kickoff posterior a ela
+        não conta**: naquela semana o projeto ainda nem tinha começado, e usá-lo
+        devolveria um marco no futuro da janela — o cálculo cairia no
+        `marco >= hoje` e diria "0 dias sem tarefa" para um projeto que sequer
+        existia. Quem chama já entrega `tarefas` recortadas pelo mesmo limite.
+
         O TIPO vai para a resposta de propósito. O front precisa escrever
         "desde o kickoff" ou "desde a última tarefa criada", e não tem como
         saber qual dos dois olhando só o número de dias. Antes ele deduzia pelo
@@ -499,7 +569,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
         criacoes = [t.criado_em.date() for t in tarefas if t.criado_em]
         if criacoes:
             return max(criacoes), "ultima_tarefa"
-        if projeto.data_kickoff:
+        if projeto.data_kickoff and projeto.data_kickoff <= ate:
             return projeto.data_kickoff, "kickoff"
         return None, None
 

@@ -7,9 +7,10 @@ Todo use case abre com `aplicar_recorte_visao`, que já é o §7.5 de graça: o
 gerente fica travado nas próprias frentes mesmo mandando outro `?frente_id=`.
 """
 
+from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -34,8 +35,24 @@ def visao_geral(frente_id: Optional[int] = None, current_user=Depends(require_po
 
 
 @router.get("/execucao")
-def execucao(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
-    return ExecucaoUseCase(db).execute(current_user, frente_id)
+def execucao(
+    frente_id: Optional[int] = None,
+    referencia: Optional[date] = None,
+    current_user=Depends(require_pode_ver_monitoramento),
+    db: Session = Depends(get_db),
+):
+    """`referencia` = qualquer dia da semana que se quer ver; sem ela, hoje.
+
+    Só o PASSADO é aceito. Semana futura devolveria "não distribuiu" e "não
+    fez reunião" para todo mundo — as duas medem ausência de registro, e no
+    futuro ausência significa "ainda não aconteceu", não "o time falhou". A
+    tela acusaria o time por algo que ainda nem teve chance de existir.
+    """
+    if referencia and referencia > date.today():
+        raise HTTPException(
+            status_code=422, detail="Só é possível consultar a semana atual ou anteriores"
+        )
+    return ExecucaoUseCase(db).execute(current_user, frente_id, referencia)
 
 
 @router.get("/alocacao")
