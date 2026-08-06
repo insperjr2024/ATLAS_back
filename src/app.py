@@ -25,6 +25,7 @@ from src.routers import (
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.notificar import notificar
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,22 @@ def rodar_push_alocacao_automatica() -> None:
         resumo = PushAlocacaoAutomaticaUseCase(db).execute()
         if resumo:
             logger.info("Push automático de bancas: %s", resumo)
+    finally:
+        db.close()
+
+
+def rodar_encerramento_de_ambientacao() -> None:
+    """🤖 §5.3: Ambientação → Em andamento quando os dias úteis de ambientação
+    acabam. Roda de madrugada porque a virada é uma questão de DATA — o projeto
+    tem que amanhecer no status certo, antes de qualquer um abrir a tela.
+
+    Roda também na subida do app: um servidor que passou o fim de semana fora
+    do ar não pode deixar a virada para o dia seguinte."""
+    db = SessionLocal()
+    try:
+        virados = EncerrarAmbientacaoUseCase(db).execute()
+        if virados:
+            logger.info("Ambientação encerrada automaticamente nos projetos: %s", virados)
     finally:
         db.close()
 
@@ -106,12 +123,24 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
     scheduler.add_job(
+        rodar_encerramento_de_ambientacao,
+        # 00:05, e não junto dos outros às 6h: é virada de DATA, e o projeto
+        # precisa amanhecer no status certo.
+        CronTrigger(hour=0, minute=5),
+        id="encerramento_ambientacao",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         rodar_lembrete_prazo_avaliacao,
         CronTrigger(hour=6, minute=15),
         id="lembrete_prazo_avaliacao",
         replace_existing=True,
     )
     scheduler.start()
+    # Põe o banco em dia com o calendário antes de servir a primeira request:
+    # sem isto, um app que subiu depois de dias parado serviria projetos em
+    # Ambientação vencida até a próxima meia-noite.
+    rodar_encerramento_de_ambientacao()
     yield
     scheduler.shutdown()
 

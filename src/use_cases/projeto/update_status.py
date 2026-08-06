@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.status_projeto import (
     destinos_validos,
@@ -28,6 +29,7 @@ class UpdateStatusUseCase:
     """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
 
@@ -65,4 +67,15 @@ class UpdateStatusUseCase:
             status_novo=novo_status,
             alterado_por=alterado_por,
         )
+
+        # 🤖 Entrou em Ambientação com a janela já vencida (kickoff antigo, ou
+        # o projeto ficou parado em Vendido): a virada é imediata, e não na
+        # passada da madrugada — a alternativa seria a tela mostrar
+        # "Ambientação" por um dia sabendo que ela acabou. As duas linhas
+        # ficam no histórico, que é o registro fiel do que aconteceu.
+        if novo_status == "ambientacao" and EncerrarAmbientacaoUseCase(self.db).executar_para(
+            projeto_id
+        ):
+            return {"id": projeto_id, "status_anterior": anterior, "status": "em_andamento"}
+
         return {"id": projeto_id, "status_anterior": anterior, "status": novo_status}
