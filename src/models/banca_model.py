@@ -37,3 +37,7 @@ class BancaModel(Base):
     #: Choque de horário só é liberado pela diretoria (§8).
     excecao_choque_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     excecao_choque_nota = Column(String(255), nullable=True)
+    #: Nulo = usa a soma do `piso_banca` das frentes vinculadas (§8). Só a
+    #: diretoria define isto, para bancas cuja gestão precisa de mais gente
+    #: que o padrão da(s) frente(s).
+    piso_minimo_override = Column(Integer, nullable=True)

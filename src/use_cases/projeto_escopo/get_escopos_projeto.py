@@ -32,6 +32,29 @@ def nome_do_escopo(escopo, catalogo_por_id: Dict[int, object]) -> str:
     return do_catalogo.nome if do_catalogo else "(escopo removido)"
 
 
+class ListTodosEscoposVendidosUseCase:
+    """Só `{id, projeto_id, nome}` de TODOS os projetos — sem a contagem de
+    dias (cara, e não faz sentido fora do contexto de um projeto só).
+
+    Existe para a página Bancas resolver `banca.projeto_escopo_ids` em nomes:
+    ela lista bancas de todos os projetos ao mesmo tempo, então não dá pra
+    pedir escopo por escopo com `GET /projetos/{id}/escopos` (que exige saber
+    o projeto e checa o recorte de visão dele). Bancas já é global — quem
+    pode ver a lista de bancas já vê projeto e escopo de qualquer uma."""
+
+    def __init__(self, db: Session):
+        self.repository = ProjetoEscopoRepository(db)
+        self.catalogo_repository = EscopoRepository(db)
+
+    def execute(self) -> List[dict]:
+        escopos = self.repository.get_all()
+        catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
+        return [
+            {"id": e.id, "projeto_id": e.projeto_id, "nome": nome_do_escopo(e, catalogo)}
+            for e in escopos
+        ]
+
+
 class ListEscoposProjetoUseCase:
     def __init__(self, db: Session):
         self.db = db

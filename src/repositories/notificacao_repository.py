@@ -44,6 +44,21 @@ class NotificacaoRepository(BaseRepository[NotificacaoModel]):
         )
         return {linha.chave_dedup: linha.lida_em for linha in linhas}
 
+    def get_by_usuario(self, usuario_id: int) -> List[NotificacaoModel]:
+        """Tudo do usuário, sem filtrar origem.
+
+        Sobrevivente da versão de bancas desta tabela. Continua aqui porque é
+        uma pergunta legítima ("o que existe para esta pessoa?"), mas o sino
+        NÃO deve usá-la: servir uma linha `origem="condicao"` mostraria
+        "kickoff pendente" de um projeto cujo kickoff já foi marcado. Quem
+        monta a central é `ListarNotificacoesUseCase`.
+        """
+        return (
+            self.db.query(NotificacaoModel)
+            .filter(NotificacaoModel.usuario_id == usuario_id)
+            .all()
+        )
+
     def get_por_chave(self, usuario_id: int, chave_dedup: str) -> Optional[NotificacaoModel]:
         return (
             self.db.query(NotificacaoModel)
