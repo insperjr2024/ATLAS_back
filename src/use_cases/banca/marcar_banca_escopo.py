@@ -21,6 +21,7 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
@@ -40,6 +41,7 @@ class MarcarBancaEscopoRequest(BaseModel):
 
 class MarcarBancaEscopoUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = BancaRepository(db)
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.projeto_repository = ProjetoRepository(db)
@@ -69,7 +71,14 @@ class MarcarBancaEscopoUseCase:
                 )
             if not (request.justificativa or "").strip():
                 raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
+            data_anterior = existente.data_hora
             banca = self.repository.update(existente.id, data_hora=request.data_hora)
+            # Depois do update e só se a data realmente mudou: salvar a mesma
+            # data (por causa de outra edição na mesma request) não é remarcação.
+            if data_anterior != banca.data_hora:
+                notificar_banca_remarcada(
+                    self.db, projeto, banca.id, self._nome(escopo), data_anterior, banca.data_hora
+                )
         else:
             coordenador = next(
                 (

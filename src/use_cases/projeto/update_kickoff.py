@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.repositories.projeto_repository import ProjetoRepository
+from src.use_cases.notificacao.eventos import notificar_entrega_alterada
 
 
 class UpdateKickoffRequest(BaseModel):
@@ -36,10 +37,25 @@ class UpdateEntregaClienteRequest(BaseModel):
 
 class UpdateEntregaClienteUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
 
     def execute(self, projeto_id: int, request: UpdateEntregaClienteRequest):
+        anterior = self.repository.get_by_id(projeto_id)
+        if not anterior:
+            return None
+        data_antiga = anterior.data_entrega_cliente
+
         projeto = self.repository.update(projeto_id, data_entrega_cliente=request.data_entrega_cliente)
         if not projeto:
             return None
+
+        # Só quando MUDA uma data que já existia. Preencher pela primeira vez é
+        # planejamento, não remarcação — quem está no projeto acabou de fazer
+        # isso e não precisa ser avisado do próprio clique.
+        if data_antiga is not None and data_antiga != projeto.data_entrega_cliente:
+            notificar_entrega_alterada(
+                self.db, projeto, data_antiga, projeto.data_entrega_cliente
+            )
+
         return {"id": projeto.id, "data_entrega_cliente": projeto.data_entrega_cliente}
