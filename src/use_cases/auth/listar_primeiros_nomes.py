@@ -12,12 +12,12 @@ from sqlalchemy.orm import Session
 
 from src.repositories.usuario_repository import UsuarioRepository
 
-# Já têm ponto fixo no globo (`MembersGlobe.tsx` — 4 na linha do equador +
-# José S. no polo norte; Heloísa não tem mais ponto fixo, ela aparece pela
-# conta real dela mesma, como todo mundo). Se a conta real deles existir no
-# banco (é o caso depois que a plataforma foi ao ar), não pode aparecer de
-# novo como ponto dinâmico.
+# Já têm ponto fixo no globo (`MembersGlobe.tsx` — 5 na linha do equador +
+# José S. no polo norte). Se a conta real deles existir no banco (é o caso
+# depois que a plataforma foi ao ar), não pode aparecer de novo como ponto
+# dinâmico.
 NOMES_FIXOS_DO_GLOBO = {
+    "heloisa nogueira",
     "henrique montoro",
     "joao baptista",
     "enzo perego",
