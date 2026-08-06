@@ -23,6 +23,11 @@ from sqlalchemy.orm import Session
 from src.middlewares.authorization import aplicar_recorte_visao
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.situacao_carga_repository import (
+    SituacaoCargaRepository,
+    faixa_mais_alta,
+    resolver as resolver_situacao,
+)
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
@@ -62,6 +67,7 @@ class _BaseMonitoramento:
         self.semestre_repository = SemestreRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.coluna_repository = TarefaColunaRepository(db)
+        self.situacao_repository = SituacaoCargaRepository(db)
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -629,18 +635,40 @@ class AlocacaoUseCase(_BaseMonitoramento):
             if m.projeto_id in ativos:
                 carga[m.usuario_id][m.papel].append(nomes_projeto.get(m.projeto_id, ""))
 
+        # A situação de cada pessoa sai de uma ESCALA por papel, definida pela
+        # diretoria em Configurações — não de um limiar no código.
+        #
+        # Um número único não dizia o que ela precisa dizer: "2 projetos é o
+        # ideal para um consultor, 3 já é demais" são três estados, não um
+        # corte. E o ponto de saturação muda por frente e por gestão.
+        escalas = {
+            papel: self.situacao_repository.garantir_padrao(papel)
+            for papel in ("coordenador", "consultor")
+        }
+        # Quem está com demanda alta é quem cai na faixa mais alta do seu papel.
+        # A pergunta é respondida pela POSIÇÃO na escala, não pelo nome nem pela
+        # cor: nome e cor são livres, então decidir por eles deixaria o destaque
+        # à mercê de alguém escrever "Carga alta" com essa grafia ou lembrar de
+        # pintar de vermelho. Como cada papel tem sempre três faixas, esta
+        # existe por construção e o card nunca fica vazio por configuração.
+        topo = {papel: faixa_mais_alta(escala) for papel, escala in escalas.items()}
+
         def linha(usuario, papel):
             projetos_da_pessoa = carga.get(usuario.id, {}).get(papel, [])
+            total = len(projetos_da_pessoa)
+            situacao = resolver_situacao(escalas[papel], total)
             return {
                 "usuario_id": usuario.id,
                 "nome": usuario.nome,
                 "posicao": usuario.posicao,
-                "total": len(projetos_da_pessoa),
+                "total": total,
                 "projetos": projetos_da_pessoa,
-                # 3+ projetos ativos é o limiar de "carga alta" — acima disso
-                # a pessoa vira gargalo.
-                "carga_alta": len(projetos_da_pessoa) >= 3,
-                "disponivel": len(projetos_da_pessoa) == 0,
+                # A situação vem resolvida do backend: a regra é dele, e a tela
+                # reimplementá-la seria convite para divergirem.
+                "situacao": {"nome": situacao.nome, "tom": situacao.tom}
+                if situacao
+                else None,
+                "demanda_alta": situacao is not None and situacao is topo[papel],
             }
 
         # ⚠ Quem aparece na tabela tem que ser quem a pessoa logada ENXERGA.
@@ -676,8 +704,8 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # Coordenadores ordenavam ao contrário, do mais carregado, para
         # responder "quem é o gargalo?" — o §7.3 destaca que coordenador
         # costuma ser gargalo. A diretoria pediu a inversão em 2026-08-05, e
-        # essa leitura NÃO se perdeu: ela passou para o card de quem está no
-        # limite de carga, acima das tabelas, que é onde o sobrecarregado
+        # essa leitura NÃO se perdeu: ela passou para o card de quem está em
+        # situação de alerta, acima das tabelas, que é onde o sobrecarregado
         # aparece agora. Sem esse card, inverter aqui esconderia o gargalo.
         #
         # O nome é o desempate, senão pessoas com a mesma carga trocam de
@@ -688,6 +716,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
         return {
             "coordenadores": coordenadores,
             "consultores": consultores,
+            # Quem caiu na faixa mais alta do seu papel, separado por papel.
+            #
+            # Este bloco é o que devolve a leitura de "quem é o gargalo" (§7.3),
+            # perdida quando as duas tabelas passaram a ordenar do menos
+            # carregado para o mais.
+            "demanda_alta": {
+                "coordenadores": [c for c in coordenadores if c["demanda_alta"]],
+                "consultores": [c for c in consultores if c["demanda_alta"]],
+            },
             # A checagem de grade horária (§7.3) depende da F13, que não
             # entrou nesta fatia — a carga por projeto já é o essencial.
             "grade_horaria_disponivel": False,

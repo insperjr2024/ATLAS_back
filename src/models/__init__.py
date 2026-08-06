@@ -44,3 +44,6 @@ from src.models.desempenho_mentoria_model import DesempenhoMentoriaModel
 
 # Recuperação de senha — o token de uso único do "esqueci minha senha".
 from src.models.token_recuperacao_model import TokenRecuperacaoModel
+
+# Os estados de carga da aba de Alocação, configuráveis pela diretoria.
+from src.models.situacao_carga_model import SituacaoCargaModel
