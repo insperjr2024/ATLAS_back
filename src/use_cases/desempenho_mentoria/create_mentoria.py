@@ -11,10 +11,16 @@ class CreateMentoriaRequest(BaseModel):
     mentorado_id: int
 
 
+#: Quem pode ser mentor — liderança acima do consultor. Coordenador é o
+#: caso comum, mas gerente e diretor também assumem mentorado quando a
+#: diretoria decide (2026-08-06).
+POSICOES_ELEGIVEIS_MENTOR = ("coordenador", "gerente", "diretor")
+
+
 class CreateMentoriaUseCase:
-    """Elegibilidade de mentor: `usuario.posicao == 'coordenador'` (regra
-    2.5) — sem tabela de cargo separada. O vínculo em si é sempre escolha
-    manual do admin."""
+    """Elegibilidade de mentor: posição em `POSICOES_ELEGIVEIS_MENTOR` — sem
+    tabela de cargo separada. O vínculo em si é sempre escolha manual do
+    admin."""
 
     def __init__(self, db: Session):
         self.repository = DesempenhoMentoriaRepository(db)
@@ -25,8 +31,8 @@ class CreateMentoriaUseCase:
             raise RegraDeNegocioError("Mentor e mentorado não podem ser a mesma pessoa")
 
         mentor = self.usuario_repo.get_by_id(request.mentor_id)
-        if not mentor or mentor.posicao != "coordenador":
-            raise RegraDeNegocioError("O mentor precisa ser um coordenador")
+        if not mentor or mentor.posicao not in POSICOES_ELEGIVEIS_MENTOR:
+            raise RegraDeNegocioError("O mentor precisa ser coordenador, gerente ou diretor")
 
         if self.repository.get_mentor_de(request.mentorado_id):
             raise RegraDeNegocioError("Este mentorado já tem um mentor — remova o vínculo atual primeiro")
