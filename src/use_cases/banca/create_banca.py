@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -17,6 +17,8 @@ class CreateBancaRequest(BaseModel):
     data_hora: datetime
     consultor_ids: List[int] = []
     frente_ids: List[int] = []
+    #: Só a diretoria define — ver `require_diretor` no use case.
+    piso_minimo_override: Optional[int] = None
 
 
 class CreateBancaUseCase:
@@ -27,7 +29,7 @@ class CreateBancaUseCase:
         self.usuario_repository = UsuarioRepository(db)
         self.frente_repository = FrenteRepository(db)
 
-    def execute(self, request: CreateBancaRequest, coordenador_id: int):
+    def execute(self, request: CreateBancaRequest, coordenador_id: int, eh_diretor: bool = False):
         for consultor_id in request.consultor_ids:
             if not self.usuario_repository.get_by_id(consultor_id):
                 raise RegraDeNegocioError(f"Usuário {consultor_id} não encontrado")
@@ -36,11 +38,15 @@ class CreateBancaUseCase:
             if not self.frente_repository.get_by_id(frente_id):
                 raise RegraDeNegocioError(f"Frente {frente_id} não encontrada")
 
+        if request.piso_minimo_override is not None and not eh_diretor:
+            raise RegraDeNegocioError("Só a diretoria pode definir o piso mínimo de uma banca")
+
         banca = self.repository.create(
             nome_projeto=request.nome_projeto,
             escopo_id=request.escopo_id,
             coordenador_id=coordenador_id,
-            data_hora=request.data_hora
+            data_hora=request.data_hora,
+            piso_minimo_override=request.piso_minimo_override,
         )
 
         for consultor_id in request.consultor_ids:
@@ -61,6 +67,7 @@ class CreateBancaUseCase:
             "realizado_em": banca.realizado_em,
             "resultado": banca.resultado,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "piso_minimo_override": banca.piso_minimo_override,
             "consultor_ids": request.consultor_ids,
             "frente_ids": request.frente_ids
         }
