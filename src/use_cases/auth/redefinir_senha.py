@@ -15,11 +15,7 @@ from sqlalchemy.orm import Session
 from src.repositories.token_recuperacao_repository import TokenRecuperacaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.senha import hash_senha
-
-#: Piso de tamanho da senha. O sistema não tem política formal; 8 é o mínimo
-#: que não deixa passar "1234".
-TAMANHO_MINIMO_SENHA = 8
+from src.utils.senha import TAMANHO_MINIMO_SENHA, hash_senha
 
 
 class RedefinirSenhaRequest(BaseModel):
@@ -58,7 +54,15 @@ class RedefinirSenhaUseCase:
                 "Este link é inválido ou já expirou. Peça uma nova redefinição."
             )
 
-        self.usuario_repository.update(usuario.id, senha_hash=hash_senha(request.nova_senha))
+        # `senha_provisoria=False` junto: quem foi cadastrado e, em vez de
+        # entrar com a provisória, caiu no "esqueci minha senha" está definindo
+        # a senha dele AGORA. Sem esta linha ele sairia daqui com senha própria
+        # e ainda assim preso na tela de definição.
+        self.usuario_repository.update(
+            usuario.id,
+            senha_hash=hash_senha(request.nova_senha),
+            senha_provisoria=False,
+        )
         # Fecha o token DEPOIS de trocar a senha: se a troca falhar, o link
         # continua valendo e a pessoa pode tentar de novo.
         self.token_repository.marcar_usado(token, agora)

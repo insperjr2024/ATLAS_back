@@ -713,6 +713,11 @@ def executar():
                     "posicao": posicao,
                     "status": status,
                     "ativo": status == "ativo",
+                    # O seed existe para dar um ambiente em que se entra e se
+                    # usa: senha conhecida e nenhuma tela de primeiro acesso no
+                    # caminho. Membro de verdade nasce com `True`, pelo
+                    # cadastro da diretoria.
+                    "senha_provisoria": False,
                 },
             )
             criados["usuario"] += novo
