@@ -35,6 +35,9 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     # 🔄 condições — calculadas na leitura; a linha só nasce ao marcar como lida
     "kickoff_pendente",
     "tarefa_vencida",
+    # Voltaram com o fluxo de reajuste (a main os removera junto com ele).
+    "reajuste_solicitado",
+    "reajuste_respondido",
     "banca_nao_marcada",
     "projeto_sem_reuniao",
     "banca_hoje",
@@ -80,9 +83,11 @@ class NotificacaoModel(Base):
     gatilhos de banca não mudaram de lugar: `utils/notificar.py` continua
     sendo a porta deles, agora escrevendo neste formato.
 
-    `email_enviado_em` nasce sempre nulo: o canal de e-mail é a fase 2. A
-    coluna existe agora para que ela seja um job preenchendo um campo, não uma
-    segunda migration.
+    `email_enviado_em` é carimbado por `enviar_email_notificacao` quando o
+    espelho do evento sai por e-mail. Continua nulo em duas situações
+    legítimas, e as duas são esperadas: linha de `origem="condicao"` (que não
+    é notificação, é marcação de leitura) e evento cujo envio falhou ou não
+    tinha SMTP configurado — a coluna responde "chegou?", não "tentamos?".
     """
 
     __tablename__ = "notificacao"

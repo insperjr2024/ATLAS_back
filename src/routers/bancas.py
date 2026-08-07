@@ -238,6 +238,7 @@ def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, cu
             escopo_id,
             request,
             eh_diretor=current_user.posicao == "diretor",
+            current_user=current_user,
             registrado_por=current_user.id,
         )
     except RegraDeNegocioError as e:

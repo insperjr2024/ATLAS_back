@@ -6,8 +6,12 @@ from datetime import datetime
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
+from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -25,6 +29,9 @@ class CreateCandidaturaUseCase:
         self.banca_repository = BancaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
 
     def execute(self, request: CreateCandidaturaRequest, usuario_id: int):
         banca = self.banca_repository.get_by_id(request.banca_id)
@@ -40,13 +47,20 @@ class CreateCandidaturaUseCase:
                 raise RegraDeNegocioError("Não é possível se candidatar: esta banca já foi realizada")
             raise RegraDeNegocioError("Não é possível se candidatar: esta banca ainda não tem data marcada")
 
-        # Ninguém avalia o próprio grupo: nem quem coordena o projeto, nem
-        # quem está na equipe alocada a esta banca.
-        eh_do_grupo = banca.coordenador_id == usuario_id or any(
-            e.usuario_id == usuario_id
-            for e in self.equipe_projeto_repository.get_by_banca(request.banca_id)
-        )
-        if eh_do_grupo:
+        # Ninguém avalia o próprio grupo: nem quem coordena, nem quem está na
+        # equipe do projeto desta banca.
+        #
+        # ⚠ Antes isto lia só `equipe_projeto`, a tabela legada preenchida à
+        # mão na tela de bancas. Banca marcada pelo CRONOGRAMA não escreve
+        # nela, e os consultores do projeto conseguiam se inscrever na própria
+        # banca. `membros_da_banca` junta as duas fontes.
+        if usuario_id in membros_da_banca(
+            banca,
+            self.banca_escopo_repository,
+            self.escopo_repository,
+            self.membro_repository,
+            self.equipe_projeto_repository,
+        ):
             raise RegraDeNegocioError("Você não pode se candidatar à banca do seu próprio grupo")
 
         candidaturas_existentes = self.repository.get_by_banca(request.banca_id)

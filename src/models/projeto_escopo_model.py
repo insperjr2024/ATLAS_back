@@ -14,6 +14,14 @@ class ProjetoEscopoModel(Base):
 
     Sem UNIQUE em (projeto_id, escopo_id): o mesmo escopo de catálogo pode
     legitimamente aparecer duas vezes num projeto grande.
+
+    ⭐ **A janela do escopo.** Três números que nunca se misturam:
+
+        vendidos (imutável) · ajustados (autorizados) · atraso (derivado)
+
+    A janela vai da reunião inicial até *vendidos + ajustados* dias úteis
+    depois dela, e é dentro dela que etapas e banca devem caber. O atraso não
+    tem coluna: é consequência, nunca permissão — ver `utils/janela_escopo.py`.
     """
 
     __tablename__ = "projeto_escopo"
@@ -23,7 +31,14 @@ class ProjetoEscopoModel(Base):
     escopo_id = Column(Integer, ForeignKey("escopo.id"), nullable=True, index=True)
     nome_customizado = Column(String(150), nullable=True)
     frente_id = Column(Integer, ForeignKey("frente.id"), nullable=False, index=True)
+    #: ⭐ **Imutável — é o registro comercial.** O que foi vendido ao cliente
+    #: nunca é sobrescrito: precisar de mais tempo soma em `dias_uteis_ajustados`,
+    #: e o que passar dos dois vira atraso (derivado). Sobrescrever este número
+    #: apagaria a diferença entre "vendemos 30" e "vendemos 20 e estouramos".
     dias_uteis_vendidos = Column(Integer, nullable=False)
+    #: Dias extras autorizados pela diretoria, nos 3 primeiros dias úteis da
+    #: janela. Só cresce, e é a soma de todos os pedidos aprovados.
+    dias_uteis_ajustados = Column(Integer, nullable=False, default=0, server_default="0")
     # Ordem de exibição na tela do projeto — não é o `id` (que é ordem de
     # criação, e reordenar não deveria recriar linha). Default 0 pra quem já
     # existia antes deste campo: com todo mundo empatado, o desempate por
@@ -35,10 +50,15 @@ class ProjetoEscopoModel(Base):
         default="nao_iniciado",
         server_default="nao_iniciado",
     )
-    # ⭐ a contagem do §5.4 só corre com isto preenchido.
+    #: ⭐ A data da reunião inicial. É o que **abre a janela do escopo** e faz a
+    #: contagem correr; sem ela o escopo não tem janela, não consome dias e não
+    #: pode ter banca marcada. Derivada das reuniões, nunca digitada — ver
+    #: `sincronizar_inicio_do_escopo`.
     data_inicio = Column(Date, nullable=True)
-    # Carimbo informativo do §5.3 — não trava mais edição do cronograma
-    # (2026-08-06: o fluxo de reajuste que fazia isso foi removido).
+    # Carimbo informativo do §5.3 — não trava edição do cronograma. A janela
+    # do escopo (`utils/janela_escopo.py`) não o consulta, mas o `oficializar`
+    # de `update_cronograma.py` continua gravando aqui: a coluna sobrevive à
+    # reformulação porque os dois conceitos convivem sem se atrapalhar.
     cronograma_oficializado_em = Column(DateTime, nullable=True)
     data_entrega_planejada = Column(Date, nullable=True)
     # Preenchê-la congela a contagem — trava do §5.5 mora no use case de entrega.

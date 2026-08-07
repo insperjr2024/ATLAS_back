@@ -51,8 +51,22 @@ class ReuniaoSemanalRepository(BaseRepository[ReuniaoSemanalModel]):
             .all()
         )
 
-    def get_por_data(self, projeto_id: int, data_reuniao: date):
-        return self.first_by(projeto_id=projeto_id, data_reuniao=data_reuniao)
+    def get_por_data(self, projeto_id: int, data_reuniao: date, projeto_escopo_id=None):
+        """A reunião deste projeto, neste dia, **deste escopo**.
+
+        O escopo entra na busca porque reunião inicial e reunião geral passaram
+        a ser marcadas no mesmo calendário do cronograma: no mesmo dia cabem a
+        geral do projeto e a inicial de um escopo, e antes uma barrava a outra.
+
+        `projeto_escopo_id=None` procura a reunião GERAL daquele dia — que é o
+        que impede duas gerais no mesmo dia, algo que o UNIQUE do MySQL não
+        cobre (ele ignora NULL).
+        """
+        return self.first_by(
+            projeto_id=projeto_id,
+            data_reuniao=data_reuniao,
+            projeto_escopo_id=projeto_escopo_id,
+        )
 
     def get_by_escopo(self, projeto_escopo_id: int) -> List[ReuniaoSemanalModel]:
         """As reuniões deste escopo, da mais antiga para a mais nova.

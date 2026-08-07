@@ -13,6 +13,7 @@ from src.models.equipe_projeto_model import EquipeProjetoModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.banca_frente_model import BancaFrenteModel
 from src.models.banca_escopo_model import BancaEscopoModel
+from src.models.banca_remarcacao_model import BancaRemarcacaoModel
 from src.models.configuracao_model import ConfiguracaoModel
 
 # Prioridade 1 — todo model novo precisa entrar aqui, senão o `alembic
@@ -28,6 +29,8 @@ from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_justificativa_atraso_model import ProjetoJustificativaAtrasoModel
 from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
+from src.models.cronograma_reajuste_solicitacao_model import CronogramaReajusteSolicitacaoModel
+from src.models.entrega_alteracao_model import EntregaAlteracaoModel
 from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.tarefa_comentario_model import TarefaComentarioModel
 from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
