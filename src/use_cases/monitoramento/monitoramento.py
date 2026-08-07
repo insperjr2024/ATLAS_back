@@ -456,10 +456,15 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         )
         por_projeto = _agrupar(condicoes, "projeto_id")
 
-        def item(projeto, motivo, dias=None):
+        def item(projeto, tipo, motivo, dias=None):
             return {
                 "projeto_id": projeto.id,
                 "projeto_nome": projeto.nome,
+                # ⭐ O TIPO vai junto do texto para a tela poder filtrar. O
+                # `motivo` é frase escrita para humano ("3 tarefa(s)
+                # vencida(s)") e muda de redação; agrupar por ela seria
+                # agrupar por string livre, que quebra na primeira reescrita.
+                "tipo": tipo,
                 "motivo": motivo,
                 "dias": dias,
             }
@@ -471,19 +476,22 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             tipos = {c.tipo for c in do_projeto}
 
             if KICKOFF_PENDENTE in tipos:
-                itens.append(item(p, "kickoff não marcado"))
+                itens.append(item(p, "kickoff", "kickoff não marcado"))
 
+            # `motivo.tipo` já é "banca" | "entrega_interna" | "entrega_externa"
+            # — reaproveitado em vez de reclassificar pela descrição.
             for motivo in atrasos[p.id].motivos:
-                itens.append(item(p, motivo.descricao, motivo.dias))
+                itens.append(item(p, motivo.tipo, motivo.descricao, motivo.dias))
 
             if PROJETO_SEM_REUNIAO in tipos:
-                itens.append(item(p, "sem reunião registrada esta semana"))
+                itens.append(item(p, "reuniao", "sem reunião registrada esta semana"))
 
             vencidas = [c for c in do_projeto if c.tipo == TAREFA_VENCIDA]
             if vencidas:
                 itens.append(
                     item(
                         p,
+                        "tarefa",
                         f"{len(vencidas)} tarefa(s) vencida(s)",
                         max(c.dias for c in vencidas),
                     )
