@@ -40,7 +40,10 @@ class ProjetoModel(Base):
     data_kickoff = Column(Date, nullable=True)
     data_entrega_cliente = Column(Date, nullable=True)
     dia_reuniao_padrao = Column(Integer, nullable=True)  # 1=seg ... 7=dom
-    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
+    # Nullable: se a pessoa que criou for excluída de vez (usuário desligado,
+    # ver DeleteUsuarioPermanenteUseCase), o projeto sobrevive — só "quem
+    # criou" vira desconhecido, o time e o trabalho continuam intactos.
+    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     # Preserva o status de antes de pausar, para o retomar voltar ao lugar certo
     # sem precisar reconsultar o histórico toda vez.
     status_antes_pausa = Column(String(30), nullable=True)
