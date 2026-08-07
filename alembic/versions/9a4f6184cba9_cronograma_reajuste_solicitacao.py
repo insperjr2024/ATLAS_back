@@ -11,6 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import mysql
 
+from src.utils.alembic_pg import redefinir_enum_postgres
+
 # revision identifiers, used by Alembic.
 revision: str = '9a4f6184cba9'
 down_revision: Union[str, Sequence[str], None] = 'd9185a5df397'
@@ -38,10 +40,16 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_cronograma_reajuste_solicitacao_id'), 'cronograma_reajuste_solicitacao', ['id'], unique=False)
     op.create_index(op.f('ix_cronograma_reajuste_solicitacao_projeto_escopo_id'), 'cronograma_reajuste_solicitacao', ['projeto_escopo_id'], unique=False)
-    op.alter_column('notificacao', 'tipo',
-               existing_type=mysql.ENUM('alocado_em_projeto', 'entrega_registrada', 'banca_remarcada', 'entrega_alterada', 'escalacao_banca', 'troca_banca', 'avaliacao_pendente', 'banca_aviso', 'lote_desempenho_aberto', 'pdi_prazo_proximo', 'pdi_prazo_vencido', 'kickoff_pendente', 'tarefa_vencida', 'banca_nao_marcada', 'projeto_sem_reuniao', 'banca_hoje'),
-               type_=sa.Enum('alocado_em_projeto', 'entrega_registrada', 'banca_remarcada', 'entrega_alterada', 'escalacao_banca', 'troca_banca', 'avaliacao_pendente', 'banca_aviso', 'lote_desempenho_aberto', 'pdi_prazo_proximo', 'pdi_prazo_vencido', 'reajuste_solicitado', 'reajuste_respondido', 'kickoff_pendente', 'tarefa_vencida', 'banca_nao_marcada', 'projeto_sem_reuniao', 'banca_hoje', name='tipo_notificacao'),
-               existing_nullable=False)
+    if op.get_bind().dialect.name == 'postgresql':
+        redefinir_enum_postgres(
+            op, 'notificacao', 'tipo', 'tipo_notificacao',
+            ['alocado_em_projeto', 'entrega_registrada', 'banca_remarcada', 'entrega_alterada', 'escalacao_banca', 'troca_banca', 'avaliacao_pendente', 'banca_aviso', 'lote_desempenho_aberto', 'pdi_prazo_proximo', 'pdi_prazo_vencido', 'reajuste_solicitado', 'reajuste_respondido', 'kickoff_pendente', 'tarefa_vencida', 'banca_nao_marcada', 'projeto_sem_reuniao', 'banca_hoje'],
+        )
+    else:
+        op.alter_column('notificacao', 'tipo',
+                   existing_type=mysql.ENUM('alocado_em_projeto', 'entrega_registrada', 'banca_remarcada', 'entrega_alterada', 'escalacao_banca', 'troca_banca', 'avaliacao_pendente', 'banca_aviso', 'lote_desempenho_aberto', 'pdi_prazo_proximo', 'pdi_prazo_vencido', 'kickoff_pendente', 'tarefa_vencida', 'banca_nao_marcada', 'projeto_sem_reuniao', 'banca_hoje'),
+                   type_=sa.Enum('alocado_em_projeto', 'entrega_registrada', 'banca_remarcada', 'entrega_alterada', 'escalacao_banca', 'troca_banca', 'avaliacao_pendente', 'banca_aviso', 'lote_desempenho_aberto', 'pdi_prazo_proximo', 'pdi_prazo_vencido', 'reajuste_solicitado', 'reajuste_respondido', 'kickoff_pendente', 'tarefa_vencida', 'banca_nao_marcada', 'projeto_sem_reuniao', 'banca_hoje', name='tipo_notificacao'),
+                   existing_nullable=False)
     # ### end Alembic commands ###
 
 

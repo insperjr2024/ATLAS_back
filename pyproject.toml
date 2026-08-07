@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.139.2",
     # Leitura posicional do calendário acadêmico em PDF (utils/calendario_pdf.py).
     "pdfplumber>=0.11.10",
+    "psycopg2-binary>=2.9.12",
     "pydantic-settings>=2.14.2",
     "pymysql>=1.2.0",
     "python-jose[cryptography]>=3.3.0",

@@ -103,9 +103,11 @@ def upgrade() -> None:
     # 3. Converte o que já está gravado. Toda linha existente é de banca — a
     #    tabela ainda não tinha outro produtor.
     op.execute("UPDATE notificacao SET tipo = 'banca_aviso', origem = 'evento'")
-    op.execute("UPDATE notificacao SET lida_em = criado_em WHERE lida = 1")
+    op.execute("UPDATE notificacao SET lida_em = criado_em WHERE lida = true")
+    # `JSON_OBJECT` é MySQL; o equivalente do Postgres é `json_build_object`.
+    funcao_json = "json_build_object" if op.get_bind().dialect.name == 'postgresql' else "JSON_OBJECT"
     op.execute(
-        "UPDATE notificacao SET payload = JSON_OBJECT('banca_id', banca_id) "
+        f"UPDATE notificacao SET payload = {funcao_json}('banca_id', banca_id) "
         "WHERE banca_id IS NOT NULL"
     )
     # A chave precisa ser única por usuário e estas linhas não têm identidade

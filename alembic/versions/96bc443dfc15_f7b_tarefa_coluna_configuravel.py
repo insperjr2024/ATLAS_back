@@ -54,7 +54,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('chave'),
     )
-    op.create_index(op.f('ix_tarefa_coluna_id'), 'tarefa_coluna', ['id'], unique=False)
+    # Nome próprio (não `op.f('ix_tarefa_coluna_id')`): esse nome também sai
+    # do padrão pra um índice de `tarefa.coluna_id` numa migration futura
+    # (`1dcac039656c`) — coincidência de convenção (`tarefa_coluna`+`id` ==
+    # `tarefa`+`coluna_id`). No MySQL nomes de índice só precisam ser únicos
+    # por tabela, e passava batido; no Postgres são únicos no schema inteiro.
+    op.create_index('ix_tarefa_coluna_pk_id', 'tarefa_coluna', ['id'], unique=False)
 
     # 2 · As 5 colunas que eram o ENUM.
     op.bulk_insert(
@@ -69,9 +74,17 @@ def upgrade() -> None:
     op.add_column('tarefa', sa.Column('coluna_id', sa.Integer(), nullable=True))
 
     # 4 · ⭐ A conversão. Sem ela, toda tarefa existente perderia a coluna.
+    # Subquery em vez de `UPDATE ... JOIN` (exclusivo do MySQL) — roda igual
+    # em MySQL e Postgres; o WHERE reproduz o inner join (só toca linha com
+    # match em tarefa_coluna).
+    # `status` é ENUM e `chave` é VARCHAR — o MySQL compara sem reclamar, o
+    # Postgres exige converter um dos lados (e o `::text` é sintaxe só dele,
+    # não dá pra escrever uma versão só que rode nos dois).
+    _cast_status = "status::text" if op.get_bind().dialect.name == 'postgresql' else "status"
     op.execute(
-        "UPDATE tarefa t JOIN tarefa_coluna c ON c.chave = t.status "
-        "SET t.coluna_id = c.id"
+        f"UPDATE tarefa SET coluna_id = "
+        f"(SELECT c.id FROM tarefa_coluna c WHERE c.chave = tarefa.{_cast_status}) "
+        f"WHERE {_cast_status} IN (SELECT chave FROM tarefa_coluna)"
     )
     # Rede de segurança: qualquer linha com status fora do ENUM (não deveria
     # existir) cai em "A fazer" em vez de bloquear a migration inteira.
@@ -108,5 +121,5 @@ def downgrade() -> None:
     op.drop_constraint('fk_tarefa_coluna', 'tarefa', type_='foreignkey')
     op.drop_index('ix_tarefa_coluna_id_fk', table_name='tarefa')
     op.drop_column('tarefa', 'coluna_id')
-    op.drop_index(op.f('ix_tarefa_coluna_id'), table_name='tarefa_coluna')
+    op.drop_index('ix_tarefa_coluna_pk_id', table_name='tarefa_coluna')
     op.drop_table('tarefa_coluna')

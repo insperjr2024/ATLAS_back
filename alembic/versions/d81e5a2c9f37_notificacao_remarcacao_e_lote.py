@@ -21,6 +21,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
+from src.utils.alembic_pg import redefinir_enum_postgres
+
 
 # revision identifiers, used by Alembic.
 revision: str = 'd81e5a2c9f37'
@@ -47,12 +49,15 @@ DEPOIS = ANTES + ('banca_remarcada', 'entrega_alterada', 'lote_desempenho_aberto
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.alter_column(
-        'notificacao', 'tipo',
-        existing_type=sa.Enum(*ANTES, name='tipo_notificacao'),
-        type_=sa.Enum(*DEPOIS, name='tipo_notificacao'),
-        existing_nullable=False,
-    )
+    if op.get_bind().dialect.name == 'postgresql':
+        redefinir_enum_postgres(op, 'notificacao', 'tipo', 'tipo_notificacao', list(DEPOIS))
+    else:
+        op.alter_column(
+            'notificacao', 'tipo',
+            existing_type=sa.Enum(*ANTES, name='tipo_notificacao'),
+            type_=sa.Enum(*DEPOIS, name='tipo_notificacao'),
+            existing_nullable=False,
+        )
 
 
 def downgrade() -> None:

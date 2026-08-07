@@ -42,7 +42,13 @@ def upgrade() -> None:
     op.create_foreign_key('fk_escopo_frente', 'escopo', 'frente', ['frente_id'], ['id'])
     op.add_column('frente', sa.Column('ativa', sa.Boolean(), server_default='1', nullable=False))
     op.add_column('frente', sa.Column('piso_banca', sa.Integer(), server_default='1', nullable=False))
-    op.add_column('semestre', sa.Column('status', sa.Enum('ativa', 'arquivada', name='status_semestre'), server_default='ativa', nullable=False))
+    # No MySQL o ENUM nasce junto com a coluna. No Postgres é um TYPE à parte
+    # — `add_column` numa tabela já existente não cria o type sozinho (só
+    # `create_table` faz isso), então precisa criar antes, explícito.
+    # `checkfirst=True` faz o `.create()` ser um no-op no MySQL.
+    status_semestre = sa.Enum('ativa', 'arquivada', name='status_semestre')
+    status_semestre.create(op.get_bind(), checkfirst=True)
+    op.add_column('semestre', sa.Column('status', status_semestre, server_default='ativa', nullable=False))
     # ### end Alembic commands ###
 
 
