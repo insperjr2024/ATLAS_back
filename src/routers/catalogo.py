@@ -291,15 +291,20 @@ def get_eventos_calendario(
     inicio: date,
     fim: date,
     tipos: Optional[str] = None,
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """O calendário geral do §6.5 — bancas + kickoffs + reuniões + entregas.
 
-    🔓 **Sem recorte de visão, de propósito**: o §6.5 diz "acessível a todos".
-    É a única consulta de projeto do sistema assim — não "consertar".
+    Recorta por posição, como o resto da plataforma (§3): diretor vê tudo,
+    gerente vê a(s) própria(s) frente(s), coordenador/consultor veem só os
+    projetos em que estão alocados. O §6.5 original dizia "acessível a
+    todos, sem recorte" — a diretoria decidiu depois que isso só é útil pra
+    quem já enxerga o portfólio inteiro; pra quem está em poucos projetos,
+    ver todos os outros é ruído, não visão geral.
     """
     lista = [t.strip() for t in tipos.split(",")] if tipos else None
-    return GetEventosCalendarioUseCase(db).execute(inicio, fim, lista)
+    return GetEventosCalendarioUseCase(db).execute(current_user, inicio, fim, lista)
 
 
 @router.get("/calendario/dias-nao-uteis")
