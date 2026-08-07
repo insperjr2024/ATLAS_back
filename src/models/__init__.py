@@ -25,6 +25,8 @@ from src.models.projeto_frente_model import ProjetoFrenteModel
 from src.models.projeto_membro_model import ProjetoMembroModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
+from src.models.projeto_justificativa_atraso_model import ProjetoJustificativaAtrasoModel
+from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
 from src.models.tarefa_coluna_model import TarefaColunaModel
 from src.models.tarefa_comentario_model import TarefaComentarioModel

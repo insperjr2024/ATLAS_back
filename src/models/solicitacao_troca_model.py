@@ -20,6 +20,10 @@ class SolicitacaoTrocaModel(Base):
     candidatura_id = Column(
         Integer, ForeignKey("candidatura.id", ondelete="SET NULL"), nullable=True
     )
+    #: Nulo = pedido aberto, qualquer elegível confirma. Preenchido = convite
+    #: pra uma pessoa específica — só ela pode confirmar (ver
+    #: `ConfirmarSolicitacaoTrocaUseCase`).
+    usuario_convidado_id = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     status = Column(
         Enum("pendente", "confirmada", "cancelada", name="status_solicitacao_troca"),
         default="pendente",

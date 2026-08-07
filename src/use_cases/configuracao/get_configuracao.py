@@ -13,5 +13,6 @@ class GetConfiguracaoUseCase:
         return {
             "id": configuracao.id,
             "vagas_por_banca": configuracao.vagas_por_banca,
-            "cargo_padrao_id": configuracao.cargo_padrao_id
+            "cargo_padrao_id": configuracao.cargo_padrao_id,
+            "lideranca_minima_por_frente": configuracao.lideranca_minima_por_frente,
         }

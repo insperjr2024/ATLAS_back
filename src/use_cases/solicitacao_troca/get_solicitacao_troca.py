@@ -8,6 +8,7 @@ def serializar_solicitacao_troca(s):
         "banca_id": s.banca_id,
         "usuario_original_id": s.usuario_original_id,
         "candidatura_id": s.candidatura_id,
+        "usuario_convidado_id": s.usuario_convidado_id,
         "status": s.status,
         "criado_em": s.criado_em,
         "confirmada_por": s.confirmada_por,

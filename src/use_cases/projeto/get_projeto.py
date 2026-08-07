@@ -10,6 +10,10 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.projeto_justificativa_atraso_repository import (
+    ProjetoJustificativaAtrasoRepository,
+)
+from src.repositories.projeto_remarcacao_banca_repository import ProjetoRemarcacaoBancaRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.utils.ambientacao import fim_da_ambientacao
 
@@ -161,8 +165,14 @@ class ListProjetosUseCase:
 
 
 class GetHistoricoProjetoUseCase:
+    """A linha do tempo do projeto — status (F4), justificativa de atraso
+    (§7.4) e remarcação de banca (§5.6) juntos, ordenados por data. Reajustes
+    de cronograma entram aqui na F11, na mesma lista."""
+
     def __init__(self, db: Session):
         self.repository = ProjetoStatusHistoricoRepository(db)
+        self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
+        self.remarcacao_repository = ProjetoRemarcacaoBancaRepository(db)
         self.projeto_repository = ProjetoRepository(db)
 
     def execute(self, projeto_id: int, incluir_ocultos: bool = False):
@@ -174,6 +184,7 @@ class GetHistoricoProjetoUseCase:
                 linhas = [h for h in linhas if h.alterado_em > corte]
         return [
             {
+                "tipo": "status",
                 "id": h.id,
                 "status_anterior": h.status_anterior,
                 "status_novo": h.status_novo,
@@ -182,3 +193,29 @@ class GetHistoricoProjetoUseCase:
             }
             for h in linhas
         ]
+        justificativas = [
+            {
+                "tipo": "justificativa_atraso",
+                "id": j.id,
+                "projeto_escopo_id": j.projeto_escopo_id,
+                "motivo_tipo": j.tipo,
+                "texto": j.texto,
+                "registrado_por": j.registrado_por,
+                "alterado_em": j.registrado_em,
+            }
+            for j in self.justificativa_repository.get_by_projeto(projeto_id)
+        ]
+        remarcacoes = [
+            {
+                "tipo": "remarcacao_banca",
+                "id": r.id,
+                "projeto_escopo_id": r.projeto_escopo_id,
+                "data_anterior": r.data_anterior,
+                "data_nova": r.data_nova,
+                "justificativa": r.justificativa,
+                "registrado_por": r.registrado_por,
+                "alterado_em": r.registrado_em,
+            }
+            for r in self.remarcacao_repository.get_by_projeto(projeto_id)
+        ]
+        return sorted(status + justificativas + remarcacoes, key=lambda h: h["alterado_em"])
