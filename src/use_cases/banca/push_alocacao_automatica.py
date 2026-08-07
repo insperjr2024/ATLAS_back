@@ -199,9 +199,9 @@ class PushAlocacaoAutomaticaUseCase:
     def _excluidos(self, banca: BancaModel, candidaturas_atuais: list) -> Set[int]:
         """Quem o push não pode escalar nesta banca.
 
-        ⭐ É o ÚNICO portão: os dois pools (`_pool_por_frentes` e `_pool_geral`)
-        filtram por este conjunto, então somar alguém aqui o tira de todos os
-        caminhos de uma vez, inclusive o de emergência que busca fora da frente.
+        ⭐ É o ÚNICO portão: tanto o laço por frente quanto o fallback geral em
+        `_processar_banca` filtram por este conjunto, então somar alguém aqui
+        o tira de todos os caminhos de uma vez.
         """
         excluidos = {c.usuario_id for c in candidaturas_atuais}
         excluidos.add(banca.coordenador_id)
@@ -243,19 +243,6 @@ class PushAlocacaoAutomaticaUseCase:
             if faixa.dia_semana == dia_semana
             and faixa.hora_inicio <= hora < faixa.hora_fim
         }
-
-    def _pool_por_frentes(self, frentes: list, excluidos: Set[int]) -> List[UsuarioModel]:
-        ids_das_frentes: Set[int] = set()
-        for frente in frentes:
-            ids_das_frentes.update(
-                v.usuario_id for v in self.usuario_frente_repository.get_by_frente(frente.id)
-            )
-        ativos = self.usuario_repository.get_ativos()
-        return [u for u in ativos if u.id in ids_das_frentes and u.id not in excluidos]
-
-    def _pool_geral(self, excluidos: Set[int]) -> List[UsuarioModel]:
-        ativos = self.usuario_repository.get_ativos()
-        return [u for u in ativos if u.id not in excluidos]
 
     def _ordenar_por_rodizio(
         self, usuarios: List[UsuarioModel], ultima_alocacao: Dict[int, datetime]

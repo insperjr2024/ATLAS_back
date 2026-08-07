@@ -995,17 +995,7 @@ class AtrasosUseCase(_BaseMonitoramento):
                     # a resposta; a soma serve para medir volume acumulado, e
                     # continua no payload porque a tabela por coordenador usa.
                     "pior_motivo": max((m.dias for m in atraso.motivos), default=0),
-                    "motivos": [
-                        {
-                            "tipo": m.tipo,
-                            "descricao": m.descricao,
-                            "dias": m.dias,
-                            "escopo": m.escopo_nome,
-                            "projeto_escopo_id": m.projeto_escopo_id,
-                            "data_referencia": m.data_referencia,
-                        }
-                        for m in atraso.motivos
-                    ],
+                    "motivos": [self._motivo_dict(m, justificativas) for m in atraso.motivos],
                 }
             )
         # ⚠ Ordena pelo PIOR MOTIVO, que é o número em destaque na tela. Ordenar
