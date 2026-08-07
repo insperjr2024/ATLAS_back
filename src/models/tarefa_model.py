@@ -28,7 +28,11 @@ class TarefaModel(Base):
     prazo = Column(Date, nullable=False)
     #: Substituiu o ENUM `status`: a coluna do kanban é dado, não código.
     coluna_id = Column(Integer, ForeignKey("tarefa_coluna.id"), nullable=False, index=True)
-    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
+    # Nullable pelo mesmo motivo de `projeto.criado_por`: apagar de vez quem
+    # criou a tarefa (usuário desligado) não pode levar a tarefa junto — só
+    # quem é RESPONSÁVEL (`responsavel_id`, continua NOT NULL) é dono dela de
+    # verdade o bastante pra a tarefa sumir com a pessoa.
+    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
     #: Só é tocado quando o STATUS muda, não em qualquer PATCH — é o que
     #: alimenta a "última movimentação" do §7.2.
@@ -76,5 +80,8 @@ class ReuniaoSemanalModel(Base):
     #: O que foi conversado — texto livre, sem estrutura de propósito: é a ata
     #: informal da reunião geral, e forçar campos aqui faria ninguém preencher.
     observacoes = Column(String(500), nullable=True)
-    registrado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
+    # Nullable pelo mesmo motivo: quem registrou pode ser excluído de vez sem
+    # apagar o registro de que a reunião aconteceu — a data em si é o que o
+    # §5.4 usa (`data_inicio` do escopo), não quem digitou.
+    registrado_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())

@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from src.middlewares.authorization import aplicar_recorte_visao
+from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.situacao_carga_repository import (
@@ -129,12 +130,25 @@ class _BaseMonitoramento:
             desde = ate
         return [d.data for d in self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)]
 
-    def _projetos_visiveis(self, current_user, frente_id: Optional[int]) -> List[ProjetoModel]:
+    def _projetos_visiveis(
+        self, current_user, frente_id: Optional[int], escopo_id: Optional[int] = None
+    ) -> List[ProjetoModel]:
         # Projeto arquivado é histórico (§12) — não deve inflar nenhum KPI,
         # tabela ou cronograma do monitoramento da gestão atual.
         query = aplicar_recorte_visao(
             self.db.query(ProjetoModel), current_user, self.db, frente_id
         ).filter(ProjetoModel.arquivado_em.is_(None))
+        # `escopo_id` é do CATÁLOGO (mesmo id do `?frente_id=` do filtro
+        # irmão) — projeto com esse escopo vendido, custom ("Outro") fica de
+        # fora, porque não tem `escopo_id` nenhum pra bater.
+        if escopo_id is not None:
+            query = query.filter(
+                ProjetoModel.id.in_(
+                    self.db.query(ProjetoEscopoModel.projeto_id).filter(
+                        ProjetoEscopoModel.escopo_id == escopo_id
+                    )
+                )
+            )
         return query.all()
 
     def _encerra_por_coluna(self) -> Dict[int, bool]:
@@ -232,9 +246,15 @@ def _agrupar(itens, campo: str) -> Dict[int, list]:
 
 
 class VisaoGeralUseCase(_BaseMonitoramento):
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         semestre = self.semestre_repository.get_ativo()
@@ -652,9 +672,15 @@ class ExecucaoUseCase(_BaseMonitoramento):
       como saber onde ela estava naquela semana. A tela marca esses com "hoje".
     """
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ids = [p.id for p in projetos]
         inicio, fim = janela_semana(hoje)
 
@@ -937,13 +963,19 @@ class AlocacaoUseCase(_BaseMonitoramento):
             "teto": dict(TETO_POR_PAPEL),
         }
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
-        # ⭐ **O filtro de frente escolhe QUEM APARECE, não como a carga é
-        # medida.** São duas listas de propósito:
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
+        # ⭐ **O filtro (de frente ou de escopo) escolhe QUEM APARECE, não como
+        # a carga é medida.** São duas listas de propósito:
         #
-        #   `do_recorte` — os projetos da frente pedida. Define a população: só
-        #                  quem trabalha nela entra na tabela.
-        #   `projetos`   — tudo que a pessoa logada enxerga, sem o filtro. É
+        #   `do_recorte` — os projetos do filtro pedido. Define a população: só
+        #                  quem trabalha nele entra na tabela.
+        #   `projetos`   — tudo que a pessoa logada enxerga, sem filtro. É
         #                  sobre isto que a carga de cada um é contada.
         #
         # Medir a carga dentro do recorte inflava a capacidade: Caio tem 3
@@ -954,9 +986,10 @@ class AlocacaoUseCase(_BaseMonitoramento):
         #
         # Capacidade e sobrecarga são propriedades da PESSOA. Quem carrega 3
         # projetos está cheio venha de onde vier o terceiro.
-        do_recorte = self._projetos_visiveis(current_user, frente_id)
+        sem_filtro = frente_id is None and escopo_id is None
+        do_recorte = self._projetos_visiveis(current_user, frente_id, escopo_id)
         projetos = (
-            do_recorte if frente_id is None else self._projetos_visiveis(current_user, None)
+            do_recorte if sem_filtro else self._projetos_visiveis(current_user, None, None)
         )
         ids = [p.id for p in projetos]
         # O projeto vai inteiro (id, nome e etapa), não só o nome: o gráfico de
@@ -1020,12 +1053,13 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # quando 10 deles estão lotados em frentes que ele não vê — pior que
         # não mostrar nada. Um gerente vê quem está nos projetos dele; a
         # diretoria, que enxerga tudo, vê o núcleo inteiro.
-        ve_tudo = getattr(current_user, "posicao", None) == "diretor" and frente_id is None
+        ve_tudo = getattr(current_user, "posicao", None) == "diretor" and sem_filtro
         na_visao = set(carga.keys())
 
-        # Com filtro de frente, a POPULAÇÃO é quem trabalha nela. A carga de
-        # cada um continua vindo de todos os projetos dela (ver o topo deste
-        # método) — filtro escolhe quem aparece, não como se mede.
+        # Com filtro (de frente ou de escopo), a POPULAÇÃO é quem trabalha
+        # nele. A carga de cada um continua vindo de todos os projetos dela
+        # (ver o topo deste método) — filtro escolhe quem aparece, não como
+        # se mede.
         ids_recorte = {p.id for p in do_recorte}
         no_recorte: Dict[str, set] = defaultdict(set)
         for m in membros:
@@ -1033,7 +1067,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 no_recorte[m.papel].add(m.usuario_id)
 
         def entra(usuario, papel) -> bool:
-            if frente_id is not None:
+            if not sem_filtro:
                 return usuario.id in no_recorte[papel]
             if carga.get(usuario.id, {}).get(papel):
                 return True
@@ -1086,9 +1120,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
 class AtrasosUseCase(_BaseMonitoramento):
     """§7.4 — por projeto e por coordenador, com motivo explícito."""
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         justificativas_por_projeto = _agrupar(
@@ -1268,9 +1308,15 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
     extra, sem quebrar as outras.
     """
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ids = [p.id for p in projetos]
         nomes_projeto = {p.id: p.nome for p in projetos}
         clientes_projeto = {p.id: p.cliente for p in projetos}
@@ -1331,9 +1377,15 @@ class CronogramasGeraisUseCase(_BaseMonitoramento):
     restam de um escopo" que podem divergir.
     """
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         referencia = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
 
         itens = []
         for projeto in projetos:
