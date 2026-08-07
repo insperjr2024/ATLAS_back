@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
@@ -24,6 +25,7 @@ from src.repositories.projeto_remarcacao_banca_repository import ProjetoRemarcac
 from src.repositories.projeto_repository import ProjetoRepository
 from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.piso_banca import calcular_piso_banca
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
@@ -228,13 +230,13 @@ class RegistrarRealizacaoBancaUseCase:
         self.db = db
         self.repository = BancaRepository(db)
         from src.repositories.candidatura_repository import CandidaturaRepository
-        from src.repositories.configuracao_repository import ConfiguracaoRepository
         from src.repositories.frente_repository import FrenteRepository
 
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
+        self.composicao_checker = ComposicaoBancaChecker(db)
 
     def execute(
         self,
@@ -267,6 +269,7 @@ class RegistrarRealizacaoBancaUseCase:
             avisar = {c.usuario_id for c in candidaturas}
 
         self._notificar_prazo_avaliacao(banca, avisar)
+        self._notificar_descricao_coordenador(banca)
 
         return {
             "id": banca.id,
@@ -275,13 +278,20 @@ class RegistrarRealizacaoBancaUseCase:
         }
 
     def _exigir_composicao(self, banca, request, eh_diretor: bool) -> None:
-        """A banca não fecha com menos gente que o combinado (§8).
+        """A banca não fecha com menos gente que o combinado, nem faltando a
+        distribuição certa entre frentes e a liderança de cada uma (§8).
 
-        📐 O mínimo é a SOMA do `piso_banca` das frentes vinculadas (§8:
-        Business 3 · Tech 2 · Eng. de Processos 2 · Direito 1), ou o
-        `piso_minimo_override` quando a diretoria já afrouxou esta banca
-        específica. Vem de `calcular_piso_banca`, o mesmo caminho do push
-        automático.
+        📐 O piso TOTAL é a SOMA do `piso_banca` das frentes vinculadas (§8:
+        Business 3 · Tech 2 · Eng. de Processos 2 · Direito 1) — vem de
+        `calcular_piso_banca`, o mesmo caminho do push automático. Mas total
+        não basta: uma banca Business+Tech (piso 3+2=5) não pode fechar com 5
+        de Business e ZERO de Tech, então `ComposicaoBancaChecker` confere o
+        piso POR frente e a liderança (gerente da frente, ou diretor) de cada
+        uma, excluindo a equipe do próprio projeto da contagem. Só depois de
+        cada frente cumprida é que o resto das vagas pode ser de qualquer uma.
+
+        `piso_minimo_override` (a diretoria já afrouxou esta banca específica)
+        relaxa TUDO — total, por frente e liderança — não só o total.
 
         ⚠ NÃO é `configuracao.vagas_por_banca`: aquilo é o TETO de quantos
         cabem na banca (`create_candidatura` recusa em "banca lotada"), e usar
@@ -299,14 +309,30 @@ class RegistrarRealizacaoBancaUseCase:
             f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f
         ]
         minimo = calcular_piso_banca(banca, frentes)
+        candidaturas = self.candidatura_repository.get_by_banca(banca.id)
+        alocados = len(candidaturas)
 
-        alocados = len(self.candidatura_repository.get_by_banca(banca.id))
-        if alocados >= minimo:
+        problemas = []
+        if alocados < minimo:
+            problemas.append(f"{alocados} de {minimo} pessoas alocadas")
+
+        if banca.piso_minimo_override is None and frentes:
+            configuracao = self.configuracao_repository.get()
+            lideranca_minima = configuracao.lideranca_minima_por_frente if configuracao else 1
+            candidato_ids = {c.usuario_id for c in candidaturas}
+            status = self.composicao_checker.verificar(banca, frentes, candidato_ids, lideranca_minima)
+            for deficit in status.deficits:
+                if deficit.piso_faltando:
+                    problemas.append(f"faltam {deficit.piso_faltando} de {deficit.frente_nome}")
+                if deficit.lideranca_faltando:
+                    problemas.append(f"falta liderança de {deficit.frente_nome}")
+
+        if not problemas:
             return
 
         if not request.forcar:
             raise RegraDeNegocioError(
-                f"Esta banca tem {alocados} de {minimo} pessoas alocadas. "
+                "Composição incompleta (" + "; ".join(problemas) + "). "
                 "Só a diretoria pode registrá-la assim mesmo."
             )
         if not eh_diretor:
@@ -324,6 +350,17 @@ class RegistrarRealizacaoBancaUseCase:
             notificar(
                 self.db, usuario_id, mensagem, banca_id=banca.id, tipo="avaliacao_pendente"
             )
+
+    def _notificar_descricao_coordenador(self, banca) -> None:
+        """O coordenador não avalia a própria banca — este é o aviso dele,
+        separado do prazo de avaliação acima, que é só pros candidatos."""
+        notificar(
+            self.db,
+            banca.coordenador_id,
+            f"A banca de {banca.nome_projeto} foi realizada. Registre a sua descrição do resultado.",
+            banca_id=banca.id,
+            tipo="descricao_coordenador_pendente",
+        )
 
 
 class RegistrarResultadoRequest(BaseModel):

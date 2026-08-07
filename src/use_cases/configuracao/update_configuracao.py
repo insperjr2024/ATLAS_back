@@ -7,6 +7,7 @@ from src.repositories.configuracao_repository import ConfiguracaoRepository
 class UpdateConfiguracaoRequest(BaseModel):
     vagas_por_banca: Optional[int] = None
     cargo_padrao_id: Optional[int] = None
+    lideranca_minima_por_frente: Optional[int] = None
 
 
 class UpdateConfiguracaoUseCase:
@@ -23,5 +24,6 @@ class UpdateConfiguracaoUseCase:
         return {
             "id": configuracao.id,
             "vagas_por_banca": configuracao.vagas_por_banca,
-            "cargo_padrao_id": configuracao.cargo_padrao_id
+            "cargo_padrao_id": configuracao.cargo_padrao_id,
+            "lideranca_minima_por_frente": configuracao.lideranca_minima_por_frente,
         }

@@ -74,31 +74,95 @@ class PushAlocacaoAutomaticaUseCase:
         if not frentes and banca.piso_minimo_override is None:
             return None
 
-        piso = calcular_piso_banca(banca, frentes)
-        if piso <= 0:
+        piso_total = calcular_piso_banca(banca, frentes)
+        if piso_total <= 0:
             return None
 
         candidaturas_atuais = self.candidatura_repository.get_by_banca(banca.id)
         alocados_antes = len(candidaturas_atuais)
-        deficit = piso - alocados_antes
         vaga_disponivel = teto - alocados_antes
-        a_alocar = min(deficit, vaga_disponivel)
-        if a_alocar <= 0:
+        if vaga_disponivel <= 0:
             return None
 
         excluidos = self._excluidos(banca, candidaturas_atuais)
+        ja_presentes = {c.usuario_id for c in candidaturas_atuais}
 
-        pool_prioritario = self._pool_por_frentes(frentes, excluidos)
-        fila = self._ordenar_por_rodizio(pool_prioritario, ultima_alocacao)
+        configuracao = self.configuracao_repository.get()
+        lideranca_minima = configuracao.lideranca_minima_por_frente if configuracao else 1
 
-        if len(fila) < a_alocar:
-            excluidos_com_prioritario = excluidos | {u.id for u in pool_prioritario}
-            complemento = self._ordenar_por_rodizio(
-                self._pool_geral(excluidos_com_prioritario), ultima_alocacao
-            )
-            fila = fila + complemento
+        ativos = self.usuario_repository.get_ativos()
+        usuarios_por_id = {u.id: u for u in ativos}
+        membros_por_frente = {
+            f.id: {v.usuario_id for v in self.usuario_frente_repository.get_by_frente(f.id)}
+            for f in frentes
+        }
 
-        selecionados = fila[:a_alocar]
+        selecionados: List[UsuarioModel] = []
+
+        def contabilizados() -> Set[int]:
+            return ja_presentes | {u.id for u in selecionados}
+
+        def vagas_restantes() -> int:
+            return vaga_disponivel - len(selecionados)
+
+        # §8: piso e liderança são POR FRENTE — cada frente vinculada puxa
+        # gente DELA MESMA primeiro, liderança antes do resto do piso (um
+        # gerente presente também conta como membro da frente, então puxá-lo
+        # primeiro nunca desperdiça vaga). Só o que sobrar — frente sem gente
+        # suficiente pra cobrir o próprio piso, ou vaga extra até o teto — é
+        # que pode vir de qualquer frente, no bloco depois deste laço.
+        for frente in frentes:
+            if vagas_restantes() <= 0:
+                break
+            membros_ids = membros_por_frente[frente.id]
+
+            lideres_presentes = {
+                uid
+                for uid in contabilizados()
+                if uid not in excluidos
+                and usuarios_por_id.get(uid)
+                and (
+                    (uid in membros_ids and usuarios_por_id[uid].posicao == "gerente")
+                    or usuarios_por_id[uid].posicao == "diretor"
+                )
+            }
+            falta_lideranca = max(0, lideranca_minima - len(lideres_presentes))
+            if falta_lideranca > 0:
+                # Só puxa GERENTE automaticamente — diretor conta pra
+                # liderança se já estiver lá por conta própria, mas o push
+                # não escala diretoria pra rotina de banca.
+                pool_lideres = [
+                    u
+                    for u in ativos
+                    if u.id in membros_ids
+                    and u.id not in excluidos
+                    and u.id not in contabilizados()
+                    and u.posicao == "gerente"
+                ]
+                fila_lideres = self._ordenar_por_rodizio(pool_lideres, ultima_alocacao)
+                selecionados.extend(fila_lideres[: min(falta_lideranca, vagas_restantes())])
+
+            if vagas_restantes() <= 0:
+                continue
+            falta_piso = max(0, frente.piso_banca - len(contabilizados() & membros_ids))
+            if falta_piso > 0:
+                pool_frente = [
+                    u
+                    for u in ativos
+                    if u.id in membros_ids and u.id not in excluidos and u.id not in contabilizados()
+                ]
+                fila_frente = self._ordenar_por_rodizio(pool_frente, ultima_alocacao)
+                selecionados.extend(fila_frente[: min(falta_piso, vagas_restantes())])
+
+        # O que sobrar — frente que não tinha gente suficiente pro próprio
+        # piso — qualquer frente cobre, senão a banca fica presa sem nunca
+        # bater o mínimo total.
+        deficit_restante = min(max(0, piso_total - len(contabilizados())), vagas_restantes())
+        if deficit_restante > 0:
+            pool_geral = [u for u in ativos if u.id not in excluidos and u.id not in contabilizados()]
+            fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
+            selecionados.extend(fila_geral[:deficit_restante])
+
         if not selecionados:
             return None
 
@@ -135,19 +199,6 @@ class PushAlocacaoAutomaticaUseCase:
         excluidos.add(banca.coordenador_id)
         excluidos.update(e.usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id))
         return excluidos
-
-    def _pool_por_frentes(self, frentes: list, excluidos: Set[int]) -> List[UsuarioModel]:
-        ids_das_frentes: Set[int] = set()
-        for frente in frentes:
-            ids_das_frentes.update(
-                v.usuario_id for v in self.usuario_frente_repository.get_by_frente(frente.id)
-            )
-        ativos = self.usuario_repository.get_ativos()
-        return [u for u in ativos if u.id in ids_das_frentes and u.id not in excluidos]
-
-    def _pool_geral(self, excluidos: Set[int]) -> List[UsuarioModel]:
-        ativos = self.usuario_repository.get_ativos()
-        return [u for u in ativos if u.id not in excluidos]
 
     def _ordenar_por_rodizio(
         self, usuarios: List[UsuarioModel], ultima_alocacao: Dict[int, datetime]
