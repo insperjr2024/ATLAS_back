@@ -42,6 +42,10 @@ class GetHistoricoBancasUseCase:
                 "data_hora": banca.data_hora,
                 "nota_final": calcular_nota_final(notas),
                 "semestre_id": semestre.id if semestre else None,
-                "semestre_nome": semestre.nome if semestre else None
+                "semestre_nome": semestre.nome if semestre else None,
+                # O relato do coordenador ao lado da nota dos avaliadores — os
+                # dois lados da mesma banca na mesma tela de acompanhamento.
+                "descricao_coordenador": banca.descricao_coordenador,
+                "descricao_coordenador_enviada_em": banca.descricao_coordenador_enviada_em,
             })
         return resultado

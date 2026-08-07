@@ -9,12 +9,13 @@ class SolicitacaoTrocaRepository:
         self.db = db
 
     def create(self, banca_id: int, usuario_original_id: int, candidatura_id: int,
-               criado_em: datetime) -> SolicitacaoTrocaModel:
+               criado_em: datetime, usuario_convidado_id: Optional[int] = None) -> SolicitacaoTrocaModel:
         solicitacao = SolicitacaoTrocaModel(
             banca_id=banca_id,
             usuario_original_id=usuario_original_id,
             candidatura_id=candidatura_id,
             criado_em=criado_em,
+            usuario_convidado_id=usuario_convidado_id,
         )
         self.db.add(solicitacao)
         self.db.commit()
