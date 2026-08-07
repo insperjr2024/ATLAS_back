@@ -37,6 +37,8 @@ class CreateProjetoRequest(BaseModel):
     #: necessárias. Duas ou mais o tornam sinérgico (ver `get_projeto`).
     frente_ids: List[int] = Field(min_length=1)
     dias_ambientacao: int = 5
+    #: Teto de consultores. 3 é o padrão combinado com o núcleo.
+    max_consultores: int = 3
     equipe: List[MembroEquipeRequest]
     dia_reuniao_padrao: Optional[int] = None
     #: §5.1: "no registro entram (…) escopos com os dias úteis vendidos de
@@ -89,6 +91,7 @@ class CreateProjetoUseCase:
             link_proposta=request.link_proposta,
             status="vendido",
             dias_ambientacao=request.dias_ambientacao,
+            max_consultores=request.max_consultores,
             dia_reuniao_padrao=request.dia_reuniao_padrao,
             criado_por=criado_por,
         )

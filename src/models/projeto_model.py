@@ -37,6 +37,10 @@ class ProjetoModel(Base):
         server_default="vendido",
     )
     dias_ambientacao = Column(Integer, nullable=False, default=5, server_default="5")
+    #: Teto de consultores do projeto — o que decide se ele ainda tem vaga na
+    #: tela de declaração de interesse. Não conta o coordenador: ele entra pelo
+    #: papel, não por vaga.
+    max_consultores = Column(Integer, nullable=False, default=3, server_default="3")
     data_kickoff = Column(Date, nullable=True)
     data_entrega_cliente = Column(Date, nullable=True)
     dia_reuniao_padrao = Column(Integer, nullable=True)  # 1=seg ... 7=dom

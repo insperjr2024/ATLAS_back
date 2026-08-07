@@ -15,6 +15,9 @@ from src.database.database import Base
 TIPO_NOTIFICACAO_ENUM = Enum(
     # 📌 eventos da PLATAFORMA (§6.6) — gravados no ato pelo use case
     "alocado_em_projeto",
+    #: Declaração de interesse: avisa o coordenador que alguém quer entrar, e
+    #: depois o solicitante do que foi decidido.
+    "solicitacao_projeto",
     "entrega_registrada",
     #: O plano mudou depois de combinado — §5.6 (banca) e a data prometida ao
     #: cliente. Os dois nunca são silenciosos.
