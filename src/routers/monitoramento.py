@@ -14,6 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
+from src.use_cases.monitoramento.graficos import MontarGraficoUseCase, listar_fontes
+from src.utils.exceptions import RegraDeNegocioError
 from src.middlewares.authorization import require_diretor, require_pode_ver_monitoramento
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.monitoramento.monitoramento import (
@@ -92,6 +94,37 @@ def tarefas(
     return TarefasGeraisUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
 
 
+@router.get("/graficos/fontes")
+def graficos_fontes(_=Depends(require_pode_ver_monitoramento)):
+    """As tabelas liberadas para montar gráfico, com descrição e colunas.
+
+    A lista é curada à mão em `graficos.py` — ver o aviso de segurança no topo
+    daquele arquivo antes de acrescentar tabela.
+    """
+    return listar_fontes()
+
+
+@router.get("/graficos/dados")
+def graficos_dados(
+    tabela: str,
+    dimensao: str,
+    operacao: str = "contagem",
+    metrica: Optional[str] = None,
+    granularidade: str = "mes",
+    _=Depends(require_pode_ver_monitoramento),
+    db: Session = Depends(get_db),
+):
+    """Agrega e devolve os pontos do gráfico.
+
+    ⚠ `tabela`, `dimensao` e `metrica` chegam como texto da requisição, mas
+    NUNCA entram em SQL: o use case procura cada um no catálogo e trabalha com
+    os objetos Column resolvidos. O que não estiver lá é recusado com 422.
+    """
+    try:
+        return MontarGraficoUseCase(db).execute(tabela, dimensao, operacao, metrica, granularidade)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
 @router.get("/cronogramas")
 def cronogramas(
     frente_id: Optional[int] = None,
