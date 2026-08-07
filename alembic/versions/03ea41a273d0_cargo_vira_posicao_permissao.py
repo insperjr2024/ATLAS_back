@@ -134,9 +134,22 @@ def upgrade() -> None:
 
     # As duas FKs pra `cargo` têm que sair ANTES da tabela — senão o Postgres
     # recusa o DROP TABLE com "other objects depend on it".
-    op.drop_constraint(op.f('configuracao_cargo_padrao_id_fkey'), 'configuracao', type_='foreignkey')
+    #
+    # ⚠ O nome da FK é procurado, não escrito à mão: o Postgres a batiza de
+    # `configuracao_cargo_padrao_id_fkey`, o MySQL de `configuracao_ibfk_1`.
+    # Fixar o nome do Postgres quebrava esta migration em toda máquina com
+    # MySQL, com "Can't DROP ...; check that column/key exists".
+    _insp = sa.inspect(op.get_bind())
+
+    def _soltar_fk(tabela: str, coluna: str) -> None:
+        for fk in _insp.get_foreign_keys(tabela):
+            if coluna in fk['constrained_columns'] and fk.get('name'):
+                op.drop_constraint(fk['name'], tabela, type_='foreignkey')
+                return
+
+    _soltar_fk('configuracao', 'cargo_padrao_id')
     op.drop_column('configuracao', 'cargo_padrao_id')
-    op.drop_constraint(op.f('usuario_cargo_id_fkey'), 'usuario', type_='foreignkey')
+    _soltar_fk('usuario', 'cargo_id')
     op.drop_column('usuario', 'cargo_id')
     op.drop_index(op.f('ix_cargo_id'), table_name='cargo')
     op.drop_table('cargo')
