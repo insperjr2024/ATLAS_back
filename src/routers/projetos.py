@@ -38,6 +38,7 @@ from src.use_cases.projeto_escopo.update_escopo_projeto import (
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.projeto.arquivar_projeto import ArquivarProjetoUseCase, DesarquivarProjetoUseCase
 from src.use_cases.projeto.create_projeto import CreateProjetoUseCase, CreateProjetoRequest
+from src.use_cases.projeto.delete_projeto import DeleteProjetoPermanenteUseCase
 from src.use_cases.projeto.get_projeto import (
     GetHistoricoProjetoUseCase,
     GetProjetoUseCase,
@@ -52,8 +53,6 @@ from src.use_cases.projeto.update_equipe_projeto import (
     UpdateEquipeProjetoRequest,
 )
 from src.use_cases.projeto.update_kickoff import (
-    UpdateEntregaClienteRequest,
-    UpdateEntregaClienteUseCase,
     UpdateKickoffRequest,
     UpdateKickoffUseCase,
 )
@@ -129,13 +128,9 @@ def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=
     return result
 
 
-@router.patch("/projetos/{projeto_id}/entrega-cliente")
-def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    result = UpdateEntregaClienteUseCase(db).execute(projeto_id, request)
-    if not result:
-        raise HTTPException(status_code=404, detail="Projeto não encontrado")
-    return result
+# ⭐ Não há rota de "entrega ao cliente" do projeto: ela é a entrega do ESCOPO
+# (`PATCH /escopos-projeto/{id}/entrega`), e a do projeto é derivada da última.
+# Entrega ao cliente e entrega do escopo são a mesma coisa (§5.5).
 
 
 @router.patch("/projetos/{projeto_id}/descricao")
@@ -279,6 +274,22 @@ def desarquivar_projeto(projeto_id: int, current_user=Depends(require_gestao), d
     return {"id": result.id, "arquivado_em": result.arquivado_em}
 
 
+@router.delete("/projetos/{projeto_id}")
+def deletar_projeto_permanente(
+    projeto_id: int, current_user=Depends(require_diretor), db: Session = Depends(get_db)
+):
+    """Apagar de vez — só um projeto já arquivado, e sem volta. Restrito à
+    diretoria: mais pesado que arquivar, que já é diretor+gerente."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = DeleteProjetoPermanenteUseCase(db).execute(projeto_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
 @router.post("/projetos/{projeto_id}/anexo-proposta")
 def upload_anexo_proposta(
     projeto_id: int,
@@ -377,10 +388,20 @@ def delete_escopo(escopo_id: int, current_user=Depends(require_gestao), db: Sess
 
 @router.patch("/escopos-projeto/{escopo_id}/entrega")
 def registrar_entrega_escopo(escopo_id: int, request: RegistrarEntregaEscopoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """🔒 Travada até a banca do escopo sair aprovada (§5.5)."""
+    """🔒 Travada até a banca do escopo ser realizada (§5.5).
+
+    Marcar é livre para quem está no projeto; ALTERAR uma entrega já registrada
+    é decisão da diretoria (§13) — o gate mora no use case, porque ele depende
+    de a data já existir.
+    """
     _projeto_do_escopo(escopo_id, current_user, db)
     try:
-        return RegistrarEntregaEscopoUseCase(db).execute(escopo_id, request)
+        return RegistrarEntregaEscopoUseCase(db).execute(
+            escopo_id,
+            request,
+            eh_diretor=getattr(current_user, "posicao", None) == "diretor",
+            current_user=current_user,
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

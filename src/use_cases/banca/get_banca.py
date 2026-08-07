@@ -8,7 +8,11 @@ from src.utils.banca_status import calcular_status_banca
 from src.utils.identificar_semestre import identificar_semestre
 from src.utils.piso_banca import calcular_piso_banca
 from src.repositories.banca_frente_repository import BancaFrenteRepository
+from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.frente_repository import FrenteRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.utils.equipe_banca import membros_da_banca
 
 
 class GetBancaUseCase:
@@ -20,6 +24,9 @@ class GetBancaUseCase:
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
+        self.equipe_projeto_repository = EquipeProjetoRepository(db)
 
     def execute(self, banca_id: int):
         banca = self.repository.get_by_id(banca_id)
@@ -51,6 +58,19 @@ class GetBancaUseCase:
             # é o teto de quantos cabem. Sem este campo a tela tinha de
             # reimplementar a regra, e usava o teto por engano.
             "piso_minimo": self._piso(banca),
+            # ⭐ §8: quem NÃO pode avaliar esta banca por ser do grupo dela.
+            # Sai daqui, e não do `equipe_projeto` sozinho, porque banca
+            # marcada pelo cronograma não escreve naquela tabela legada — a
+            # equipe real é a do projeto dos escopos cobertos.
+            "equipe_ids": sorted(
+                membros_da_banca(
+                    banca,
+                    self.banca_escopo_repository,
+                    self.escopo_repository,
+                    self.membro_repository,
+                    self.equipe_projeto_repository,
+                )
+            ),
             "semestre_id": semestre.id if semestre else None,
             "semestre_nome": semestre.nome if semestre else None
         }
@@ -70,6 +90,9 @@ class ListBancasUseCase:
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
+        self.equipe_projeto_repository = EquipeProjetoRepository(db)
 
     def execute(self):
         bancas = self.repository.get_all()
@@ -108,6 +131,15 @@ class ListBancasUseCase:
                         for v in self.banca_frente_repository.get_by_banca(b.id)
                         if v.frente_id in frentes_por_id
                     ],
+                ),
+                "equipe_ids": sorted(
+                    membros_da_banca(
+                        b,
+                        self.banca_escopo_repository,
+                        self.escopo_repository,
+                        self.membro_repository,
+                        self.equipe_projeto_repository,
+                    )
                 ),
                 "semestre_id": semestre.id if semestre else None,
                 "semestre_nome": semestre.nome if semestre else None

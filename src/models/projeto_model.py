@@ -11,7 +11,9 @@ class ProjetoModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
     nome = Column(String(150), nullable=False)
-    cliente = Column(String(150), nullable=False)
+    #: Único campo do cadastro (§6.3) que não é obrigatório — nem todo
+    #: projeto tem um cliente externo definido já na criação.
+    cliente = Column(String(150), nullable=True)
     descricao = Column(Text, nullable=True)
     link_proposta = Column(String(255), nullable=True)
     # A proposta é ou um link, ou um PDF anexado — nunca os dois (ver
@@ -38,7 +40,10 @@ class ProjetoModel(Base):
     data_kickoff = Column(Date, nullable=True)
     data_entrega_cliente = Column(Date, nullable=True)
     dia_reuniao_padrao = Column(Integer, nullable=True)  # 1=seg ... 7=dom
-    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
+    # Nullable: se a pessoa que criou for excluída de vez (usuário desligado,
+    # ver DeleteUsuarioPermanenteUseCase), o projeto sobrevive — só "quem
+    # criou" vira desconhecido, o time e o trabalho continuam intactos.
+    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     # Preserva o status de antes de pausar, para o retomar voltar ao lugar certo
     # sem precisar reconsultar o histórico toda vez.
     status_antes_pausa = Column(String(30), nullable=True)

@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from src.middlewares.authorization import aplicar_recorte_visao
+from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.situacao_carga_repository import (
@@ -28,6 +29,7 @@ from src.repositories.situacao_carga_repository import (
     faixa_mais_alta,
     resolver as resolver_situacao,
 )
+from src.repositories.cronograma_repository import CronogramaEtapaRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.frente_repository import FrenteRepository
@@ -51,6 +53,7 @@ from src.utils.condicoes_alerta import (
     detectar_condicoes,
 )
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
+from src.utils.janela_escopo import calcular_janela, dias_de_atraso, dias_parados
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
@@ -106,6 +109,7 @@ class _BaseMonitoramento:
         self.membro_repository = ProjetoMembroRepository(db)
         self.tarefa_repository = TarefaRepository(db)
         self.reuniao_repository = ReuniaoSemanalRepository(db)
+        self.etapa_repository = CronogramaEtapaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.semestre_repository = SemestreRepository(db)
@@ -126,12 +130,25 @@ class _BaseMonitoramento:
             desde = ate
         return [d.data for d in self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)]
 
-    def _projetos_visiveis(self, current_user, frente_id: Optional[int]) -> List[ProjetoModel]:
+    def _projetos_visiveis(
+        self, current_user, frente_id: Optional[int], escopo_id: Optional[int] = None
+    ) -> List[ProjetoModel]:
         # Projeto arquivado é histórico (§12) — não deve inflar nenhum KPI,
         # tabela ou cronograma do monitoramento da gestão atual.
         query = aplicar_recorte_visao(
             self.db.query(ProjetoModel), current_user, self.db, frente_id
         ).filter(ProjetoModel.arquivado_em.is_(None))
+        # `escopo_id` é do CATÁLOGO (mesmo id do `?frente_id=` do filtro
+        # irmão) — projeto com esse escopo vendido, custom ("Outro") fica de
+        # fora, porque não tem `escopo_id` nenhum pra bater.
+        if escopo_id is not None:
+            query = query.filter(
+                ProjetoModel.id.in_(
+                    self.db.query(ProjetoEscopoModel.projeto_id).filter(
+                        ProjetoEscopoModel.escopo_id == escopo_id
+                    )
+                )
+            )
         return query.all()
 
     def _encerra_por_coluna(self) -> Dict[int, bool]:
@@ -229,9 +246,15 @@ def _agrupar(itens, campo: str) -> Dict[int, list]:
 
 
 class VisaoGeralUseCase(_BaseMonitoramento):
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         semestre = self.semestre_repository.get_ativo()
@@ -287,7 +310,125 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             "bancas_proximas": self._bancas_proximas(projetos, ctx, hoje),
             "tempo_parado": self._tempo_parado(projetos, ctx, hoje),
             "atencao_agora": self._atencao_agora(projetos, ctx, atrasos, hoje),
+            # §15/§16: os números da janela, por projeto e por frente.
+            "janela": self._metricas_de_janela(em_curso, ctx, hoje),
         }
+
+    def _metricas_de_janela(self, projetos, ctx, hoje: date):
+        """§15/§16: dias ajustados, dias de atraso e **dias parados**.
+
+        ⚠ **`dias_parados` aqui não é o `dias_parado` de `_tempo_parado`.** São
+        perguntas diferentes e os dois aparecem na mesma tela:
+
+        - `tempo_parado.dias_parado` — dias CORRIDOS desde a última tarefa
+          mexida. Responde "faz quanto tempo ninguém toca nisso?".
+        - `janela...dias_parados` — dias ÚTEIS EM BRANCO no cronograma, do
+          kickoff até hoje. Responde "quanto deste projeto ficou sem nada
+          planejado?" (§16).
+
+        Um projeto pode ter 0 dias parados aqui e 20 lá: cronograma cheio, mas
+        ninguém mexendo nas tarefas.
+        """
+        escopos = [e for lista in ctx["escopos_por_projeto"].values() for e in lista]
+        etapas_por_escopo = _agrupar(
+            self.etapa_repository.get_by_escopos([e.id for e in escopos]), "projeto_escopo_id"
+        )
+        reunioes_por_projeto = _agrupar(
+            self.reuniao_repository.get_by_projetos_e_janela(
+                ctx["ids"], date(hoje.year - 1, 1, 1), hoje
+            ),
+            "projeto_id",
+        )
+        mais_antigo = min(
+            (p.data_kickoff for p in projetos if p.data_kickoff), default=hoje
+        )
+        nao_letivos = self._dias_nao_letivos(mais_antigo, hoje)
+
+        linhas = []
+        for projeto in projetos:
+            do_projeto = ctx["escopos_por_projeto"].get(projeto.id, [])
+            ajustados = sum(e.dias_uteis_ajustados for e in do_projeto)
+            atraso = 0
+            for escopo in do_projeto:
+                janela = calcular_janela(
+                    escopo.data_inicio,
+                    escopo.dias_uteis_vendidos,
+                    escopo.dias_uteis_ajustados,
+                    nao_letivos,
+                    referencia=hoje,
+                )
+                banca = ctx["bancas_por_escopo"].get(escopo.id)
+                atraso = max(
+                    atraso,
+                    dias_de_atraso(
+                        janela,
+                        getattr(banca, "realizado_em", None),
+                        nao_letivos,
+                        referencia=hoje,
+                    ),
+                )
+
+            linhas.append(
+                {
+                    "projeto_id": projeto.id,
+                    "projeto_nome": projeto.nome,
+                    "dias_ajustados": ajustados,
+                    # O PIOR atraso entre os escopos, não a soma: escopos correm
+                    # em paralelo, e somá-los inventaria um atraso que o projeto
+                    # não teve.
+                    "dias_de_atraso": atraso,
+                    "dias_parados": dias_parados(
+                        projeto.data_kickoff,
+                        self._marcacoes(
+                            projeto,
+                            do_projeto,
+                            etapas_por_escopo,
+                            reunioes_por_projeto,
+                            ctx["bancas_por_escopo"],
+                        ),
+                        nao_letivos,
+                        referencia=hoje,
+                    ),
+                }
+            )
+
+        linhas.sort(key=lambda l: (-l["dias_de_atraso"], -l["dias_parados"]))
+        return {
+            "por_projeto": linhas,
+            "totais": {
+                "dias_ajustados": sum(l["dias_ajustados"] for l in linhas),
+                "dias_de_atraso": sum(l["dias_de_atraso"] for l in linhas),
+                "dias_parados": sum(l["dias_parados"] for l in linhas),
+            },
+        }
+
+    def _marcacoes(
+        self, projeto, escopos, etapas_por_escopo, reunioes_por_projeto, bancas_por_escopo
+    ):
+        """Todo dia que tem ALGUMA coisa marcada no cronograma (§16).
+
+        Etapa, reunião, banca e entrega contam. O que sobra de dia útil entre
+        o kickoff e hoje é o que o §16 chama de parado.
+
+        ⚠ As bancas vêm do mapa já carregado pelo `_contexto`, não de uma
+        consulta por escopo — este método roda dentro do laço de projetos.
+        """
+        dias = set()
+        for escopo in escopos:
+            for etapa in etapas_por_escopo.get(escopo.id, []):
+                dia = etapa.data_inicio
+                while dia <= etapa.data_fim:
+                    dias.add(dia)
+                    dia += timedelta(days=1)
+            if escopo.data_entrega_real:
+                dias.add(escopo.data_entrega_real)
+            banca = bancas_por_escopo.get(escopo.id)
+            if banca and banca.data_hora:
+                dias.add(banca.data_hora.date())
+
+        for reuniao in reunioes_por_projeto.get(projeto.id, []):
+            dias.add(reuniao.data_reuniao)
+        return dias
 
     def _por_etapa(self, em_curso):
         """A distribuição do portfólio pelas etapas do ciclo (§7.1).
@@ -531,9 +672,15 @@ class ExecucaoUseCase(_BaseMonitoramento):
       como saber onde ela estava naquela semana. A tela marca esses com "hoje".
     """
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ids = [p.id for p in projetos]
         inicio, fim = janela_semana(hoje)
 
@@ -816,13 +963,19 @@ class AlocacaoUseCase(_BaseMonitoramento):
             "teto": dict(TETO_POR_PAPEL),
         }
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
-        # ⭐ **O filtro de frente escolhe QUEM APARECE, não como a carga é
-        # medida.** São duas listas de propósito:
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
+        # ⭐ **O filtro (de frente ou de escopo) escolhe QUEM APARECE, não como
+        # a carga é medida.** São duas listas de propósito:
         #
-        #   `do_recorte` — os projetos da frente pedida. Define a população: só
-        #                  quem trabalha nela entra na tabela.
-        #   `projetos`   — tudo que a pessoa logada enxerga, sem o filtro. É
+        #   `do_recorte` — os projetos do filtro pedido. Define a população: só
+        #                  quem trabalha nele entra na tabela.
+        #   `projetos`   — tudo que a pessoa logada enxerga, sem filtro. É
         #                  sobre isto que a carga de cada um é contada.
         #
         # Medir a carga dentro do recorte inflava a capacidade: Caio tem 3
@@ -833,9 +986,10 @@ class AlocacaoUseCase(_BaseMonitoramento):
         #
         # Capacidade e sobrecarga são propriedades da PESSOA. Quem carrega 3
         # projetos está cheio venha de onde vier o terceiro.
-        do_recorte = self._projetos_visiveis(current_user, frente_id)
+        sem_filtro = frente_id is None and escopo_id is None
+        do_recorte = self._projetos_visiveis(current_user, frente_id, escopo_id)
         projetos = (
-            do_recorte if frente_id is None else self._projetos_visiveis(current_user, None)
+            do_recorte if sem_filtro else self._projetos_visiveis(current_user, None, None)
         )
         ids = [p.id for p in projetos]
         # O projeto vai inteiro (id, nome e etapa), não só o nome: o gráfico de
@@ -899,12 +1053,13 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # quando 10 deles estão lotados em frentes que ele não vê — pior que
         # não mostrar nada. Um gerente vê quem está nos projetos dele; a
         # diretoria, que enxerga tudo, vê o núcleo inteiro.
-        ve_tudo = getattr(current_user, "posicao", None) == "diretor" and frente_id is None
+        ve_tudo = getattr(current_user, "posicao", None) == "diretor" and sem_filtro
         na_visao = set(carga.keys())
 
-        # Com filtro de frente, a POPULAÇÃO é quem trabalha nela. A carga de
-        # cada um continua vindo de todos os projetos dela (ver o topo deste
-        # método) — filtro escolhe quem aparece, não como se mede.
+        # Com filtro (de frente ou de escopo), a POPULAÇÃO é quem trabalha
+        # nele. A carga de cada um continua vindo de todos os projetos dela
+        # (ver o topo deste método) — filtro escolhe quem aparece, não como
+        # se mede.
         ids_recorte = {p.id for p in do_recorte}
         no_recorte: Dict[str, set] = defaultdict(set)
         for m in membros:
@@ -912,7 +1067,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 no_recorte[m.papel].add(m.usuario_id)
 
         def entra(usuario, papel) -> bool:
-            if frente_id is not None:
+            if not sem_filtro:
                 return usuario.id in no_recorte[papel]
             if carga.get(usuario.id, {}).get(papel):
                 return True
@@ -965,9 +1120,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
 class AtrasosUseCase(_BaseMonitoramento):
     """§7.4 — por projeto e por coordenador, com motivo explícito."""
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         justificativas_por_projeto = _agrupar(
@@ -1147,9 +1308,15 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
     extra, sem quebrar as outras.
     """
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
         ids = [p.id for p in projetos]
         nomes_projeto = {p.id: p.nome for p in projetos}
         clientes_projeto = {p.id: p.cliente for p in projetos}
@@ -1210,9 +1377,15 @@ class CronogramasGeraisUseCase(_BaseMonitoramento):
     restam de um escopo" que podem divergir.
     """
 
-    def execute(self, current_user, frente_id: Optional[int] = None, referencia: Optional[date] = None):
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        referencia: Optional[date] = None,
+        escopo_id: Optional[int] = None,
+    ):
         referencia = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
 
         itens = []
         for projeto in projetos:

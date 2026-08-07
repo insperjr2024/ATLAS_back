@@ -28,6 +28,12 @@ from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from src.utils.dias_uteis import contar_dias_uteis
+from src.utils.janela_escopo import (
+    calcular_janela,
+    dias_de_atraso,
+    dias_de_correcao,
+    marco_das_correcoes,
+)
 
 # Janela de pausa, SEMIABERTA: [inicio, fim).
 #
@@ -40,14 +46,38 @@ JanelaPausa = Tuple[date, date]
 @dataclass(frozen=True)
 class ContagemEscopo:
     dias_vendidos: int
+    #: Dias extras autorizados pela diretoria (§8). Somam com os vendidos para
+    #: formar a janela, mas continuam sendo mostrados à parte — a tela diz
+    #: *vendidos 20 · ajustados 10*, nunca "vendidos 30".
+    dias_ajustados: int
     consumidos: int
     #: Pode ser NEGATIVO — é o "estourou em N dias" da aba Atrasos. Quem clampa
     #: para a barra de progresso é o front, não o cálculo.
+    #:
+    #: Medido contra *vendidos + ajustados*: quem ganhou 10 dias tem 10 dias a
+    #: mais para gastar, senão a autorização não teria efeito nenhum.
     restantes: int
     estourou: bool
     em_contagem: bool
     data_inicio: Optional[date]
+    #: ⚠ O fim da janela de CONTAGEM (a entrega, ou hoje enquanto ela não vem)
+    #: — não confundir com `fim_janela_prevista`, que é o último dia em que o
+    #: escopo caberia no prometido. Os dois divergem exatamente quando há
+    #: atraso, e é dessa diferença que o atraso é feito.
     fim_da_janela: Optional[date]
+    #: O último dia da JANELA DO ESCOPO: início + vendidos + ajustados dias
+    #: úteis. É o que a faixa do calendário desenha e o limite em que a banca
+    #: pode ser marcada (§9).
+    fim_janela_prevista: Optional[date] = None
+    #: §10 — derivado, nunca gravado. Zero enquanto a janela não estourou.
+    atraso: int = 0
+    #: §11 — dias úteis pintados depois de a BANCA ser realizada: as CORREÇÕES
+    #: que ela apontou. Não consomem dias e não são atraso.
+    #:
+    #: ⚠️ Não confundir com `dias_ajustados`, que são dias de trabalho vendido
+    #: acrescentados à JANELA por decisão da diretoria. Correção não aumenta
+    #: janela e não se pede a ninguém.
+    correcoes: int = 0
 
 
 def derivar_janelas_pausa(historico: Iterable, referencia: Optional[date] = None) -> List[JanelaPausa]:
@@ -92,23 +122,39 @@ def calcular_contagem_escopo(
     dias_nao_letivos: Iterable[date],
     janelas_pausa: Iterable[JanelaPausa] = (),
     referencia: Optional[date] = None,
+    dias_uteis_ajustados: int = 0,
+    etapas: Iterable = (),
+    banca_realizado_em=None,
 ) -> ContagemEscopo:
-    """Os dias consumidos e restantes de UM escopo."""
+    """Os dias consumidos, restantes, em atraso e em correções de UM escopo.
+
+    `etapas` e `banca_realizado_em` são opcionais porque nem todo chamador
+    precisa das duas métricas novas: a barra de progresso quer consumidos, e
+    quem monta a Visão geral quer as cinco. Sem etapas, as correções são zero —
+    o que é a resposta certa, não um valor faltando.
+    """
     # Regra 1: sem data de início, o escopo não começou a correr. Nem o
     # "próximo escopo" que ainda espera a reunião inicial, nem um escopo
     # cadastrado na venda e nunca iniciado.
     if data_inicio is None:
         return ContagemEscopo(
             dias_vendidos=dias_uteis_vendidos,
+            dias_ajustados=dias_uteis_ajustados,
             consumidos=0,
-            restantes=dias_uteis_vendidos,
+            restantes=dias_uteis_vendidos + dias_uteis_ajustados,
             estourou=False,
             em_contagem=False,
             data_inicio=None,
             fim_da_janela=None,
+            fim_janela_prevista=None,
+            atraso=0,
+            correcoes=0,
         )
 
     referencia = referencia or date.today()
+    # Materializada uma vez: daqui para baixo a lista é percorrida três vezes
+    # (desconto, janela e atraso), e um gerador se esgotaria na primeira.
+    janelas_pausa = list(janelas_pausa)
 
     # Regra 2: a entrega congela o fim da janela. É a única linha que faz o
     # "escopo entregue pausa a contagem" — depois dela, o relógio é irrelevante.
@@ -132,14 +178,38 @@ def calcular_contagem_escopo(
 
     consumidos = max(0, bruto - descontado)
 
+    # A janela do escopo (§5): vendidos + ajustados. É contra ela que "estourou"
+    # é medido, e é ela que o atraso mede por fora.
+    #
+    # ⭐ As mesmas pausas que descontam do consumido acima empurram o fim da
+    # janela: as duas contas precisam enxergar o mesmo calendário, senão o
+    # escopo congela o consumo mas continua estourando o prazo.
+    janela = calcular_janela(
+        data_inicio,
+        dias_uteis_vendidos,
+        dias_uteis_ajustados,
+        dias_nao_letivos,
+        referencia,
+        janelas_pausa=janelas_pausa,
+    )
+    total = dias_uteis_vendidos + dias_uteis_ajustados
+
     return ContagemEscopo(
         dias_vendidos=dias_uteis_vendidos,
+        dias_ajustados=dias_uteis_ajustados,
         consumidos=consumidos,
-        restantes=dias_uteis_vendidos - consumidos,
-        estourou=consumidos > dias_uteis_vendidos,
+        restantes=total - consumidos,
+        estourou=consumidos > total,
         em_contagem=data_entrega_real is None,
         data_inicio=data_inicio,
         fim_da_janela=fim,
+        fim_janela_prevista=janela.fim,
+        atraso=dias_de_atraso(
+            janela, banca_realizado_em, dias_nao_letivos, referencia, janelas_pausa
+        ),
+        correcoes=dias_de_correcao(
+            etapas, marco_das_correcoes(banca_realizado_em, data_entrega_real), dias_nao_letivos
+        ),
     )
 
 
@@ -148,24 +218,35 @@ def calcular_contagem_projeto(
     historico: Iterable,
     dias_nao_letivos: Iterable[date],
     referencia: Optional[date] = None,
+    etapas_por_escopo: Optional[Dict[int, list]] = None,
+    bancas_por_escopo: Optional[Dict[int, object]] = None,
 ) -> Dict[int, ContagemEscopo]:
     """A contagem de todos os escopos de um projeto, por `projeto_escopo.id`.
 
     Deriva as janelas de pausa **uma vez** e aplica a mesma lista a todos os
     escopos — é o que mantém a regra 4 (paralelo) coerente: dois escopos
     correndo ao mesmo tempo descontam a mesma pausa, cada um na sua janela.
+
+    `etapas_por_escopo` e `bancas_por_escopo` são opcionais para quem só quer a
+    barra de progresso não precisar carregar as duas tabelas: sem elas o
+    as correções e o atraso saem zerados, e quem os exibe é quem os carrega.
     """
     referencia = referencia or date.today()
     janelas = derivar_janelas_pausa(historico, referencia)
+    etapas_por_escopo = etapas_por_escopo or {}
+    bancas_por_escopo = bancas_por_escopo or {}
 
     return {
         escopo.id: calcular_contagem_escopo(
             data_inicio=escopo.data_inicio,
             data_entrega_real=escopo.data_entrega_real,
             dias_uteis_vendidos=escopo.dias_uteis_vendidos,
+            dias_uteis_ajustados=escopo.dias_uteis_ajustados,
             dias_nao_letivos=dias_nao_letivos,
             janelas_pausa=janelas,
             referencia=referencia,
+            etapas=etapas_por_escopo.get(escopo.id, ()),
+            banca_realizado_em=getattr(bancas_por_escopo.get(escopo.id), "realizado_em", None),
         )
         for escopo in escopos
     }

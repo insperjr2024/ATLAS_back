@@ -301,11 +301,12 @@ class TestEscoposEmParaleloEEmSequencia:
 
 
 class _EscopoFalso:
-    def __init__(self, id, data_inicio, data_entrega_real, dias):
+    def __init__(self, id, data_inicio, data_entrega_real, dias, ajustados=0):
         self.id = id
         self.data_inicio = data_inicio
         self.data_entrega_real = data_entrega_real
         self.dias_uteis_vendidos = dias
+        self.dias_uteis_ajustados = ajustados
 
 
 class TestContagemProjetoInteiro:

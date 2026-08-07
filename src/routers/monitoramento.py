@@ -33,14 +33,20 @@ router = APIRouter(
 
 
 @router.get("/visao-geral")
-def visao_geral(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
-    return VisaoGeralUseCase(db).execute(current_user, frente_id)
+def visao_geral(
+    frente_id: Optional[int] = None,
+    escopo_id: Optional[int] = None,
+    current_user=Depends(require_pode_ver_monitoramento),
+    db: Session = Depends(get_db),
+):
+    return VisaoGeralUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
 
 
 @router.get("/execucao")
 def execucao(
     frente_id: Optional[int] = None,
     referencia: Optional[date] = None,
+    escopo_id: Optional[int] = None,
     current_user=Depends(require_pode_ver_monitoramento),
     db: Session = Depends(get_db),
 ):
@@ -55,27 +61,37 @@ def execucao(
         raise HTTPException(
             status_code=422, detail="Só é possível consultar a semana atual ou anteriores"
         )
-    return ExecucaoUseCase(db).execute(current_user, frente_id, referencia)
+    return ExecucaoUseCase(db).execute(current_user, frente_id, referencia, escopo_id=escopo_id)
 
 
 @router.get("/alocacao")
-def alocacao(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
-    return AlocacaoUseCase(db).execute(current_user, frente_id)
+def alocacao(
+    frente_id: Optional[int] = None,
+    escopo_id: Optional[int] = None,
+    current_user=Depends(require_pode_ver_monitoramento),
+    db: Session = Depends(get_db),
+):
+    return AlocacaoUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
 
 
 @router.get("/atrasos")
-def atrasos(frente_id: Optional[int] = None, current_user=Depends(require_pode_ver_monitoramento), db: Session = Depends(get_db)):
-    return AtrasosUseCase(db).execute(current_user, frente_id)
+def atrasos(
+    frente_id: Optional[int] = None,
+    escopo_id: Optional[int] = None,
+    current_user=Depends(require_pode_ver_monitoramento),
+    db: Session = Depends(get_db),
+):
+    return AtrasosUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
 
 
 @router.get("/tarefas")
-def tarefas(frente_id: Optional[int] = None, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
-    return TarefasGeraisUseCase(db).execute(current_user, frente_id)
-
-
-@router.get("/cronogramas")
-def cronogramas(frente_id: Optional[int] = None, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
-    return CronogramasGeraisUseCase(db).execute(current_user, frente_id)
+def tarefas(
+    frente_id: Optional[int] = None,
+    escopo_id: Optional[int] = None,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    return TarefasGeraisUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
 
 
 @router.get("/graficos/fontes")
@@ -108,3 +124,12 @@ def graficos_dados(
         return MontarGraficoUseCase(db).execute(tabela, dimensao, operacao, metrica, granularidade)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
+        
+@router.get("/cronogramas")
+def cronogramas(
+    frente_id: Optional[int] = None,
+    escopo_id: Optional[int] = None,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    return CronogramasGeraisUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)

@@ -45,7 +45,7 @@ def notificar_alocacao(db: Session, projeto, usuario_id: int) -> None:
         usuario_id=usuario_id,
         tipo="alocado_em_projeto",
         titulo=f"Você entrou no projeto {projeto.nome}",
-        corpo=f"Cliente: {projeto.cliente}",
+        corpo=f"Cliente: {projeto.cliente}" if projeto.cliente else None,
         projeto_id=projeto.id,
         rota=f"/projetos/{projeto.id}",
         # Por PROJETO e por pessoa: quem sai e volta na mesma equipe não é
@@ -215,6 +215,56 @@ def notificar_pdi_prazo_vencido(
         rota="/avaliacao-desempenho/mentorados",
         payload={"pasta_id": pasta.id, "item_id": item.id, "mentorado_id": mentorado_id},
         chave_dedup=f"pdi_prazo_vencido:item={item.id}:mentorado={mentorado_id}:destinatario={destinatario_id}",
+    )
+
+
+def notificar_reajuste_solicitado(
+    db: Session, destinatario_id: int, projeto_id: int, projeto_escopo_id: int, nome_escopo: str, solicitante_nome: str
+) -> None:
+    """§8: o coordenador pediu DIAS DE AJUSTE para o escopo.
+
+    Só quem aprova reajuste recebe — nunca o gerente. (O pedido deixou de ser
+    "reabrir cronograma oficializado": o cadeado acabou, e o que se pede agora
+    são dias a mais na janela do escopo.)"""
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="reajuste_solicitado",
+        titulo=f"{solicitante_nome} pediu reajuste de cronograma — {nome_escopo}",
+        projeto_id=projeto_id,
+        rota=f"/projetos/{projeto_id}/cronograma",
+        payload={"projeto_escopo_id": projeto_escopo_id},
+        # Por escopo+destinatário: um pedido pendente por vez (regra do use
+        # case), então não precisa de mais nada na chave pra não duplicar.
+        chave_dedup=f"reajuste_solicitado:escopo={projeto_escopo_id}:destinatario={destinatario_id}",
+    )
+
+
+def notificar_reajuste_respondido(
+    db: Session,
+    destinatario_id: int,
+    projeto_id: int,
+    projeto_escopo_id: int,
+    solicitacao_id: int,
+    nome_escopo: str,
+    aprovado: bool,
+    justificativa: str,
+) -> None:
+    """Avisa quem pediu o reajuste (§5.6) — aprovado ou rejeitado, com a
+    justificativa que a diretoria digitou."""
+    titulo = f"Reajuste {'aprovado' if aprovado else 'rejeitado'} — {nome_escopo}"
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="reajuste_respondido",
+        titulo=titulo,
+        corpo=justificativa,
+        projeto_id=projeto_id,
+        rota=f"/projetos/{projeto_id}/cronograma",
+        payload={"projeto_escopo_id": projeto_escopo_id, "aprovado": aprovado},
+        # Pela solicitação, não pelo escopo: uma solicitação só é respondida
+        # uma vez (o use case recusa responder de novo), a chave é natural.
+        chave_dedup=f"reajuste_respondido:solicitacao={solicitacao_id}",
     )
 
 

@@ -22,6 +22,7 @@ from src.use_cases.usuario.transferir_diretoria import (
     TransferirDiretoriaRequest,
 )
 from src.use_cases.usuario.update_usuario import UpdateUsuarioUseCase, UpdateUsuarioRequest, DeleteUsuarioUseCase
+from src.use_cases.usuario.delete_usuario_permanente import DeleteUsuarioPermanenteUseCase
 from src.use_cases.usuario_frente.create_usuario_frente import CreateUsuarioFrenteUseCase, CreateUsuarioFrenteRequest
 from src.use_cases.usuario_frente.get_usuario_frente import GetUsuarioFrenteUseCase, ListUsuariosFrentesUseCase
 from src.use_cases.usuario_frente.update_usuario_frente import DeleteUsuarioFrenteUseCase
@@ -115,6 +116,19 @@ def delete_usuario(usuario_id: int, _=Depends(require_pode_gerir_membros), db: S
     if not deleted:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return None
+
+
+@router.delete("/usuarios/{usuario_id}/permanente")
+def delete_usuario_permanente(usuario_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
+    """Apagar de vez — só um usuário já desligado, e sem volta. Restrito à
+    diretoria: cascata bem mais pesada que a exclusão simples acima."""
+    try:
+        result = DeleteUsuarioPermanenteUseCase(db).execute(usuario_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    return result
 
 
 @router.get("/usuarios/{usuario_id}/bancas-para-avaliar")
