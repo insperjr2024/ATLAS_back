@@ -19,6 +19,7 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 )
 from src.repositories.projeto_remarcacao_banca_repository import ProjetoRemarcacaoBancaRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.ambientacao import fim_da_ambientacao
 
@@ -217,6 +218,7 @@ class GetHistoricoProjetoUseCase:
         self.catalogo_repository = EscopoRepository(db)
         self.entrega_repository = EntregaAlteracaoRepository(db)
         self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
+        self.reuniao_repository = ReuniaoSemanalRepository(db)
         self.projeto_repository = ProjetoRepository(db)
 
     def execute(self, projeto_id: int, incluir_ocultos: bool = False):
@@ -230,6 +232,7 @@ class GetHistoricoProjetoUseCase:
         linhas += self._decisoes_de_ajuste(escopos, nomes)
         linhas += self._alteracoes_de_entrega(projeto_id, nomes)
         linhas += self._justificativas_de_atraso(projeto_id, nomes)
+        linhas += self._reunioes(projeto_id, nomes)
 
         # ⭐ "Limpar histórico" (§4) corta TODAS as fontes pelo mesmo carimbo —
         # senão uma nota de atraso de antes do corte continuaria aparecendo com
@@ -369,30 +372,92 @@ class GetHistoricoProjetoUseCase:
         return list(por_evento.values())
 
     def _decisoes_de_ajuste(self, escopos, nomes):
-        """§8: os pedidos de dias — aprovados E negados.
+        """§8: os pedidos de dias — **duas linhas por pedido**.
 
-        Negados entram de propósito: o §8 diz que a recusa fica registrada, e é
-        ela que explica por que a janela continuou nos dias vendidos.
+        ⭐ O pedido e a decisão são eventos separados: momentos diferentes,
+        pessoas diferentes, textos diferentes. Espremer os dois numa linha só
+        perdia o que o coordenador escreveu — sobrava a justificativa da
+        diretoria e sumia o motivo que a provocou. Numa timeline cronológica,
+        "pediu" e "respondeu" pertencem a lugares distintos.
+
+        Pedido pendente também entra, e é a única fonte que mostra algo antes
+        de estar resolvido: enquanto a diretoria não decide, o histórico já
+        explica por que a janela pode mudar.
         """
         linhas = []
         for escopo in escopos:
             for s in self.reajuste_repository.get_by_escopo(escopo.id):
+                nome = nomes.get(escopo.id) or "escopo"
+
+                # 1 · O pedido, com o texto do coordenador.
+                linhas.append(
+                    {
+                        "id": f"pedido-dias:{s.id}",
+                        "tipo": "pedido_de_dias",
+                        "em": s.criado_em,
+                        "por": s.solicitado_por,
+                        "titulo": f"Pediu +{s.dias_solicitados} dias de ajuste — {nome}",
+                        "detalhe": s.motivo,
+                        "aguardando": s.status == "pendente",
+                        # A tela ordena e agrupa por `alterado_em`; sem ele a
+                        # linha entra como undefined e derruba o `localeCompare`.
+                        "alterado_em": s.criado_em,
+                        "alterado_por": s.solicitado_por,
+                    }
+                )
+
+                # 2 · A decisão, com o texto da diretoria. Só depois de haver uma.
                 if s.status == "pendente":
                     continue
-                veredito = "aprovados" if s.status == "aprovado" else "negados"
+                aprovado = s.status == "aprovado"
+                veredito = "aprovados" if aprovado else "negados"
                 linhas.append(
                     {
                         "id": f"ajuste:{s.id}",
                         "tipo": "dias_de_ajuste",
                         "em": s.respondido_em,
                         "por": s.respondido_por,
-                        "titulo": (
-                            f"+{s.dias_solicitados} dias de ajuste {veredito} — "
-                            f"{nomes.get(escopo.id)}"
-                        ),
+                        "titulo": f"+{s.dias_solicitados} dias de ajuste {veredito} — {nome}",
                         "detalhe": s.resposta_justificativa,
+                        "aprovado": aprovado,
+                        "alterado_em": s.respondido_em,
+                        "alterado_por": s.respondido_por,
                     }
                 )
+        return linhas
+
+    def _reunioes(self, projeto_id: int, nomes):
+        """As anotações das reuniões (§6.4).
+
+        Só as que TÊM texto. Uma reunião registrada sem observação já aparece
+        na aba de reuniões e no calendário; repeti-la aqui vazia encheria a
+        timeline de linhas que não contam nada. O que o histórico existe para
+        guardar é o que foi combinado.
+        """
+        linhas = []
+        for r in self.reuniao_repository.get_by_projeto(projeto_id):
+            texto = (r.observacoes or "").strip()
+            if not texto:
+                continue
+            alvo = nomes.get(r.projeto_escopo_id) if r.projeto_escopo_id else None
+            # `criado_em` e não `data_reuniao`: a timeline conta quando a nota
+            # foi escrita. O dia da reunião entra no título, que é onde ele
+            # importa para quem lê.
+            linhas.append(
+                {
+                    "id": f"reuniao:{r.id}",
+                    "tipo": "reuniao",
+                    "em": r.criado_em,
+                    "por": r.registrado_por,
+                    "titulo": (
+                        f"Reunião de {r.data_reuniao.strftime('%d/%m/%Y')}"
+                        + (f" — {alvo}" if alvo else "")
+                    ),
+                    "detalhe": texto,
+                    "alterado_em": r.criado_em,
+                    "alterado_por": r.registrado_por,
+                }
+            )
         return linhas
 
     def _alteracoes_de_entrega(self, projeto_id: int, nomes):
@@ -419,6 +484,8 @@ class GetHistoricoProjetoUseCase:
                     "detalhe": a.justificativa,
                     # Preenchido quando a diretoria autorizou a mudança (§13).
                     "autorizado_por": a.autorizado_por,
+                    "alterado_em": a.criado_em,
+                    "alterado_por": a.alterado_por,
                 }
             )
         return linhas

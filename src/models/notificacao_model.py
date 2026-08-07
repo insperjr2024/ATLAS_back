@@ -38,6 +38,11 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     # Voltaram com o fluxo de reajuste (a main os removera junto com ele).
     "reajuste_solicitado",
     "reajuste_respondido",
+    # ⚠ Emitido por `marcar_banca_escopo` desde o commit 3035559, mas nunca
+    # declarado aqui — a coluna é ENUM, então o INSERT vinha com "Data
+    # truncated for column 'tipo'" e derrubava o registro de realização da
+    # banca inteiro. O evento é real e útil; o que faltava era a declaração.
+    "descricao_coordenador_pendente",
     "banca_nao_marcada",
     "projeto_sem_reuniao",
     "banca_hoje",

@@ -122,7 +122,7 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
 @router.patch("/projetos/{projeto_id}/kickoff")
 def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    result = UpdateKickoffUseCase(db).execute(projeto_id, request)
+    result = UpdateKickoffUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result

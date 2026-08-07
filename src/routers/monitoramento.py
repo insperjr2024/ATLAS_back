@@ -18,6 +18,7 @@ from src.use_cases.monitoramento.graficos import MontarGraficoUseCase, listar_fo
 from src.utils.exceptions import RegraDeNegocioError
 from src.middlewares.authorization import require_diretor, require_pode_ver_monitoramento
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.monitoramento.aprovacoes import ListarAprovacoesPendentesUseCase
 from src.use_cases.monitoramento.monitoramento import (
     AlocacaoUseCase,
     AtrasosUseCase,
@@ -82,6 +83,17 @@ def atrasos(
     db: Session = Depends(get_db),
 ):
     return AtrasosUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+
+
+@router.get("/aprovacoes")
+def aprovacoes(_=Depends(require_diretor), db: Session = Depends(get_db)):
+    """⭐ Tudo que espera uma decisão da diretoria, num lugar só.
+
+    Sem `frente_id`: a fila é dela, e ela enxerga a área inteira (§3). Filtrar
+    por frente aqui só criaria a chance de um pedido ficar escondido atrás de
+    um filtro que alguém esqueceu ligado.
+    """
+    return ListarAprovacoesPendentesUseCase(db).execute()
 
 
 @router.get("/tarefas")
