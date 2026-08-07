@@ -14,7 +14,6 @@ def serializar_usuario(usuario, projetos_alocados: int = 0):
         "id": usuario.id,
         "nome": usuario.nome,
         "email_insper": usuario.email_insper,
-        "cargo_id": usuario.cargo_id,
         "posicao": usuario.posicao,
         "status": usuario.status,
         "ativo": usuario.ativo,

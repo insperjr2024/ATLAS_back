@@ -1,4 +1,4 @@
-from src.models.cargo_model import CargoModel
+from src.models.posicao_permissao_model import PosicaoPermissaoModel
 from src.models.escopo_model import EscopoModel
 from src.models.usuario_model import UsuarioModel
 from src.models.banca_model import BancaModel

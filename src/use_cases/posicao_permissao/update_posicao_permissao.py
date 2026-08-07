@@ -1,12 +1,13 @@
 from typing import Optional
-from sqlalchemy.orm import Session
+
 from pydantic import BaseModel
-from src.repositories.cargo_repository import CargoRepository
-from src.use_cases.cargo.get_cargo import serializar_cargo
+from sqlalchemy.orm import Session
+
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
+from src.use_cases.posicao_permissao.get_posicao_permissao import serializar_posicao_permissao
 
 
-class UpdateCargoRequest(BaseModel):
-    nome: Optional[str] = None
+class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_criar_projeto: Optional[bool] = None
     pode_editar_equipe: Optional[bool] = None
     pode_gerir_membros: Optional[bool] = None
@@ -19,23 +20,16 @@ class UpdateCargoRequest(BaseModel):
     pode_administrar_desempenho: Optional[bool] = None
     pode_editar_formularios_desempenho: Optional[bool] = None
     pode_administrar_configuracoes: Optional[bool] = None
+    pode_ver_todos_projetos: Optional[bool] = None
 
 
-class UpdateCargoUseCase:
+class UpdatePosicaoPermissaoUseCase:
     def __init__(self, db: Session):
-        self.repository = CargoRepository(db)
+        self.repository = PosicaoPermissaoRepository(db)
 
-    def execute(self, cargo_id: int, request: UpdateCargoRequest):
+    def execute(self, posicao: str, request: UpdatePosicaoPermissaoRequest):
         data = request.model_dump(exclude_unset=True)
-        cargo = self.repository.update(cargo_id, **data)
-        if not cargo:
+        registro = self.repository.update(posicao, **data)
+        if not registro:
             return None
-        return serializar_cargo(cargo)
-
-
-class DeleteCargoUseCase:
-    def __init__(self, db: Session):
-        self.repository = CargoRepository(db)
-
-    def execute(self, cargo_id: int) -> bool:
-        return self.repository.delete(cargo_id)
+        return serializar_posicao_permissao(registro)

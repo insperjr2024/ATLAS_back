@@ -63,10 +63,10 @@ router = APIRouter(tags=["bancas"], dependencies=[Depends(get_current_user)])
 def _exigir_acesso_a_banca(banca_id: int, current_user, db: Session) -> None:
     """§3 nas rotas que agem sobre UMA banca.
 
-    `require_pode_definir_cronograma` só olha o cargo, e cargo não é escopo:
-    sem isto, toda coordenadora podia realizar, aprovar ou apagar a banca de
-    qualquer projeto — inclusive de um que ela recebe 404 ao tentar abrir. E
-    aprovar banca é o que LIBERA a entrega ao cliente (§5.5).
+    `require_pode_definir_cronograma` só olha a permissão da posição, que não
+    é escopo: sem isto, toda coordenadora podia realizar, aprovar ou apagar a
+    banca de qualquer projeto — inclusive de um que ela recebe 404 ao tentar
+    abrir. E aprovar banca é o que LIBERA a entrega ao cliente (§5.5).
 
     O caminho é banca → `banca_escopo` → `projeto_escopo` → projeto, e a
     checagem é a mesma `exigir_acesso_ao_projeto` do resto da plataforma (404,
@@ -74,7 +74,8 @@ def _exigir_acesso_a_banca(banca_id: int, current_user, db: Session) -> None:
 
     ⚠ Banca sem vínculo com escopo nenhum é a banca LEGADA, cadastrada antes de
     `banca_escopo` existir — não há projeto a partir do qual decidir. Essas
-    continuam valendo só o cargo, senão o legado ficaria inadministrável.
+    continuam valendo só a permissão da posição, senão o legado ficaria
+    inadministrável.
     """
     from src.repositories.banca_escopo_repository import BancaEscopoRepository
     from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
@@ -149,11 +150,9 @@ def push_alocacao_automatica(_=Depends(require_diretor), db: Session = Depends(g
 
 # ------------------------------------------------------- realização e resultado (F5)
 #
-# ⚠ Duas dimensões de permissão convivem aqui, e confundi-las gera 403
-# inexplicável: `cargo` (pode_agendar_banca) manda nas ações do módulo de
-# bancas; `posicao` manda no resto. Marcar a banca PELO CRONOGRAMA é ação de
-# posição — é a coordenadora cravando o cronograma do projeto dela, e ela não
-# precisa da flag do núcleo para isso.
+# ⚠ Marcar a banca PELO CRONOGRAMA é uma ação de `pode_definir_cronograma`
+# (não confundir com as rotas de banca "avulsa" abaixo, que checam outra
+# caixa) — é a coordenadora cravando o cronograma do projeto dela.
 
 
 @router.post("/bancas/{banca_id}/realizar")

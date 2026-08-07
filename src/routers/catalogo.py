@@ -26,9 +26,11 @@ from src.use_cases.dia_nao_letivo.ler_calendario_pdf import LerCalendarioPdfUseC
 from src.use_cases.calendario.get_eventos import GetEventosCalendarioUseCase
 from src.use_cases.semestre.get_semestre import GetSemestreAtivoUseCase
 from src.utils.exceptions import RegraDeNegocioError
-from src.use_cases.cargo.create_cargo import CreateCargoUseCase, CreateCargoRequest
-from src.use_cases.cargo.get_cargo import GetCargoUseCase, ListCargosUseCase
-from src.use_cases.cargo.update_cargo import UpdateCargoUseCase, UpdateCargoRequest, DeleteCargoUseCase
+from src.use_cases.posicao_permissao.get_posicao_permissao import ListPosicaoPermissoesUseCase
+from src.use_cases.posicao_permissao.update_posicao_permissao import (
+    UpdatePosicaoPermissaoUseCase,
+    UpdatePosicaoPermissaoRequest,
+)
 from src.use_cases.configuracao.get_configuracao import GetConfiguracaoUseCase
 from src.use_cases.configuracao.update_configuracao import UpdateConfiguracaoUseCase, UpdateConfiguracaoRequest
 from src.use_cases.situacao_carga.gerenciar_situacoes import (
@@ -49,43 +51,24 @@ from src.utils.exceptions import ResourceInUseError
 router = APIRouter(tags=["catálogo"], dependencies=[Depends(get_current_user)])
 
 
-# ---------------------------------------------------------------- cargos
+# ---------------------------------------------------------- permissões por posição
 
-@router.post("/cargos")
-def create_cargo(request: CreateCargoRequest, _=Depends(require_pode_administrar_configuracoes), db: Session = Depends(get_db)):
-    return CreateCargoUseCase(db).execute(request)
-
-
-@router.get("/cargos")
-def list_cargos(db: Session = Depends(get_db)):
-    return ListCargosUseCase(db).execute()
+@router.get("/posicoes-permissoes")
+def list_posicoes_permissoes(db: Session = Depends(get_db)):
+    return ListPosicaoPermissoesUseCase(db).execute()
 
 
-@router.get("/cargos/{cargo_id}")
-def get_cargo(cargo_id: int, db: Session = Depends(get_db)):
-    result = GetCargoUseCase(db).execute(cargo_id)
+@router.patch("/posicoes-permissoes/{posicao}")
+def update_posicao_permissao(
+    posicao: str,
+    request: UpdatePosicaoPermissaoRequest,
+    _=Depends(require_pode_administrar_configuracoes),
+    db: Session = Depends(get_db),
+):
+    result = UpdatePosicaoPermissaoUseCase(db).execute(posicao, request)
     if not result:
-        raise HTTPException(status_code=404, detail="Cargo não encontrado")
+        raise HTTPException(status_code=404, detail="Posição não encontrada")
     return result
-
-
-@router.patch("/cargos/{cargo_id}")
-def update_cargo(cargo_id: int, request: UpdateCargoRequest, _=Depends(require_pode_administrar_configuracoes), db: Session = Depends(get_db)):
-    result = UpdateCargoUseCase(db).execute(cargo_id, request)
-    if not result:
-        raise HTTPException(status_code=404, detail="Cargo não encontrado")
-    return result
-
-
-@router.delete("/cargos/{cargo_id}", status_code=204)
-def delete_cargo(cargo_id: int, _=Depends(require_pode_administrar_configuracoes), db: Session = Depends(get_db)):
-    try:
-        deleted = DeleteCargoUseCase(db).execute(cargo_id)
-    except ResourceInUseError:
-        raise HTTPException(status_code=409, detail="Não é possível excluir: existem registros vinculados a este cargo")
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Cargo não encontrado")
-    return None
 
 
 # ---------------------------------------------------------------- escopos
