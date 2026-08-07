@@ -214,7 +214,10 @@ def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, cu
 
     try:
         result = MarcarBancaEscopoUseCase(db).execute(
-            escopo_id, request, eh_diretor=current_user.posicao == "diretor"
+            escopo_id,
+            request,
+            eh_diretor=current_user.posicao == "diretor",
+            current_user=current_user,
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))

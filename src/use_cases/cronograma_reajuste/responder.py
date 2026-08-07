@@ -17,9 +17,20 @@ class ResponderReajusteRequest(BaseModel):
 
 
 class ResponderReajusteUseCase:
-    """A única saída da trava de `cronograma_guard.py` (§5.6). Aprovar limpa
-    `projeto_escopo.cronograma_oficializado_em`: o coordenador volta a poder
-    editar as etapas, e oficializa de novo quando terminar."""
+    """A diretoria decide o pedido de dias (§8) — nunca o gerente.
+
+    ⭐ **Aprovar SOMA**, não substitui: dois pedidos de +5 aprovados dão 10
+    dias ajustados. É o que o §8 pede ("o total ajustado é a soma dos
+    aprovados") e é o que mantém o histórico legível — cada linha continua
+    dizendo quanto foi pedido daquela vez.
+
+    ⚠ **`dias_uteis_vendidos` não é tocado aqui, nem em lugar nenhum.** Somar
+    no vendido faria o escopo virar "30 dias vendidos" e apagaria para sempre a
+    diferença entre ter vendido 30 e ter estourado 20.
+
+    Negar não fecha a porta: dentro do prazo o coordenador pode pedir de novo,
+    e a recusa fica registrada.
+    """
 
     def __init__(self, db: Session):
         self.db = db
@@ -28,6 +39,17 @@ class ResponderReajusteUseCase:
         self.catalogo_repository = EscopoRepository(db)
 
     def execute(self, solicitacao_id: int, request: ResponderReajusteRequest, current_user) -> dict:
+        # Rechecado aqui, e não só na rota: quem pede é validado no use case
+        # (`solicitar.py`), e deixar só o gate de rota do outro lado faria a
+        # regra mais forte das duas depender de ninguém chamar isto por dentro.
+        # A permissão é a caixa de cargo `pode_aprovar_reajuste` — configurável
+        # pela diretoria, hoje marcada só para o diretor.
+        cargo = getattr(current_user, "cargo", None)
+        if cargo is not None and not getattr(cargo, "pode_aprovar_reajuste", False):
+            raise RegraDeNegocioError(
+                "Só quem tem permissão de aprovar reajuste decide um pedido de dias (§8)"
+            )
+
         solicitacao = self.repository.get_by_id(solicitacao_id)
         if not solicitacao:
             raise RegraDeNegocioError("Solicitação não encontrada")
@@ -47,7 +69,10 @@ class ResponderReajusteUseCase:
 
         escopo = self.escopo_repository.get_by_id(solicitacao.projeto_escopo_id)
         if request.aprovado and escopo:
-            self.escopo_repository.update(escopo.id, cronograma_oficializado_em=None)
+            self.escopo_repository.update(
+                escopo.id,
+                dias_uteis_ajustados=escopo.dias_uteis_ajustados + solicitacao.dias_solicitados,
+            )
 
         if escopo:
             notificar_reajuste_respondido(

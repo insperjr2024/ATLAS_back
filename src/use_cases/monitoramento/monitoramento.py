@@ -28,6 +28,7 @@ from src.repositories.situacao_carga_repository import (
     faixa_mais_alta,
     resolver as resolver_situacao,
 )
+from src.repositories.cronograma_repository import CronogramaEtapaRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.frente_repository import FrenteRepository
@@ -48,6 +49,7 @@ from src.utils.condicoes_alerta import (
     detectar_condicoes,
 )
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
+from src.utils.janela_escopo import calcular_janela, dias_de_atraso, dias_parados
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
@@ -103,6 +105,7 @@ class _BaseMonitoramento:
         self.membro_repository = ProjetoMembroRepository(db)
         self.tarefa_repository = TarefaRepository(db)
         self.reuniao_repository = ReuniaoSemanalRepository(db)
+        self.etapa_repository = CronogramaEtapaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.semestre_repository = SemestreRepository(db)
@@ -249,7 +252,125 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             "bancas_proximas": self._bancas_proximas(projetos, ctx, hoje),
             "tempo_parado": self._tempo_parado(projetos, ctx, hoje),
             "atencao_agora": self._atencao_agora(projetos, ctx, atrasos, hoje),
+            # §15/§16: os números da janela, por projeto e por frente.
+            "janela": self._metricas_de_janela(em_curso, ctx, hoje),
         }
+
+    def _metricas_de_janela(self, projetos, ctx, hoje: date):
+        """§15/§16: dias ajustados, dias de atraso e **dias parados**.
+
+        ⚠ **`dias_parados` aqui não é o `dias_parado` de `_tempo_parado`.** São
+        perguntas diferentes e os dois aparecem na mesma tela:
+
+        - `tempo_parado.dias_parado` — dias CORRIDOS desde a última tarefa
+          mexida. Responde "faz quanto tempo ninguém toca nisso?".
+        - `janela...dias_parados` — dias ÚTEIS EM BRANCO no cronograma, do
+          kickoff até hoje. Responde "quanto deste projeto ficou sem nada
+          planejado?" (§16).
+
+        Um projeto pode ter 0 dias parados aqui e 20 lá: cronograma cheio, mas
+        ninguém mexendo nas tarefas.
+        """
+        escopos = [e for lista in ctx["escopos_por_projeto"].values() for e in lista]
+        etapas_por_escopo = _agrupar(
+            self.etapa_repository.get_by_escopos([e.id for e in escopos]), "projeto_escopo_id"
+        )
+        reunioes_por_projeto = _agrupar(
+            self.reuniao_repository.get_by_projetos_e_janela(
+                ctx["ids"], date(hoje.year - 1, 1, 1), hoje
+            ),
+            "projeto_id",
+        )
+        mais_antigo = min(
+            (p.data_kickoff for p in projetos if p.data_kickoff), default=hoje
+        )
+        nao_letivos = self._dias_nao_letivos(mais_antigo, hoje)
+
+        linhas = []
+        for projeto in projetos:
+            do_projeto = ctx["escopos_por_projeto"].get(projeto.id, [])
+            ajustados = sum(e.dias_uteis_ajustados for e in do_projeto)
+            atraso = 0
+            for escopo in do_projeto:
+                janela = calcular_janela(
+                    escopo.data_inicio,
+                    escopo.dias_uteis_vendidos,
+                    escopo.dias_uteis_ajustados,
+                    nao_letivos,
+                    referencia=hoje,
+                )
+                banca = ctx["bancas_por_escopo"].get(escopo.id)
+                atraso = max(
+                    atraso,
+                    dias_de_atraso(
+                        janela,
+                        getattr(banca, "realizado_em", None),
+                        nao_letivos,
+                        referencia=hoje,
+                    ),
+                )
+
+            linhas.append(
+                {
+                    "projeto_id": projeto.id,
+                    "projeto_nome": projeto.nome,
+                    "dias_ajustados": ajustados,
+                    # O PIOR atraso entre os escopos, não a soma: escopos correm
+                    # em paralelo, e somá-los inventaria um atraso que o projeto
+                    # não teve.
+                    "dias_de_atraso": atraso,
+                    "dias_parados": dias_parados(
+                        projeto.data_kickoff,
+                        self._marcacoes(
+                            projeto,
+                            do_projeto,
+                            etapas_por_escopo,
+                            reunioes_por_projeto,
+                            ctx["bancas_por_escopo"],
+                        ),
+                        nao_letivos,
+                        referencia=hoje,
+                    ),
+                }
+            )
+
+        linhas.sort(key=lambda l: (-l["dias_de_atraso"], -l["dias_parados"]))
+        return {
+            "por_projeto": linhas,
+            "totais": {
+                "dias_ajustados": sum(l["dias_ajustados"] for l in linhas),
+                "dias_de_atraso": sum(l["dias_de_atraso"] for l in linhas),
+                "dias_parados": sum(l["dias_parados"] for l in linhas),
+            },
+        }
+
+    def _marcacoes(
+        self, projeto, escopos, etapas_por_escopo, reunioes_por_projeto, bancas_por_escopo
+    ):
+        """Todo dia que tem ALGUMA coisa marcada no cronograma (§16).
+
+        Etapa, reunião, banca e entrega contam. O que sobra de dia útil entre
+        o kickoff e hoje é o que o §16 chama de parado.
+
+        ⚠ As bancas vêm do mapa já carregado pelo `_contexto`, não de uma
+        consulta por escopo — este método roda dentro do laço de projetos.
+        """
+        dias = set()
+        for escopo in escopos:
+            for etapa in etapas_por_escopo.get(escopo.id, []):
+                dia = etapa.data_inicio
+                while dia <= etapa.data_fim:
+                    dias.add(dia)
+                    dia += timedelta(days=1)
+            if escopo.data_entrega_real:
+                dias.add(escopo.data_entrega_real)
+            banca = bancas_por_escopo.get(escopo.id)
+            if banca and banca.data_hora:
+                dias.add(banca.data_hora.date())
+
+        for reuniao in reunioes_por_projeto.get(projeto.id, []):
+            dias.add(reuniao.data_reuniao)
+        return dias
 
     def _por_etapa(self, em_curso):
         """A distribuição do portfólio pelas etapas do ciclo (§7.1).

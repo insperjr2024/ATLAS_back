@@ -48,8 +48,6 @@ from src.use_cases.projeto.update_equipe_projeto import (
     UpdateEquipeProjetoRequest,
 )
 from src.use_cases.projeto.update_kickoff import (
-    UpdateEntregaClienteRequest,
-    UpdateEntregaClienteUseCase,
     UpdateKickoffRequest,
     UpdateKickoffUseCase,
 )
@@ -119,13 +117,9 @@ def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=
     return result
 
 
-@router.patch("/projetos/{projeto_id}/entrega-cliente")
-def update_entrega_cliente(projeto_id: int, request: UpdateEntregaClienteRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    result = UpdateEntregaClienteUseCase(db).execute(projeto_id, request)
-    if not result:
-        raise HTTPException(status_code=404, detail="Projeto não encontrado")
-    return result
+# ⭐ Não há rota de "entrega ao cliente" do projeto: ela é a entrega do ESCOPO
+# (`PATCH /escopos-projeto/{id}/entrega`), e a do projeto é derivada da última.
+# Entrega ao cliente e entrega do escopo são a mesma coisa (§5.5).
 
 
 @router.patch("/projetos/{projeto_id}/descricao")
@@ -296,10 +290,20 @@ def delete_escopo(escopo_id: int, current_user=Depends(require_gestao), db: Sess
 
 @router.patch("/escopos-projeto/{escopo_id}/entrega")
 def registrar_entrega_escopo(escopo_id: int, request: RegistrarEntregaEscopoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """🔒 Travada até a banca do escopo sair aprovada (§5.5)."""
+    """🔒 Travada até a banca do escopo ser realizada (§5.5).
+
+    Marcar é livre para quem está no projeto; ALTERAR uma entrega já registrada
+    é decisão da diretoria (§13) — o gate mora no use case, porque ele depende
+    de a data já existir.
+    """
     _projeto_do_escopo(escopo_id, current_user, db)
     try:
-        return RegistrarEntregaEscopoUseCase(db).execute(escopo_id, request)
+        return RegistrarEntregaEscopoUseCase(db).execute(
+            escopo_id,
+            request,
+            eh_diretor=getattr(current_user, "posicao", None) == "diretor",
+            current_user=current_user,
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

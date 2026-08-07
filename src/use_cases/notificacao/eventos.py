@@ -221,8 +221,11 @@ def notificar_pdi_prazo_vencido(
 def notificar_reajuste_solicitado(
     db: Session, destinatario_id: int, projeto_id: int, projeto_escopo_id: int, nome_escopo: str, solicitante_nome: str
 ) -> None:
-    """§5.6: coordenador pediu pra reabrir um cronograma já oficializado.
-    Só a diretoria recebe — é ela quem aprova, nunca o gerente."""
+    """§8: o coordenador pediu DIAS DE AJUSTE para o escopo.
+
+    Só quem aprova reajuste recebe — nunca o gerente. (O pedido deixou de ser
+    "reabrir cronograma oficializado": o cadeado acabou, e o que se pede agora
+    são dias a mais na janela do escopo.)"""
     registrar(
         db,
         usuario_id=destinatario_id,

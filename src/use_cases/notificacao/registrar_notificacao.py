@@ -10,6 +10,10 @@ alocar alguém numa equipe tem que continuar funcionando: o aviso é um efeito
 colateral do trabalho, não o trabalho. Por isso `registrar` engole a exceção e
 segue — a decisão oposta à de `solicitar_recuperacao`, onde o e-mail É o
 fluxo e falhar calado deixaria a pessoa esperando um link que nunca chega.
+
+📧 É também daqui que sai o e-mail do evento (`enviar_email_notificacao`), e
+não de cada helper de `eventos.py`: um ponto só garante que todo evento novo
+já nasça com o canal de e-mail junto, sem ninguém precisar lembrar disso.
 """
 
 import logging
@@ -18,6 +22,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.repositories.notificacao_repository import NotificacaoRepository
+from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +46,7 @@ def registrar(
         # a condição já a calcula em `condicoes_alerta`.
         dados["rota"] = rota
     try:
-        NotificacaoRepository(db).criar_se_nao_existe(
+        linha = NotificacaoRepository(db).criar_se_nao_existe(
             usuario_id=usuario_id,
             tipo=tipo,
             origem="evento",
@@ -51,6 +56,17 @@ def registrar(
             payload=dados or None,
             chave_dedup=chave_dedup,
         )
+        # `None` = a dedup descartou, o aviso já existe no sino. Não mandar
+        # e-mail aqui é o que impede que salvar a mesma equipe duas vezes
+        # mande dois e-mails idênticos.
+        if linha is not None:
+            enfileirar(
+                notificacao_id=linha.id,
+                usuario_id=usuario_id,
+                titulo=titulo,
+                corpo=corpo,
+                rota=dados.get("rota"),
+            )
     except Exception:  # noqa: BLE001 — ver a docstring do módulo
         logger.exception("Falha ao registrar notificação %s para o usuário %s", tipo, usuario_id)
 

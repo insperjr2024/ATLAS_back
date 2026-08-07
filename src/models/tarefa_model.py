@@ -44,12 +44,25 @@ class ReuniaoSemanalModel(Base):
 
     ⭐ **É daqui que sai `projeto_escopo.data_inicio`** (§5.4): a reunião diz
     sobre QUAL escopo foi, e a primeira reunião de um escopo é a "reunião
-    inicial" que faz a contagem dele começar a correr.
+    inicial" que abre a janela dele e faz a contagem começar a correr.
+
+    Dois tipos na mesma tabela, distinguidos por `projeto_escopo_id`:
+
+    - **reunião inicial** (escopo preenchido) — abre a janela do escopo;
+    - **reunião geral** (escopo nulo) — a semanal do projeto, que não mexe em
+      contagem nenhuma e aceita observações em texto livre.
+
+    ⚠ O UNIQUE inclui o escopo porque as duas passaram a ser marcadas no MESMO
+    calendário do cronograma: sem ele, marcar a reunião inicial de um escopo no
+    dia em que já houve a reunião geral estouraria. O MySQL não cobre NULL no
+    índice, então "uma reunião geral por dia" é validado no use case.
     """
 
     __tablename__ = "reuniao_semanal"
     __table_args__ = (
-        UniqueConstraint("projeto_id", "data_reuniao", name="uq_reuniao_projeto_data"),
+        UniqueConstraint(
+            "projeto_id", "data_reuniao", "projeto_escopo_id", name="uq_reuniao_projeto_data"
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -60,5 +73,8 @@ class ReuniaoSemanalModel(Base):
         Integer, ForeignKey("projeto_escopo.id"), nullable=True, index=True
     )
     data_reuniao = Column(Date, nullable=False, index=True)
+    #: O que foi conversado — texto livre, sem estrutura de propósito: é a ata
+    #: informal da reunião geral, e forçar campos aqui faria ninguém preencher.
+    observacoes = Column(String(500), nullable=True)
     registrado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())

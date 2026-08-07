@@ -12,3 +12,11 @@ class CronogramaReajusteRepository(BaseRepository[CronogramaReajusteSolicitacaoM
 
     def get_pendentes(self) -> List[CronogramaReajusteSolicitacaoModel]:
         return self.filter_by(status="pendente")
+
+    def get_by_escopo(self, projeto_escopo_id: int) -> List[CronogramaReajusteSolicitacaoModel]:
+        """Todos os pedidos daquele escopo — pendentes, aprovados e negados.
+
+        A aba Histórico precisa dos negados também: é a recusa que explica por
+        que a janela continuou nos dias vendidos (§8).
+        """
+        return self.filter_by(projeto_escopo_id=projeto_escopo_id)

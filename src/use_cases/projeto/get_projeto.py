@@ -1,16 +1,21 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from src.models.projeto_model import ProjetoModel
+from src.repositories.banca_remarcacao_repository import BancaRemarcacaoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
+from src.repositories.entrega_alteracao_repository import EntregaAlteracaoRepository
+from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.ambientacao import fim_da_ambientacao
 
 
@@ -65,7 +70,19 @@ def serializar_projeto_completo(
         "link_proposta": projeto.link_proposta,
         "anexo_proposta_nome": projeto.anexo_proposta_nome,
         "dias_ambientacao": projeto.dias_ambientacao,
-        "data_entrega_cliente": projeto.data_entrega_cliente,
+        # ⭐ **DERIVADA, não digitada.** "Entrega ao cliente" e "entrega do
+        # escopo" são a MESMA coisa: o cliente recebe quando o escopo é
+        # entregue. A do projeto é a do último escopo entregue — não existe uma
+        # terceira data, e a coluna `projeto.data_entrega_cliente` deixou de ser
+        # lida justamente para não haver duas versões da mesma promessa.
+        #
+        # ⚠ Diferente da banca, a entrega **não** precisa caber na janela do
+        # escopo: a janela é o tempo de TRABALHO vendido, e a apresentação ao
+        # cliente costuma ser dias depois da banca (§5.5).
+        "data_entrega_cliente": max(
+            (e["data_entrega_real"] for e in (escopos or []) if e.get("data_entrega_real")),
+            default=None,
+        ),
         "dia_reuniao_padrao": projeto.dia_reuniao_padrao,
         "criado_por": projeto.criado_por,
         "equipe": [
@@ -159,13 +176,54 @@ class ListProjetosUseCase:
 
 
 class GetHistoricoProjetoUseCase:
+    """§13: *"toda decisão, autorizada ou negada, entra na aba Histórico"*.
+
+    ⭐ **Composto na leitura, sem tabela de eventos.** São quatro fontes que já
+    existem — mudanças de status, remarcações de banca, decisões sobre dias de
+    ajuste e alterações de data de entrega — e cada uma continua sendo a dona do
+    seu dado. Uma tabela genérica de eventos exigiria escrever duas vezes em
+    cada fluxo, e a segunda escrita é a que alguém esquece.
+
+    Cada linha sai no mesmo formato (`tipo`, `em`, `por`, `titulo`, `detalhe`)
+    para a tela renderizar uma lista só, ordenada do mais recente para o mais
+    antigo.
+    """
+
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoStatusHistoricoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.banca_repository = BancaRepository(db)
+        self.remarcacao_repository = BancaRemarcacaoRepository(db)
+        self.reajuste_repository = CronogramaReajusteRepository(db)
+        self.catalogo_repository = EscopoRepository(db)
+        self.entrega_repository = EntregaAlteracaoRepository(db)
 
     def execute(self, projeto_id: int):
+        linhas = self._status(projeto_id)
+
+        escopos = self.escopo_repository.get_by_projeto(projeto_id)
+        catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
+        nomes = {e.id: nome_do_escopo(e, catalogo) for e in escopos}
+
+        linhas += self._remarcacoes(escopos, nomes)
+        linhas += self._decisoes_de_ajuste(escopos, nomes)
+        linhas += self._alteracoes_de_entrega(projeto_id, nomes)
+
+        # `datetime.min` para a linha sem data nunca derrubar a ordenação.
+        linhas.sort(key=lambda l: l["em"] or datetime.min, reverse=True)
+        return linhas
+
+    def _status(self, projeto_id: int):
         return [
             {
                 "id": h.id,
+                "tipo": "status",
+                "em": h.alterado_em,
+                "por": h.alterado_por,
+                "titulo": f"Status: {h.status_anterior or '—'} → {h.status_novo}",
+                "detalhe": None,
+                # Mantidos porque a tela já os lê para desenhar o ícone.
                 "status_anterior": h.status_anterior,
                 "status_novo": h.status_novo,
                 "alterado_por": h.alterado_por,
@@ -173,3 +231,98 @@ class GetHistoricoProjetoUseCase:
             }
             for h in self.repository.get_by_projeto(projeto_id)
         ]
+
+    def _remarcacoes(self, escopos, nomes):
+        """§9: a data antiga de cada banca remarcada, com a justificativa.
+
+        Sem esta fonte, "de 06/08 para 20/08" existiria só na notificação — que
+        some assim que é lida.
+        """
+        bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])
+        nome_por_banca = {b.id: nomes.get(eid) for eid, b in bancas.items()}
+
+        return [
+            {
+                "id": f"remarcacao:{r.id}",
+                "tipo": "banca_remarcada",
+                "em": r.criado_em,
+                "por": r.remarcado_por,
+                "titulo": (
+                    f"Banca remarcada — {nome_por_banca.get(r.banca_id) or 'escopo'}: "
+                    f"{_quando(r.data_anterior)} → {_quando(r.data_nova)}"
+                ),
+                "detalhe": r.justificativa,
+                # Preenchido só quando a diretoria precisou liberar a exceção
+                # do §13 (fora da janela, ou em cima da hora).
+                "autorizado_por": r.autorizado_por,
+            }
+            for r in self.remarcacao_repository.get_by_bancas({b.id for b in bancas.values()})
+        ]
+
+    def _decisoes_de_ajuste(self, escopos, nomes):
+        """§8: os pedidos de dias — aprovados E negados.
+
+        Negados entram de propósito: o §8 diz que a recusa fica registrada, e é
+        ela que explica por que a janela continuou nos dias vendidos.
+        """
+        linhas = []
+        for escopo in escopos:
+            for s in self.reajuste_repository.get_by_escopo(escopo.id):
+                if s.status == "pendente":
+                    continue
+                veredito = "aprovados" if s.status == "aprovado" else "negados"
+                linhas.append(
+                    {
+                        "id": f"ajuste:{s.id}",
+                        "tipo": "dias_de_ajuste",
+                        "em": s.respondido_em,
+                        "por": s.respondido_por,
+                        "titulo": (
+                            f"+{s.dias_solicitados} dias de ajuste {veredito} — "
+                            f"{nomes.get(escopo.id)}"
+                        ),
+                        "detalhe": s.resposta_justificativa,
+                    }
+                )
+        return linhas
+
+    def _alteracoes_de_entrega(self, projeto_id: int, nomes):
+        """§13: cada vez que uma data de entrega prometida mudou.
+
+        A primeira marcação também entra (com `data_anterior` nula): ela é o
+        "de onde veio" da promessa, e sem ela o Histórico começaria a contar a
+        história pela metade.
+        """
+        linhas = []
+        for a in self.entrega_repository.get_by_projeto(projeto_id):
+            alvo = nomes.get(a.projeto_escopo_id) if a.projeto_escopo_id else "cliente"
+            rotulo = "Entrega registrada" if a.data_anterior is None else "Entrega alterada"
+            linhas.append(
+                {
+                    "id": f"entrega:{a.id}",
+                    "tipo": "entrega_alterada",
+                    "em": a.criado_em,
+                    "por": a.alterado_por,
+                    "titulo": (
+                        f"{rotulo} — {alvo or 'escopo'}: "
+                        f"{_quando(a.data_anterior)} → {_quando(a.data_nova)}"
+                    ),
+                    "detalhe": a.justificativa,
+                    # Preenchido quando a diretoria autorizou a mudança (§13).
+                    "autorizado_por": a.autorizado_por,
+                }
+            )
+        return linhas
+
+
+def _quando(valor) -> str:
+    """A data como a tela lê. Banca tem hora; entrega é dia inteiro.
+
+    Sem o `isinstance`, a entrega de 15/09 apareceria como "15/09/2026 00:00" —
+    uma hora que ninguém marcou e que sugere precisão que o dado não tem.
+    """
+    if not valor:
+        return "sem data"
+    if isinstance(valor, datetime):
+        return valor.strftime("%d/%m/%Y %H:%M")
+    return valor.strftime("%d/%m/%Y")

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.cronograma_repository import CronogramaEtapaRepository
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
@@ -20,6 +21,7 @@ from src.repositories.projeto_status_historico_repository import ProjetoStatusHi
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.banca_status import calcular_status_banca
 from src.utils.contagem_dias import calcular_contagem_projeto
+from src.utils.janela_escopo import calcular_janela
 
 
 def nome_do_escopo(escopo, catalogo_por_id: Dict[int, object]) -> str:
@@ -67,6 +69,7 @@ class ListEscoposProjetoUseCase:
         self.banca_repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.reajuste_repository = CronogramaReajusteRepository(db)
+        self.etapa_repository = CronogramaEtapaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
 
     def execute(self, projeto_id: int, referencia: Optional[date] = None) -> List[dict]:
@@ -86,12 +89,34 @@ class ListEscoposProjetoUseCase:
             {b.id for b in bancas.values()}
         )
 
-        contagens = calcular_contagem_projeto(
-            escopos, historico, dias_nao_letivos, referencia=referencia
-        )
+        # As etapas entram na conta por causa das correalho pós-entrega (§11):
+        # é o que foi PINTADO depois da entrega, e não dá para saber isso sem
+        # olhar os intervalos.
+        etapas_por_escopo = {}
+        for etapa in self.etapa_repository.get_by_escopos([e.id for e in escopos]):
+            etapas_por_escopo.setdefault(etapa.projeto_escopo_id, []).append(etapa)
 
-        # §5.6: pendente do escopo, pra tela decidir entre "Solicitar
-        # reajuste" e "Aguardando aprovação da diretoria" sem pedir de novo.
+        contagens = calcular_contagem_projeto(
+            escopos,
+            historico,
+            dias_nao_letivos,
+            referencia=referencia,
+            etapas_por_escopo=etapas_por_escopo,
+            bancas_por_escopo=bancas,
+        )
+        janelas = {
+            e.id: calcular_janela(
+                e.data_inicio,
+                e.dias_uteis_vendidos,
+                e.dias_uteis_ajustados,
+                dias_nao_letivos,
+                referencia=referencia,
+            )
+            for e in escopos
+        }
+
+        # §8: pedido pendente do escopo, pra tela decidir entre "Pedir dias" e
+        # "Aguardando a diretoria" sem precisar perguntar de novo.
         pendentes = {
             e.id: self.reajuste_repository.get_pendente_do_escopo(e.id) for e in escopos
         }
@@ -106,6 +131,7 @@ class ListEscoposProjetoUseCase:
                 escopos_da_banca,
                 pendentes.get(e.id),
                 nomes_usuario,
+                janelas.get(e.id),
             )
             for e in escopos
         ]
@@ -119,6 +145,7 @@ def serializar_escopo(
     escopos_da_banca=None,
     reajuste_pendente=None,
     nomes_usuario=None,
+    janela=None,
 ) -> dict:
     return {
         "id": escopo.id,
@@ -128,17 +155,27 @@ def serializar_escopo(
         "nome": nome_do_escopo(escopo, catalogo_por_id),
         "frente_id": escopo.frente_id,
         "dias_uteis_vendidos": escopo.dias_uteis_vendidos,
+        "dias_uteis_ajustados": escopo.dias_uteis_ajustados,
         "status": escopo.status,
         "data_inicio": escopo.data_inicio,
         "data_entrega_planejada": escopo.data_entrega_planejada,
         "data_entrega_real": escopo.data_entrega_real,
         "tipo_atraso_entrega": escopo.tipo_atraso_entrega,
-        "cronograma_oficializado_em": escopo.cronograma_oficializado_em,
         # A contagem do §5.4, calculada — o front só desenha a barra.
         "consumidos": contagem.consumidos,
         "restantes": contagem.restantes,
         "estourou": contagem.estourou,
         "em_contagem": contagem.em_contagem,
+        # ⭐ Os cinco números do escopo (§15): vendidos · ajustados ·
+        # consumidos · atraso · correções. Derivados aqui para as telas nunca
+        # divergirem entre si — mesmo princípio de `consumidos`.
+        "atraso": contagem.atraso,
+        "correcoes": contagem.correcoes,
+        # A janela do §5, para o calendário desenhar a faixa e o banner saber
+        # quando avisar.
+        "fim_janela": contagem.fim_janela_prevista,
+        "prazo_pedido_ajuste": janela.prazo_pedido_ajuste if janela else None,
+        "pedido_ajuste_aberto": janela.pedido_ajuste_aberto if janela else False,
         # 🔒 A trava do §5.5 na forma que a tela precisa: o cadeado abre
         # quando a banca do escopo é REALIZADA.
         "banca": (
@@ -158,6 +195,7 @@ def serializar_escopo(
         "reajuste_pendente": (
             {
                 "id": reajuste_pendente.id,
+                "dias_solicitados": reajuste_pendente.dias_solicitados,
                 "motivo": reajuste_pendente.motivo,
                 "solicitado_por": reajuste_pendente.solicitado_por,
                 "solicitado_por_nome": (nomes_usuario or {}).get(reajuste_pendente.solicitado_por),

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.entrega_alteracao_repository import EntregaAlteracaoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
@@ -86,6 +87,9 @@ class UpdateEscopoProjetoUseCase:
 
 class RegistrarEntregaEscopoRequest(BaseModel):
     data_entrega_real: date
+    #: §13: obrigatória para ALTERAR uma entrega já registrada. Na primeira
+    #: marcação não é pedida — marcar a entrega é o passo normal do fluxo.
+    justificativa: Optional[str] = None
 
 
 class RegistrarEntregaEscopoUseCase:
@@ -94,6 +98,9 @@ class RegistrarEntregaEscopoUseCase:
     O campo que a trava lê (`banca.resultado`) nasceu na migration 5; o campo
     que ela protege (`projeto_escopo.data_entrega_real`) nasceu na 4. É por
     isso que as duas fatias são uma só.
+
+    Desde a reformulação do cronograma há um segundo gate aqui, o do §13:
+    marcar a entrega é livre, **alterar** uma que já existe é da diretoria.
     """
 
     def __init__(self, db: Session):
@@ -102,14 +109,24 @@ class RegistrarEntregaEscopoUseCase:
         self.banca_repository = BancaRepository(db)
         self.projeto_repository = ProjetoRepository(db)
         self.catalogo_repository = EscopoRepository(db)
+        self.alteracao_repository = EntregaAlteracaoRepository(db)
 
-    def execute(self, escopo_id: int, request: RegistrarEntregaEscopoRequest):
+    def execute(
+        self,
+        escopo_id: int,
+        request: RegistrarEntregaEscopoRequest,
+        eh_diretor: bool = False,
+        current_user=None,
+    ):
         escopo = self.repository.get_by_id(escopo_id)
         if not escopo:
             return None
 
         if not escopo.data_inicio:
             raise RegraDeNegocioError("Este escopo ainda não foi iniciado")
+
+        data_antiga = escopo.data_entrega_real
+        self._exigir_alteracao_permitida(data_antiga, request, eh_diretor)
 
         # 🔒 A trava do §5.5: nada vai ao cliente sem passar por banca.
         #
@@ -132,6 +149,17 @@ class RegistrarEntregaEscopoUseCase:
             escopo_id, data_entrega_real=request.data_entrega_real, status="entregue"
         )
 
+        if data_antiga != atualizado.data_entrega_real:
+            self.alteracao_repository.create(
+                projeto_id=atualizado.projeto_id,
+                projeto_escopo_id=atualizado.id,
+                data_anterior=data_antiga,
+                data_nova=atualizado.data_entrega_real,
+                justificativa=(request.justificativa or "").strip() or "Primeira marcação",
+                alterado_por=getattr(current_user, "id", None),
+                autorizado_por=getattr(current_user, "id", None) if eh_diretor else None,
+            )
+
         # Depois da trava, nunca antes: notificar uma entrega que o §5.5 acabou
         # de barrar avisaria a diretoria de algo que não aconteceu.
         projeto = self.projeto_repository.get_by_id(atualizado.projeto_id)
@@ -143,6 +171,31 @@ class RegistrarEntregaEscopoUseCase:
             "data_entrega_real": atualizado.data_entrega_real,
             "status": atualizado.status,
         }
+
+    def _exigir_alteracao_permitida(
+        self, data_antiga: Optional[date], request: RegistrarEntregaEscopoRequest, eh_diretor: bool
+    ) -> None:
+        """§13: mudar uma entrega JÁ REGISTRADA é decisão da diretoria.
+
+        A primeira marcação passa direto — é o passo do fluxo em que o
+        coordenador fecha o escopo no cronograma, e travá-la faria o time
+        depender da diretoria para registrar o que já aconteceu.
+
+        O que é gated é a MUDANÇA: a data que o cliente ouviu vira outra. Sem
+        isso, um escopo entregue com atraso podia ter a data empurrada em
+        silêncio e o atraso desaparecia do monitoramento.
+        """
+        if data_antiga is None or data_antiga == request.data_entrega_real:
+            return
+        if not eh_diretor:
+            raise RegraDeNegocioError(
+                f"Este escopo já foi entregue em {data_antiga.strftime('%d/%m/%Y')}. "
+                "Mudar uma data de entrega já registrada é decisão da diretoria (§13)"
+            )
+        if not (request.justificativa or "").strip():
+            raise RegraDeNegocioError(
+                "Mudar a data de entrega exige justificativa — ela vai para o Histórico"
+            )
 
 
 class ClassificarAtrasoEntregaRequest(BaseModel):

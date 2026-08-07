@@ -1,4 +1,4 @@
-"""O cronograma pintado (§6.4) — etapas, marcos e oficialização.
+"""O cronograma pintado (§6.4) — etapas, marcos e o pedido de dias de ajuste.
 
 Toda rota resolve o projeto (subindo etapa → escopo → projeto quando é rota
 de detalhe) e passa por `exigir_acesso_ao_projeto`, que devolve 404 e não 403:
@@ -30,14 +30,12 @@ from src.use_cases.cronograma.update_cronograma import (
     EtapaIntervaloRequest,
     EtapaRequest,
     MarcoRequest,
-    OficializarCronogramaUseCase,
     UpdateEtapaDetalheUseCase,
     UpdateEtapaIntervaloUseCase,
 )
 from src.use_cases.cronograma_reajuste.listar_pendentes import ListarReajustesPendentesUseCase
 from src.use_cases.cronograma_reajuste.responder import ResponderReajusteRequest, ResponderReajusteUseCase
 from src.use_cases.cronograma_reajuste.solicitar import SolicitarReajusteRequest, SolicitarReajusteUseCase
-from src.utils.cronograma_guard import CronogramaOficializadoError, http_conflito_cronograma
 from src.utils.exceptions import RegraDeNegocioError
 
 router = APIRouter(tags=["cronograma"], dependencies=[Depends(get_current_user)])
@@ -59,16 +57,14 @@ def _projeto_da_etapa(etapa_id: int, current_user, db: Session) -> int:
 
 
 def _executar(acao):
-    """Traduz as duas exceções de domínio nos códigos certos.
+    """Regra de negócio vira 422.
 
-    409 (conflito de estado) para cronograma oficializado, 422 para regra de
-    negócio — o front usa a diferença para oferecer "solicitar reajuste" em
-    vez de um erro genérico.
+    O 409 de "cronograma oficializado" não existe mais — o cadeado saiu, e com
+    ele o único conflito de ESTADO que estas rotas tinham. O que sobrou é
+    validação do que foi enviado.
     """
     try:
         return acao()
-    except CronogramaOficializadoError:
-        raise http_conflito_cronograma()
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -133,25 +129,20 @@ def delete_marco(marco_id: int, current_user=Depends(require_pode_definir_cronog
     DeleteMarcoUseCase(db).execute(marco_id)
 
 
-@router.post("/escopos-projeto/{escopo_id}/oficializar")
-def oficializar(escopo_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
-    """§5.3: cravar o cronograma. Depois disso, mudar exige reajuste (§5.6)."""
-    _projeto_do_escopo(escopo_id, current_user, db)
-    result = _executar(lambda: OficializarCronogramaUseCase(db).execute(escopo_id))
-    if not result:
-        raise HTTPException(status_code=404, detail="Escopo não encontrado")
-    return result
-
-
 @router.post("/escopos-projeto/{escopo_id}/reajuste")
 def solicitar_reajuste(
     escopo_id: int,
     request: SolicitarReajusteRequest,
-    current_user=Depends(require_pode_definir_cronograma),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """§5.6: pedido do coordenador pra reabrir um cronograma já
-    oficializado. Notifica a diretoria — só ela responde."""
+    """§8: o coordenador pede DIAS DE AJUSTE para o escopo.
+
+    ⚠ **Sem `require_pode_definir_cronograma` de propósito.** Quem pode pedir é
+    o coordenador DAQUELE projeto — papel na equipe, não uma das caixas de
+    `cargo`. Exigir a caixa aqui barraria com 403 um coordenador de verdade
+    cujo cargo não a tem marcada, que é exatamente quem o §8 autoriza. A
+    checagem mora no use case, junto das outras regras do pedido."""
     _projeto_do_escopo(escopo_id, current_user, db)
     try:
         return SolicitarReajusteUseCase(db).execute(escopo_id, request, current_user)
@@ -163,7 +154,7 @@ def solicitar_reajuste(
 def listar_reajustes_pendentes(
     current_user=Depends(require_pode_aprovar_reajuste), db: Session = Depends(get_db)
 ):
-    """§5.6: fila só da diretoria — "o gerente não aprova reajustes"."""
+    """§8: a fila de pedidos de dias. Só a diretoria — o gerente não decide."""
     return ListarReajustesPendentesUseCase(db).execute()
 
 
@@ -174,8 +165,9 @@ def responder_reajuste(
     current_user=Depends(require_pode_aprovar_reajuste),
     db: Session = Depends(get_db),
 ):
-    """Aprovar destrava o cronograma (limpa `cronograma_oficializado_em`);
-    rejeitar mantém a trava. Os dois exigem justificativa (§5.6)."""
+    """Aprovar SOMA os dias pedidos em `dias_uteis_ajustados` e estica a
+    janela do escopo; rejeitar só registra. Os dois exigem justificativa, e a
+    decisão entra no Histórico do projeto (§13)."""
     try:
         return ResponderReajusteUseCase(db).execute(solicitacao_id, request, current_user)
     except RegraDeNegocioError as e:

@@ -210,9 +210,9 @@ def _do_projeto(
             datetime.combine(hoje, datetime.max.time()),
         )
 
-        # O escopo precisa ter COMEÇADO para a banca ser cobrável: antes do
-        # `data_inicio` não há cronograma oficializado e §5.3 nem pede a data
-        # ainda.
+        # O escopo precisa ter COMEÇADO para a banca ser cobrável: sem a
+        # reunião inicial não existe janela, e sem janela não há onde a banca
+        # caber (§9) — cobrá-la antes disso seria cobrar o passo errado.
         if status == NAO_MARCADA and escopo.data_inicio:
             condicoes.append(
                 Condicao(

@@ -9,8 +9,13 @@ from src.use_cases.cronograma_reajuste.solicitar import nome_do_escopo
 
 
 class ListarReajustesPendentesUseCase:
-    """A fila só existe pra diretoria (§5.6: "o gerente não aprova
-    reajustes") — o router já restringe com `require_pode_aprovar_reajuste`."""
+    """A fila de pedidos de DIAS DE AJUSTE (§8), só para a diretoria — o
+    gerente não decide, e o router já restringe com
+    `require_pode_aprovar_reajuste`.
+
+    Traz `dias_solicitados` e a janela atual do escopo porque a decisão não faz
+    sentido sem os dois: aprovar "+10" muda de significado conforme o escopo
+    tenha 20 dias vendidos ou 60."""
 
     def __init__(self, db: Session):
         self.repository = CronogramaReajusteRepository(db)
@@ -34,6 +39,12 @@ class ListarReajustesPendentesUseCase:
                     "escopo_nome": nome_do_escopo(escopo, self.catalogo_repository) if escopo else None,
                     "solicitado_por": s.solicitado_por,
                     "solicitado_por_nome": solicitante.nome if solicitante else None,
+                    "dias_solicitados": s.dias_solicitados,
+                    # A janela de hoje, para a diretora ver contra o que está
+                    # somando: "+10 sobre 20 vendidos" é outra decisão que
+                    # "+10 sobre 20 vendidos e 15 já ajustados".
+                    "dias_uteis_vendidos": escopo.dias_uteis_vendidos if escopo else None,
+                    "dias_uteis_ajustados": escopo.dias_uteis_ajustados if escopo else None,
                     "motivo": s.motivo,
                     "criado_em": s.criado_em,
                 }

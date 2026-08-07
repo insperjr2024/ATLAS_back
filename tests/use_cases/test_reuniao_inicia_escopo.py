@@ -112,16 +112,25 @@ class TestLargadaDaContagem:
         assert escopo.data_inicio == QUA_05
         assert escopo.status == "em_andamento"
 
-    def test_sem_banca_marcada_a_largada_e_barrada(self, db):
-        """§5.4 pede as DUAS: a reunião inicial e a data da banca."""
+    def test_sem_banca_marcada_a_largada_acontece_igual(self, db):
+        """⭐ A trava INVERTEU de sentido.
+
+        Antes a banca precisava estar marcada ANTES da reunião inicial, e o
+        backend recusava com 422. A ordem do §6 é a oposta — reunião inicial →
+        etapas → banca → entrega — porque é a reunião que abre a janela, e é
+        dentro da janela que a banca precisa caber (§9).
+
+        Agora quem cobra é o outro lado: marcar banca de escopo sem reunião
+        inicial é que não passa (ver `test_banca_na_janela.py`).
+        """
         projeto, escopo = montar(db, com_banca=False)
 
-        with pytest.raises(RegraDeNegocioError):
-            registrar(db, projeto, QUA_05, escopo.id)
+        resposta = registrar(db, projeto, QUA_05, escopo.id)
 
+        assert resposta["escopo_iniciado"] is True
         db.refresh(escopo)
-        assert escopo.data_inicio is None
-        assert escopo.status == "nao_iniciado"
+        assert escopo.data_inicio == QUA_05
+        assert escopo.status == "em_andamento"
 
     def test_reuniao_geral_nao_inicia_nada(self, db):
         """Reunião sem escopo conta para o §7.2, mas não larga contagem."""
@@ -254,3 +263,87 @@ class TestMoverEApagar:
         db.refresh(escopo)
         assert escopo.data_inicio == QUA_05
         assert escopo.status == "entregue"
+
+
+class TestReuniaoGeralNoCronograma:
+    """A aba Reuniões acabou: as duas reuniões são marcadas no calendário do
+    cronograma, e por isso precisam caber no mesmo dia.
+
+    Antes o UNIQUE era `(projeto, data)` e uma barrava a outra — o que na
+    prática obrigava a escolher entre registrar a reunião geral da semana e dar
+    a largada de um escopo novo no mesmo dia.
+    """
+
+    def test_a_reuniao_geral_aceita_observacoes(self, db):
+        """O campo que substituiu a tela própria: sem ele, o que foi combinado
+        na reunião não tem onde morar."""
+        projeto, _ = montar(db)
+
+        resposta = CreateReuniaoUseCase(db).execute(
+            projeto.id,
+            ReuniaoRequest(
+                data_reuniao=QUA_05,
+                observacoes="Cliente pediu para antecipar o diagnóstico",
+            ),
+            registrado_por=1,
+        )
+
+        assert resposta["tipo"] == "geral"
+        assert resposta["observacoes"] == "Cliente pediu para antecipar o diagnóstico"
+
+    def test_a_reuniao_inicial_tambem_aceita_observacoes(self, db):
+        projeto, escopo = montar(db)
+
+        resposta = CreateReuniaoUseCase(db).execute(
+            projeto.id,
+            ReuniaoRequest(
+                data_reuniao=QUA_05,
+                projeto_escopo_id=escopo.id,
+                observacoes="Escopo alinhado com o cliente",
+            ),
+            registrado_por=1,
+        )
+
+        assert resposta["tipo"] == "inicial"
+        assert resposta["observacoes"] == "Escopo alinhado com o cliente"
+
+    def test_geral_e_inicial_cabem_no_mesmo_dia(self, db):
+        projeto, escopo = montar(db)
+
+        geral = CreateReuniaoUseCase(db).execute(
+            projeto.id, ReuniaoRequest(data_reuniao=QUA_05), registrado_por=1
+        )
+        inicial = registrar(db, projeto, QUA_05, escopo.id)
+
+        assert geral["tipo"] == "geral"
+        assert inicial["tipo"] == "inicial"
+        db.refresh(escopo)
+        assert escopo.data_inicio == QUA_05
+
+    def test_duas_gerais_no_mesmo_dia_nao(self, db):
+        """O UNIQUE do MySQL não cobre NULL — quem barra é o use case."""
+        projeto, _ = montar(db)
+        CreateReuniaoUseCase(db).execute(
+            projeto.id, ReuniaoRequest(data_reuniao=QUA_05), registrado_por=1
+        )
+
+        with pytest.raises(RegraDeNegocioError):
+            CreateReuniaoUseCase(db).execute(
+                projeto.id, ReuniaoRequest(data_reuniao=QUA_05), registrado_por=1
+            )
+
+    def test_editar_so_as_observacoes_preserva_o_vinculo(self, db):
+        """`exclude_unset`: quem só corrige o texto não pode perder o escopo e
+        derrubar a `data_inicio` junto."""
+        projeto, escopo = montar(db)
+        reuniao = registrar(db, projeto, QUA_05, escopo.id)
+
+        atualizada = UpdateReuniaoUseCase(db).execute(
+            reuniao["id"],
+            ReuniaoRequest(data_reuniao=QUA_05, observacoes="Ata revisada"),
+        )
+
+        assert atualizada["observacoes"] == "Ata revisada"
+        assert atualizada["projeto_escopo_id"] == escopo.id
+        db.refresh(escopo)
+        assert escopo.data_inicio == QUA_05

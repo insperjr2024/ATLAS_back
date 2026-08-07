@@ -16,22 +16,36 @@ from sqlalchemy.orm import Session
 
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
+from src.repositories.banca_remarcacao_repository import BancaRemarcacaoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.projeto_status_historico_repository import (
+    ProjetoStatusHistoricoRepository,
+)
 from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.piso_banca import calcular_piso_banca
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.janela_escopo import (
+    FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS,
+    calcular_janela,
+    dentro_da_janela,
+    dias_uteis_ate_a_banca,
+)
 from src.utils.notificar import notificar
 
 
 class MarcarBancaEscopoRequest(BaseModel):
     data_hora: datetime
-    #: Remarcar exige justificativa da diretoria (§5.6) — nunca é silenciosa.
+    #: §9: remarcação nunca é silenciosa — justificativa sempre obrigatória,
+    #: mesmo quando remarcar é livre. Obrigatória também na PRIMEIRA marcação,
+    #: quando a data escolhida cai fora da janela do escopo (§13).
     justificativa: Optional[str] = None
     #: ⭐ O conjunto COMPLETO de escopos que esta banca cobre, escolhido por
     #: quem marca. O escopo da URL entra sempre, mesmo que não venha na lista.
@@ -50,8 +64,17 @@ class MarcarBancaEscopoUseCase:
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.catalogo_repository = EscopoRepository(db)
+        self.remarcacao_repository = BancaRemarcacaoRepository(db)
+        self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
+        self.historico_repository = ProjetoStatusHistoricoRepository(db)
 
-    def execute(self, escopo_id: int, request: MarcarBancaEscopoRequest, eh_diretor: bool = False):
+    def execute(
+        self,
+        escopo_id: int,
+        request: MarcarBancaEscopoRequest,
+        eh_diretor: bool = False,
+        current_user=None,
+    ):
         escopo = self.escopo_repository.get_by_id(escopo_id)
         if not escopo:
             return None
@@ -61,22 +84,32 @@ class MarcarBancaEscopoUseCase:
         escopos_cobertos = self._resolver_escopos(escopo, request, existente)
 
         self._checar_choque(request.data_hora, ignorar_banca_id=existente.id if existente else None)
+        # ⭐ §9: o ÚNICO bloqueio duro do cronograma. Pintar além da janela
+        # avisa (§15); marcar banca fora dela não passa sem a diretoria.
+        self._exigir_janela(escopos_cobertos, request, eh_diretor)
 
         if existente:
-            # §5.6: remarcação nunca é silenciosa — data antiga preservada no
-            # histórico (F11) e justificativa obrigatória, digitada pela
-            # diretoria. O gerente não remarca.
-            if not eh_diretor:
-                raise RegraDeNegocioError(
-                    "Esta banca já tem data. Remarcar é decisão da diretoria (§5.6)"
-                )
-            if not (request.justificativa or "").strip():
-                raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
             data_anterior = existente.data_hora
-            banca = self.repository.update(existente.id, data_hora=request.data_hora)
+            # §9: remarcação nunca é silenciosa — justificativa SEMPRE, mesmo
+            # quando é livre. O que o §13 dispensa é a diretoria, não o registro.
+            if data_anterior is not None and data_anterior != request.data_hora:
+                self._exigir_remarcacao_permitida(existente, request, eh_diretor)
+
+            banca = self.repository.update(
+                existente.id, **self._campos_da_remarcacao(existente, request)
+            )
             # Depois do update e só se a data realmente mudou: salvar a mesma
             # data (por causa de outra edição na mesma request) não é remarcação.
             if data_anterior != banca.data_hora:
+                if data_anterior is not None:
+                    self.remarcacao_repository.create(
+                        banca_id=banca.id,
+                        data_anterior=data_anterior,
+                        data_nova=banca.data_hora,
+                        justificativa=(request.justificativa or "").strip(),
+                        remarcado_por=getattr(current_user, "id", None) or banca.coordenador_id,
+                        autorizado_por=getattr(current_user, "id", None) if eh_diretor else None,
+                    )
                 notificar_banca_remarcada(
                     self.db, projeto, banca.id, self._nome(escopo), data_anterior, banca.data_hora
                 )
@@ -112,6 +145,31 @@ class MarcarBancaEscopoUseCase:
             "data_hora": banca.data_hora,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
         }
+
+    def _campos_da_remarcacao(self, existente, request: MarcarBancaEscopoRequest) -> dict:
+        """O que muda na linha da banca ao remarcá-la.
+
+        ⭐ **É uma banca por escopo, sempre a mesma linha** — inclusive quando a
+        banca foi reprovada e precisa acontecer de novo (§9). Por isso, marcar
+        uma data NOVA para uma banca que já aconteceu tem de apagar
+        `realizado_em` e `resultado`: eles descrevem a sessão anterior, não a
+        que acabou de ser marcada.
+
+        Sem isso, a banca remarcada continuava `realizada` para
+        `calcular_status_banca` (que testa `realizado_em` antes da data) e
+        seguia com `entrega_liberada: true` — o escopo podia ser entregue ao
+        cliente com a nova banca ainda por acontecer.
+
+        A sessão antiga não se perde: `banca_remarcacao` guarda a data anterior
+        e a justificativa, e é ela que aparece no Histórico.
+        """
+        campos = {"data_hora": request.data_hora}
+        if existente.data_hora == request.data_hora:
+            return campos
+        if existente.realizado_em is not None:
+            campos["realizado_em"] = None
+            campos["resultado"] = None
+        return campos
 
     def _resolver_escopos(self, escopo, request: MarcarBancaEscopoRequest, existente):
         """Quais escopos esta banca vai cobrir — e se pode cobri-los.
@@ -173,6 +231,96 @@ class MarcarBancaEscopoUseCase:
         atuais = {bf.frente_id for bf in self.banca_frente_repository.get_by_banca(banca_id)}
         for frente_id in sorted(set(frente_ids) - atuais):
             self.banca_frente_repository.create(banca_id=banca_id, frente_id=frente_id)
+
+    def _janela_do_escopo(self, escopo):
+        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        # A janela precisa enxergar as pausas do projeto — senão a banca de um
+        # projeto que ficou ⏸ Pausado é barrada por uma data que já não é o fim
+        # da janela dele.
+        janelas_pausa = derivar_janelas_pausa(
+            self.historico_repository.get_by_projeto(escopo.projeto_id)
+        )
+        return calcular_janela(
+            escopo.data_inicio,
+            escopo.dias_uteis_vendidos,
+            escopo.dias_uteis_ajustados,
+            dias_nao_letivos,
+            janelas_pausa=janelas_pausa,
+        )
+
+    def _exigir_janela(
+        self, escopos_cobertos, request: MarcarBancaEscopoRequest, eh_diretor: bool
+    ) -> None:
+        """§9: a banca só cabe em dia dentro da janela do escopo.
+
+        ⚠ **De TODOS os escopos que ela cobre.** Uma banca que avalia dois
+        escopos de uma sentada precisa caber nos dois — estar fora da janela de
+        um deles é exatamente o atraso que o §10 vai cobrar daquele escopo, e
+        deixar passar em silêncio esconderia isso.
+
+        Fora da janela não é proibido: é decisão da diretoria (§13), e os dias
+        entre o fim da janela e a data nova viram atraso sozinhos — não há o
+        que gravar, `dias_de_atraso` deriva.
+        """
+        for alvo in escopos_cobertos:
+            janela = self._janela_do_escopo(alvo)
+
+            # §20.4: sem reunião inicial não há janela, e sem janela não há
+            # banca. É a ordem do §6 (reunião → etapas → banca), e o inverso da
+            # trava antiga, que exigia a banca ANTES da reunião inicial.
+            if not janela.aberta:
+                raise RegraDeNegocioError(
+                    f"O escopo '{self._nome(alvo)}' ainda não teve reunião inicial — "
+                    "marque-a antes, é ela que abre a janela em que a banca cabe"
+                )
+
+            if dentro_da_janela(request.data_hora, janela):
+                continue
+
+            if not eh_diretor:
+                raise RegraDeNegocioError(
+                    f"Esta data está fora da janela de '{self._nome(alvo)}', que vai de "
+                    f"{janela.data_inicio.strftime('%d/%m/%Y')} a "
+                    f"{janela.fim.strftime('%d/%m/%Y')} "
+                    f"({janela.dias_vendidos} vendidos + {janela.dias_ajustados} ajustados). "
+                    "Marcar fora dela é decisão da diretoria, e os dias além da janela "
+                    "entram como atraso do projeto (§13)"
+                )
+            # §13: fora da janela é "autorização **+ justificativa**". Vale
+            # também na primeira marcação — sem isso, o Histórico registraria
+            # um atraso que ninguém explicou.
+            if not (request.justificativa or "").strip():
+                raise RegraDeNegocioError(
+                    f"Marcar a banca fora da janela de '{self._nome(alvo)}' exige "
+                    "justificativa — os dias além dela entram como atraso"
+                )
+
+    def _exigir_remarcacao_permitida(
+        self, existente, request: MarcarBancaEscopoRequest, eh_diretor: bool
+    ) -> None:
+        """Os dois gates de remarcação do §13.
+
+        Remarcar dentro da janela e com folga é **livre** para quem edita o
+        projeto — era decisão da diretoria para tudo, e isso fazia da exceção
+        uma rotina. O que continua exigindo diretoria é remarcar em cima da
+        hora: a banca dos próximos 5 dias úteis já tem avaliadores escalados
+        que reservaram a agenda.
+
+        A justificativa é sempre obrigatória, com ou sem gate: §9 diz que
+        remarcação nunca é silenciosa, e é ela que vai para o Histórico.
+        """
+        if not (request.justificativa or "").strip():
+            raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
+
+        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        folga = dias_uteis_ate_a_banca(existente.data_hora, dias_nao_letivos)
+
+        if folga is not None and folga <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS and not eh_diretor:
+            raise RegraDeNegocioError(
+                f"Esta banca acontece em {folga} "
+                f"{'dia útil' if folga == 1 else 'dias úteis'} e os avaliadores já estão "
+                "escalados. Remarcar em cima da hora é decisão da diretoria (§13)"
+            )
 
     def _checar_choque(self, data_hora: datetime, ignorar_banca_id: Optional[int]) -> None:
         """§8: o sistema bloqueia duas bancas no mesmo horário; a exceção só é

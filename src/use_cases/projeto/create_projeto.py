@@ -33,7 +33,9 @@ class CreateProjetoRequest(BaseModel):
     cliente: str
     descricao: Optional[str] = None
     link_proposta: Optional[str] = None
-    frente_ids: List[int] = Field(min_length=1, max_length=2)
+    #: Sem teto: um projeto pode ser vendido para quantas frentes forem
+    #: necessárias. Duas ou mais o tornam sinérgico (ver `get_projeto`).
+    frente_ids: List[int] = Field(min_length=1)
     dias_ambientacao: int = 5
     equipe: List[MembroEquipeRequest]
     dia_reuniao_padrao: Optional[int] = None
