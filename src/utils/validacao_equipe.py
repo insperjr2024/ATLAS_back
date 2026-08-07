@@ -36,10 +36,10 @@ def validar_equipe(equipe, usuario_repository):
     if len(coordenadores) != 1:
         raise RegraDeNegocioError("O projeto precisa de exatamente 1 coordenador")
 
-    consultores = [m for m in equipe if m.papel == "consultor"]
-    if len(consultores) == 0:
-        raise RegraDeNegocioError("O projeto precisa de pelo menos 1 consultor")
-
+    # Depois da checagem por membro (papel/posição de CADA um) — checagem
+    # agregada primeiro escondia o motivo de verdade quando a equipe de
+    # teste também não tinha consultor: toda entrada inválida virava "falta
+    # consultor" em vez do erro específico daquele membro.
     for membro in equipe:
         if membro.papel not in ("coordenador", "consultor"):
             raise RegraDeNegocioError(f"Papel inválido: {membro.papel}")
@@ -60,3 +60,7 @@ def validar_equipe(equipe, usuario_repository):
                 f"{usuario.nome} é {ROTULO_POSICAO.get(usuario.posicao, usuario.posicao)} "
                 f"e não pode entrar como consultor do projeto."
             )
+
+    consultores = [m for m in equipe if m.papel == "consultor"]
+    if len(consultores) == 0:
+        raise RegraDeNegocioError("O projeto precisa de pelo menos 1 consultor")
