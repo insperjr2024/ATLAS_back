@@ -228,7 +228,11 @@ app = FastAPI(title="API ATLAS", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    # Local (qualquer porta) + o front em produção. Domínio exato, sem
+    # wildcard: um curinga tipo `atlasijr.*\.vercel\.app` também deixaria
+    # passar o projeto de outra conta chamado "atlasijr-qualquercoisa" —
+    # o Vercel só garante unicidade do nome completo, não do prefixo.
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+|https://atlasijr\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
