@@ -69,6 +69,11 @@ class CreateEscopoProjetoUseCase:
         frentes = [f.frente_id for f in self.frente_repository.get_by_projeto(projeto_id)]
         validar_escopo_vendido(request, frentes, self.catalogo_repository)
 
+        # Avulso vai pro fim da lista que já existe — quem quiser no meio
+        # reordena depois pelas setinhas na tela do projeto.
+        existentes = self.repository.get_by_projeto(projeto_id)
+        proxima_ordem = max((e.ordem for e in existentes), default=-1) + 1
+
         escopo = self.repository.create(
             projeto_id=projeto_id,
             escopo_id=request.escopo_id,
@@ -77,5 +82,6 @@ class CreateEscopoProjetoUseCase:
             dias_uteis_vendidos=request.dias_uteis_vendidos,
             data_entrega_planejada=request.data_entrega_planejada,
             status="nao_iniciado",
+            ordem=proxima_ordem,
         )
         return {"id": escopo.id, "projeto_id": escopo.projeto_id}

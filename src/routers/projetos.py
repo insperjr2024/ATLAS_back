@@ -38,6 +38,7 @@ from src.use_cases.projeto_escopo.update_escopo_projeto import (
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.projeto.arquivar_projeto import ArquivarProjetoUseCase, DesarquivarProjetoUseCase
 from src.use_cases.projeto.create_projeto import CreateProjetoUseCase, CreateProjetoRequest
+from src.use_cases.projeto.delete_projeto import DeleteProjetoPermanenteUseCase
 from src.use_cases.projeto.get_projeto import (
     GetHistoricoProjetoUseCase,
     GetProjetoUseCase,
@@ -226,6 +227,22 @@ def desarquivar_projeto(projeto_id: int, current_user=Depends(require_gestao), d
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return {"id": result.id, "arquivado_em": result.arquivado_em}
+
+
+@router.delete("/projetos/{projeto_id}")
+def deletar_projeto_permanente(
+    projeto_id: int, current_user=Depends(require_diretor), db: Session = Depends(get_db)
+):
+    """Apagar de vez — só um projeto já arquivado, e sem volta. Restrito à
+    diretoria: mais pesado que arquivar, que já é diretor+gerente."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = DeleteProjetoPermanenteUseCase(db).execute(projeto_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
 
 
 @router.post("/projetos/{projeto_id}/anexo-proposta")

@@ -106,6 +106,7 @@ def serializar_escopo(escopo, contagem, catalogo_por_id, banca=None, escopos_da_
         "nome_customizado": escopo.nome_customizado,
         "nome": nome_do_escopo(escopo, catalogo_por_id),
         "frente_id": escopo.frente_id,
+        "ordem": escopo.ordem,
         "dias_uteis_vendidos": escopo.dias_uteis_vendidos,
         "status": escopo.status,
         "data_inicio": escopo.data_inicio,
