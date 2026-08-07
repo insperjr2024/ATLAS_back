@@ -22,6 +22,7 @@ from src.repositories.cronograma_repository import (
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.use_cases.cronograma.get_cronograma import GetCronogramaUseCase
 from src.use_cases.cronograma.update_cronograma import (
+    OficializarCronogramaUseCase,
     CreateEtapaUseCase,
     CreateMarcoUseCase,
     DeleteEtapaUseCase,

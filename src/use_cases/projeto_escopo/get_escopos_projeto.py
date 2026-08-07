@@ -18,6 +18,7 @@ from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
+from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.banca_status import calcular_status_banca
 from src.utils.contagem_dias import calcular_contagem_projeto
 from src.utils.janela_escopo import calcular_janela

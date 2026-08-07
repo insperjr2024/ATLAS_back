@@ -62,10 +62,19 @@ def upgrade() -> None:
 
     # server_default à mão nas duas: as tabelas já têm linhas, e NOT NULL sem
     # default falha (mesmo motivo da migration de permissões de cargo).
-    op.add_column(
-        'cronograma_reajuste_solicitacao',
-        sa.Column('dias_solicitados', sa.Integer(), nullable=False, server_default='0'),
-    )
+    #
+    # ⚠ Condicional por causa da ORDEM DO GRAFO depois do merge com a main.
+    # Numa base que já existia, a tabela está aqui e a coluna é adicionada
+    # normalmente. Mas numa base NOVA a cadeia passa antes por
+    # `72a7a5145a5a` (o revert da main), que DROPA a tabela — e aí este
+    # ALTER estourava com 1146, deixando o schema impossível de construir do
+    # zero. Quem repõe a tabela é `b1c4d7e90a22`, mais adiante, e ela já a
+    # cria com `dias_solicitados` dentro. Então aqui basta não atrapalhar.
+    if 'cronograma_reajuste_solicitacao' in sa.inspect(op.get_bind()).get_table_names():
+        op.add_column(
+            'cronograma_reajuste_solicitacao',
+            sa.Column('dias_solicitados', sa.Integer(), nullable=False, server_default='0'),
+        )
     op.add_column(
         'projeto_escopo',
         sa.Column('dias_uteis_ajustados', sa.Integer(), nullable=False, server_default='0'),
@@ -100,7 +109,8 @@ def downgrade() -> None:
         'projeto_escopo', sa.Column('cronograma_oficializado_em', mysql.DATETIME(), nullable=True)
     )
     op.drop_column('projeto_escopo', 'dias_uteis_ajustados')
-    op.drop_column('cronograma_reajuste_solicitacao', 'dias_solicitados')
+    if 'cronograma_reajuste_solicitacao' in sa.inspect(op.get_bind()).get_table_names():
+        op.drop_column('cronograma_reajuste_solicitacao', 'dias_solicitados')
 
     op.drop_index(op.f('ix_banca_remarcacao_id'), table_name='banca_remarcacao')
     op.drop_index(op.f('ix_banca_remarcacao_banca_id'), table_name='banca_remarcacao')

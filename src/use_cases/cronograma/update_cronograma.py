@@ -20,7 +20,7 @@ banca e a entrega ao cliente é exatamente quando os ajustes acontecem.
 """
 
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel
