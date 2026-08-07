@@ -53,8 +53,9 @@ class TestQuantidadeDeCoordenadores:
         with pytest.raises(RegraDeNegocioError, match="exatamente 1 coordenador"):
             validar_equipe(equipe, REPO)
 
-    def test_projeto_sem_nenhum_consultor_e_valido(self):
-        validar_equipe([MembroFake(COORD.id, "coordenador")], REPO)
+    def test_projeto_sem_nenhum_consultor_e_recusado(self):
+        with pytest.raises(RegraDeNegocioError, match="pelo menos 1 consultor"):
+            validar_equipe([MembroFake(COORD.id, "coordenador")], REPO)
 
 
 class TestPosicaoExigidaPorPapel:
@@ -67,23 +68,26 @@ class TestPosicaoExigidaPorPapel:
         with pytest.raises(RegraDeNegocioError, match="Bia Martins"):
             validar_equipe(equipe, REPO)
 
-    def test_coordenador_nao_pode_entrar_como_consultor(self):
+    def test_coordenador_pode_entrar_como_consultor_de_outro_projeto(self):
+        """Hierarquia: coordenador cobre a vaga de consultor, nunca o
+        contrário (§10 — quem sobe de posição não pode "descer" um papel)."""
         equipe = [
             MembroFake(COORD.id, "coordenador"),
             MembroFake(OUTRO_COORD.id, "consultor"),
         ]
-        with pytest.raises(RegraDeNegocioError, match="Bruno Dias"):
-            validar_equipe(equipe, REPO)
+        validar_equipe(equipe, REPO)
 
     @pytest.mark.parametrize("usuario", [GERENTE, DIRETOR])
-    def test_gerencia_e_diretoria_nao_ocupam_vaga_na_equipe(self, usuario):
-        """Elas acompanham o projeto pelo recorte de visão (§3), não pela equipe."""
+    def test_gerencia_e_diretoria_nao_podem_ser_coordenador_do_projeto(self, usuario):
         with pytest.raises(RegraDeNegocioError, match=usuario.nome):
             validar_equipe([MembroFake(usuario.id, "coordenador")], REPO)
 
+    @pytest.mark.parametrize("usuario", [GERENTE, DIRETOR])
+    def test_gerencia_e_diretoria_podem_ocupar_a_equipe_como_consultor(self, usuario):
+        """Diferente de coordenador: como consultor elas cabem — a hierarquia
+        (diretor > gerente > coordenador > consultor) cobre a vaga de baixo."""
         equipe = [MembroFake(COORD.id, "coordenador"), MembroFake(usuario.id, "consultor")]
-        with pytest.raises(RegraDeNegocioError, match=usuario.nome):
-            validar_equipe(equipe, REPO)
+        validar_equipe(equipe, REPO)
 
 
 class TestAlocacaoEmVariosProjetos:
