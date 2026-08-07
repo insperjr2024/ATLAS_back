@@ -17,7 +17,6 @@ StatusUsuario = Literal["ativo", "ex_membro", "desligado"]
 class UpdateUsuarioRequest(BaseModel):
     nome: Optional[str] = None
     email_insper: Optional[str] = None
-    cargo_id: Optional[int] = None
     posicao: Optional[Posicao] = None
     status: Optional[StatusUsuario] = None
     ativo: Optional[bool] = None
