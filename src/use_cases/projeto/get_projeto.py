@@ -42,6 +42,8 @@ def serializar_projeto_resumo(
         "sinergico": len(frentes) > 1,
         "coordenador_id": coordenador.usuario_id if coordenador else None,
         "consultor_ids": [m.usuario_id for m in membros if m.papel == "consultor"],
+        # Teto de consultores: a tela de vagas compara com quantos já entraram.
+        "max_consultores": projeto.max_consultores,
         "data_kickoff": projeto.data_kickoff,
         "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
         "arquivado_em": projeto.arquivado_em,
