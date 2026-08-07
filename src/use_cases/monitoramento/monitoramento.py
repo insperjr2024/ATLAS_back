@@ -978,6 +978,15 @@ class AtrasosUseCase(_BaseMonitoramento):
                     "projeto_nome": p.nome,
                     "status": p.status,
                     "dias_totais": atraso.dias_totais,
+                    # ⭐ O PIOR motivo isolado, que é o número que a tela mostra
+                    # em destaque desde 2026-08-06.
+                    #
+                    # Soma e pior caso respondem coisas diferentes: três escopos
+                    # com 4 dias cada somam 12 sem que nada esteja parado há 12
+                    # dias. Para "qual é o pior buraco que temos", o pior caso é
+                    # a resposta; a soma serve para medir volume acumulado, e
+                    # continua no payload porque a tabela por coordenador usa.
+                    "pior_motivo": max((m.dias for m in atraso.motivos), default=0),
                     "motivos": [
                         {
                             "tipo": m.tipo,
@@ -991,10 +1000,15 @@ class AtrasosUseCase(_BaseMonitoramento):
                     ],
                 }
             )
-        por_projeto.sort(key=lambda x: -x["dias_totais"])
+        # ⚠ Ordena pelo PIOR MOTIVO, que é o número em destaque na tela. Ordenar
+        # pela soma enquanto a tela mostra o pior caso deixaria a lista parecendo
+        # embaralhada — o primeiro item teria um número menor que o segundo, sem
+        # nada explicando por quê. A soma é o desempate.
+        por_projeto.sort(key=lambda x: (-x["pior_motivo"], -x["dias_totais"]))
 
         # Por coordenador: o objetivo do §7.4 é identificar PADRÃO recorrente,
         # não julgar um caso isolado — por isso conta projetos e dias juntos.
+        nomes_projeto = {p.id: p.nome for p in projetos}
         membros = self.membro_repository.get_by_projetos([p.id for p in projetos], apenas_atuais=True)
         usuarios = {u.id: u for u in self.usuario_repository.get_all()}
         por_coordenador: Dict[int, dict] = {}
@@ -1009,20 +1023,62 @@ class AtrasosUseCase(_BaseMonitoramento):
                     "nome": usuario.nome if usuario else f"Usuário {m.usuario_id}",
                     "projetos": 0,
                     "atrasados": 0,
-                    "dias_acumulados": 0,
+                    # ⭐ O pior caso substituiu o acumulado na tela: "40 dias
+                    # somados" não diz se são quatro atrasos de 10 ou um de 40,
+                    # e a ação é diferente em cada caso.
+                    #
+                    # Vem com o CONTEXTO junto — de qual projeto e por qual
+                    # motivo. Um número solto obrigaria a procurar na tabela de
+                    # cima qual dos projetos dele é o tal.
+                    "pior_dias": 0,
+                    "pior_projeto": "",
+                    "pior_motivo": "",
                 },
             )
             entrada["projetos"] += 1
             atraso = atrasos.get(m.projeto_id)
             if atraso and atraso.atrasado:
                 entrada["atrasados"] += 1
-                entrada["dias_acumulados"] += atraso.dias_totais
+                pior = max(atraso.motivos, key=lambda x: x.dias, default=None)
+                if pior and pior.dias > entrada["pior_dias"]:
+                    entrada["pior_dias"] = pior.dias
+                    entrada["pior_projeto"] = nomes_projeto.get(m.projeto_id, "")
+                    entrada["pior_motivo"] = pior.descricao
 
+        # Ordena pelo pior caso — o número que a tabela mostra —, com o número
+        # de atrasados como desempate. Ordenar pelo acumulado, que saiu da tela,
+        # deixaria a lista sem critério visível.
+        por_coordenador_lista = sorted(
+            por_coordenador.values(), key=lambda x: (-x["pior_dias"], -x["atrasados"])
+        )
+
+        # 🎯 Os três números da faixa do topo, calculados AQUI e não na tela: a
+        # divisão banca/entrega decide a leitura do §7.4 ("o pilar é a banca"),
+        # e o front recontar isso a partir das descrições seria reimplementar a
+        # classificação que o backend já faz.
+        motivos = [m for p in por_projeto for m in p["motivos"]]
         return {
             "por_projeto": por_projeto,
-            "por_coordenador": sorted(
-                por_coordenador.values(), key=lambda x: -x["dias_acumulados"]
-            ),
+            "por_coordenador": por_coordenador_lista,
+            "resumo": {
+                "projetos": len(por_projeto),
+                "pior_caso": max((m["dias"] for m in motivos), default=0),
+                # 🤝 Entrega travada do lado do CLIENTE.
+                #
+                # O §7.4 tira isso do que se cobra do time — a agenda não é
+                # dele. Mas continua sendo o caso mais delicado do portfólio:
+                # é o cliente esperando, e quem resolve é a diretoria falando
+                # com ele, não o coordenador trabalhando mais.
+                #
+                "com_externo": sum(
+                    1
+                    for p in por_projeto
+                    if any(m["tipo"] == "entrega_externa" for m in p["motivos"])
+                ),
+                "pior_externo": max(
+                    (m["dias"] for m in motivos if m["tipo"] == "entrega_externa"), default=0
+                ),
+            },
         }
 
 
