@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,6 +17,10 @@ from src.utils.notificar import notificar
 
 class CreateSolicitacaoTrocaRequest(BaseModel):
     candidatura_id: int
+    #: Nulo = pedido aberto pro pool de elegíveis (comportamento de sempre).
+    #: Preenchido = convite direto pra essa pessoa — só ela pode confirmar,
+    #: e só ela é notificada (não o pool inteiro).
+    usuario_convidado_id: Optional[int] = None
 
 
 class CreateSolicitacaoTrocaUseCase:
@@ -46,23 +51,57 @@ class CreateSolicitacaoTrocaUseCase:
         if ja_pendente:
             raise RegraDeNegocioError("Já existe uma solicitação de troca pendente para esta candidatura")
 
+        convidado_id = request.usuario_convidado_id
+        if convidado_id is not None:
+            self._validar_convidado(banca, usuario_id, convidado_id)
+
         solicitacao = self.repository.create(
             banca_id=banca.id,
             usuario_original_id=usuario_id,
             candidatura_id=candidatura.id,
             criado_em=datetime.now(),
+            usuario_convidado_id=convidado_id,
         )
-        self._notificar_elegiveis(banca)
+        if convidado_id is not None:
+            self._notificar_convidado(banca, convidado_id)
+        else:
+            self._notificar_elegiveis(banca)
         return serializar_solicitacao_troca(solicitacao)
+
+    def _excluidos(self, banca) -> set:
+        """Quem NÃO pode confirmar esta troca (§8): já candidato desta banca,
+        coordenador ou equipe do próprio projeto. Mesma regra usada pro pool
+        aberto e pra validar um convite específico."""
+        excluidos = {c.usuario_id for c in self.candidatura_repository.get_by_banca(banca.id)}
+        excluidos.add(banca.coordenador_id)
+        excluidos.update(e.usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id))
+        return excluidos
+
+    def _validar_convidado(self, banca, usuario_id: int, convidado_id: int) -> None:
+        if convidado_id == usuario_id:
+            raise RegraDeNegocioError("Você não pode convidar a si mesmo para a troca")
+        convidado = self.usuario_repository.get_by_id(convidado_id)
+        if not convidado or not convidado.ativo:
+            raise RegraDeNegocioError("Pessoa convidada não encontrada ou inativa")
+        if convidado_id in self._excluidos(banca):
+            raise RegraDeNegocioError(
+                "Esta pessoa não pode ser convidada: já é candidata desta banca ou é do grupo do projeto"
+            )
+
+    def _notificar_convidado(self, banca, convidado_id: int) -> None:
+        notificar(
+            self.db,
+            convidado_id,
+            f"Você foi convidado a assumir uma vaga na banca de {banca.nome_projeto}.",
+            banca_id=banca.id,
+            tipo="troca_banca",
+        )
 
     def _notificar_elegiveis(self, banca) -> None:
         """Pedido aberto para qualquer elegível (§8) — avisa quem PODERIA
         confirmar, mesma regra de exclusão de `confirmar_solicitacao_troca`
         (fora do grupo do projeto, ainda não candidato desta banca)."""
-        excluidos = {c.usuario_id for c in self.candidatura_repository.get_by_banca(banca.id)}
-        excluidos.add(banca.coordenador_id)
-        excluidos.update(e.usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id))
-
+        excluidos = self._excluidos(banca)
         mensagem = f"Há uma solicitação de troca aberta para a banca de {banca.nome_projeto}."
         for usuario in self.usuario_repository.get_ativos():
             if usuario.id not in excluidos:

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.desempenho_mentoria.get_mentoria import serializar_mentoria
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -38,4 +39,12 @@ class CreateMentoriaUseCase:
             raise RegraDeNegocioError("Este mentorado já tem um mentor — remova o vínculo atual primeiro")
 
         mentoria = self.repository.create(mentor_id=request.mentor_id, mentorado_id=request.mentorado_id)
-        return {"id": mentoria.id, "mentor_id": mentoria.mentor_id, "mentorado_id": mentoria.mentorado_id}
+        # Mesma forma da listagem, incluindo os nomes: a tela acrescenta o que
+        # volta daqui direto na lista que já está na mão, sem recarregar. Sem
+        # os nomes, o vínculo recém-criado aparecia como uma linha em branco
+        # até alguém dar F5.
+        mentorado = self.usuario_repo.get_by_id(request.mentorado_id)
+        return serializar_mentoria(
+            mentoria,
+            {mentor.id: mentor.nome, **({mentorado.id: mentorado.nome} if mentorado else {})},
+        )

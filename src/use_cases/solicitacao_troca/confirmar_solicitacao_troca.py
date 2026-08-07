@@ -31,6 +31,9 @@ class ConfirmarSolicitacaoTrocaUseCase:
         if solicitacao.usuario_original_id == usuario_id:
             raise RegraDeNegocioError("Você não pode confirmar a própria solicitação de troca")
 
+        if solicitacao.usuario_convidado_id is not None and solicitacao.usuario_convidado_id != usuario_id:
+            raise RegraDeNegocioError("Esta troca foi enviada como convite para outra pessoa")
+
         banca = self.banca_repository.get_by_id(solicitacao.banca_id)
         status = calcular_status_banca(banca.data_hora, banca.realizado_em)
         if not aceita_inscricao(status):
