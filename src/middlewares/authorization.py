@@ -3,10 +3,12 @@
 Duas dimensões que convivem, e não devem ser confundidas:
 
 - **`cargo`** (9 das 10 caixas da tabela do §3 — "aprovar reajuste" saiu em
-  2026-08-06 junto com a feature de reajuste, que foi removida — + as 4 que
-  estenderam essa tabela depois — Avaliação de Desempenho, formulários dela,
-  Núcleo e Configurações) → quem DECIDE em runtime, editável na tela de
-  Cargos.
+  2026-08-06 junto com a feature de reajuste, que foi removida — + as 3 que
+  estenderam essa tabela depois — Avaliação de Desempenho, formulários dela
+  e Configurações) → quem DECIDE em runtime, editável na tela de Cargos.
+  ("Ver o Núcleo" existiu brevemente como a 4ª extensão, mas a página em si
+  foi substituída pelo Dashboard Bancas antes de a permissão ser usada, e
+  saiu junto em 2026-08-06.)
 - **`posicao`** (diretor · gerente · coordenador · consultor) → define o PADRÃO
   com que cada cargo nasce (ver a migration `7514970fac39`); `require_diretor`
   e `require_posicao(...)` ainda travam o que não virou caixa de cargo.
@@ -106,9 +108,6 @@ require_pode_editar_formularios_desempenho = _dependencia_permissao(
     "pode_editar_formularios_desempenho",
     "Você não tem permissão para editar os formulários de Avaliação de Desempenho",
 )
-
-require_pode_ver_nucleo = _dependencia_permissao(
-    "pode_ver_nucleo", "Você não tem permissão para ver o Núcleo")
 
 require_pode_administrar_configuracoes = _dependencia_permissao(
     "pode_administrar_configuracoes",

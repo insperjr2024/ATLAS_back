@@ -14,7 +14,7 @@ Projetos em si não são filtrados por semestre — o §12 diz que os que
 atravessam a virada continuam ativos.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -187,6 +187,40 @@ class _BaseMonitoramento:
         }
 
 
+#: Quantos meses a tendência de entregas cobre.
+MESES_DE_TENDENCIA = 6
+
+
+def _tendencia_mensal(entregas, hoje: date) -> List[dict]:
+    """As entregas por MÊS nos últimos `MESES_DE_TENDENCIA`, do mais antigo ao
+    mais novo.
+
+    Mês, e não semana: entrega de escopo é evento raro — num núcleo com 50
+    projetos saem poucas por semana, e a série semanal virava uma fileira de
+    zeros com um pico solto. No mês o ritmo aparece.
+
+    ⚠ O mês corrente entra **incompleto**, e é assim que tem de ser: a última
+    barra é "o que saiu até agora", não uma previsão. Quem olha no dia 3 vê
+    pouco porque de fato ainda é dia 3.
+
+    A aritmética é feita em (ano, mês) e não somando dias: 6 × 30 dias não é
+    meio ano, e somar `timedelta` a uma data de 31 escorrega de mês.
+    """
+    meses = []
+    ano, mes = hoje.year, hoje.month
+    for _ in range(MESES_DE_TENDENCIA):
+        meses.append((ano, mes))
+        mes -= 1
+        if mes == 0:
+            ano, mes = ano - 1, 12
+    meses.reverse()
+
+    por_mes = Counter((e["data"].year, e["data"].month) for e in entregas)
+    return [
+        {"inicio": date(a, m, 1), "total": por_mes.get((a, m), 0)} for a, m in meses
+    ]
+
+
 def _agrupar(itens, campo: str) -> Dict[int, list]:
     mapa = defaultdict(list)
     for item in itens:
@@ -286,48 +320,34 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         ]
 
     def _entregas(self, projetos, ctx, semestre, hoje):
-        """Contador + lista + tendência semanal (§7.1) — o contraponto positivo."""
-        nomes_projeto = {p.id: p.nome for p in projetos}
-        realizadas = []
-        for projeto_id, escopos in ctx["escopos_por_projeto"].items():
-            for e in escopos:
-                if not e.data_entrega_real:
-                    continue
-                if semestre and not (semestre.inicio <= e.data_entrega_real <= semestre.fim):
-                    continue
-                no_prazo = (
-                    e.data_entrega_planejada is None
-                    or e.data_entrega_real <= e.data_entrega_planejada
-                )
-                realizadas.append(
-                    {
-                        "projeto_id": projeto_id,
-                        "projeto_nome": nomes_projeto.get(projeto_id, ""),
-                        "escopo": ctx["nomes_escopo"].get(e.id, ""),
-                        "data": e.data_entrega_real,
-                        "no_prazo": no_prazo,
-                    }
-                )
-        realizadas.sort(key=lambda r: r["data"], reverse=True)
+        """Contador + lista + tendência mensal (§7.1) — o contraponto positivo.
 
-        # Tendência por semana nas últimas 8 — bucketizar em Python é mais
-        # simples e testável do que em SQL.
-        tendencia = []
-        for semanas_atras in range(7, -1, -1):
-            inicio = hoje - timedelta(days=hoje.weekday() + 7 * semanas_atras)
-            fim = inicio + timedelta(days=6)
-            tendencia.append(
-                {
-                    "inicio": inicio,
-                    "total": sum(1 for r in realizadas if inicio <= r["data"] <= fim),
-                }
-            )
+        ⚠ **O contador e a tendência medem populações DIFERENTES, de propósito.**
+        `total_escopos` conta só a gestão atual, que é o assunto do card. A
+        tendência abre 6 meses e **ignora o semestre**: a gestão 2026.2 começou
+        em julho, então uma janela de meio ano recortada por ela viria com
+        quatro meses zerados — um gráfico que não responde nada.
+
+        Como as duas leituras convivem no mesmo card, somar as barras NÃO dá o
+        número do título.
+
+        A lista `recentes` e a contagem `projetos_finalizados` saíram em
+        2026-08-06: o card virou só o gráfico e nenhuma das duas tinha mais
+        quem as lesse.
+        """
+        todas = [
+            {"data": e.data_entrega_real}
+            for escopos in ctx["escopos_por_projeto"].values()
+            for e in escopos
+            if e.data_entrega_real
+        ]
+        na_gestao = [
+            r for r in todas if not semestre or semestre.inicio <= r["data"] <= semestre.fim
+        ]
 
         return {
-            "total_escopos": len(realizadas),
-            "projetos_finalizados": sum(1 for p in projetos if p.status == "finalizado"),
-            "recentes": realizadas[:5],
-            "tendencia": tendencia,
+            "total_escopos": len(na_gestao),
+            "tendencia": _tendencia_mensal(todas, hoje),
         }
 
     def _bancas_proximas(self, projetos, ctx, hoje):
@@ -352,6 +372,9 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             item = por_banca.setdefault(
                 banca.id,
                 {
+                    # O id da banca vai para a tela: sem ele o card só consegue
+                    # levar ao projeto, e o pedido é abrir A BANCA.
+                    "banca_id": banca.id,
                     "projeto_id": projeto_id,
                     "projeto_nome": nomes_projeto.get(projeto_id, ""),
                     "escopos": [],
@@ -362,6 +385,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
 
         proximas = [
             {
+                "banca_id": item["banca_id"],
                 "projeto_id": item["projeto_id"],
                 "projeto_nome": item["projeto_nome"],
                 "escopo": " + ".join(sorted(item["escopos"])),
@@ -436,10 +460,15 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         )
         por_projeto = _agrupar(condicoes, "projeto_id")
 
-        def item(projeto, motivo, dias=None):
+        def item(projeto, tipo, motivo, dias=None):
             return {
                 "projeto_id": projeto.id,
                 "projeto_nome": projeto.nome,
+                # ⭐ O TIPO vai junto do texto para a tela poder filtrar. O
+                # `motivo` é frase escrita para humano ("3 tarefa(s)
+                # vencida(s)") e muda de redação; agrupar por ela seria
+                # agrupar por string livre, que quebra na primeira reescrita.
+                "tipo": tipo,
                 "motivo": motivo,
                 "dias": dias,
             }
@@ -451,19 +480,22 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             tipos = {c.tipo for c in do_projeto}
 
             if KICKOFF_PENDENTE in tipos:
-                itens.append(item(p, "kickoff não marcado"))
+                itens.append(item(p, "kickoff", "kickoff não marcado"))
 
+            # `motivo.tipo` já é "banca" | "entrega_interna" | "entrega_externa"
+            # — reaproveitado em vez de reclassificar pela descrição.
             for motivo in atrasos[p.id].motivos:
-                itens.append(item(p, motivo.descricao, motivo.dias))
+                itens.append(item(p, motivo.tipo, motivo.descricao, motivo.dias))
 
             if PROJETO_SEM_REUNIAO in tipos:
-                itens.append(item(p, "sem reunião registrada esta semana"))
+                itens.append(item(p, "reuniao", "sem reunião registrada esta semana"))
 
             vencidas = [c for c in do_projeto if c.tipo == TAREFA_VENCIDA]
             if vencidas:
                 itens.append(
                     item(
                         p,
+                        "tarefa",
                         f"{len(vencidas)} tarefa(s) vencida(s)",
                         max(c.dias for c in vencidas),
                     )
@@ -954,13 +986,37 @@ class AtrasosUseCase(_BaseMonitoramento):
                     "projeto_nome": p.nome,
                     "status": p.status,
                     "dias_totais": atraso.dias_totais,
-                    "motivos": [self._motivo_dict(m, justificativas) for m in atraso.motivos],
+                    # ⭐ O PIOR motivo isolado, que é o número que a tela mostra
+                    # em destaque desde 2026-08-06.
+                    #
+                    # Soma e pior caso respondem coisas diferentes: três escopos
+                    # com 4 dias cada somam 12 sem que nada esteja parado há 12
+                    # dias. Para "qual é o pior buraco que temos", o pior caso é
+                    # a resposta; a soma serve para medir volume acumulado, e
+                    # continua no payload porque a tabela por coordenador usa.
+                    "pior_motivo": max((m.dias for m in atraso.motivos), default=0),
+                    "motivos": [
+                        {
+                            "tipo": m.tipo,
+                            "descricao": m.descricao,
+                            "dias": m.dias,
+                            "escopo": m.escopo_nome,
+                            "projeto_escopo_id": m.projeto_escopo_id,
+                            "data_referencia": m.data_referencia,
+                        }
+                        for m in atraso.motivos
+                    ],
                 }
             )
-        por_projeto.sort(key=lambda x: -x["dias_totais"])
+        # ⚠ Ordena pelo PIOR MOTIVO, que é o número em destaque na tela. Ordenar
+        # pela soma enquanto a tela mostra o pior caso deixaria a lista parecendo
+        # embaralhada — o primeiro item teria um número menor que o segundo, sem
+        # nada explicando por quê. A soma é o desempate.
+        por_projeto.sort(key=lambda x: (-x["pior_motivo"], -x["dias_totais"]))
 
         # Por coordenador: o objetivo do §7.4 é identificar PADRÃO recorrente,
         # não julgar um caso isolado — por isso conta projetos e dias juntos.
+        nomes_projeto = {p.id: p.nome for p in projetos}
         membros = self.membro_repository.get_by_projetos([p.id for p in projetos], apenas_atuais=True)
         usuarios = {u.id: u for u in self.usuario_repository.get_all()}
         por_coordenador: Dict[int, dict] = {}
@@ -975,20 +1031,62 @@ class AtrasosUseCase(_BaseMonitoramento):
                     "nome": usuario.nome if usuario else f"Usuário {m.usuario_id}",
                     "projetos": 0,
                     "atrasados": 0,
-                    "dias_acumulados": 0,
+                    # ⭐ O pior caso substituiu o acumulado na tela: "40 dias
+                    # somados" não diz se são quatro atrasos de 10 ou um de 40,
+                    # e a ação é diferente em cada caso.
+                    #
+                    # Vem com o CONTEXTO junto — de qual projeto e por qual
+                    # motivo. Um número solto obrigaria a procurar na tabela de
+                    # cima qual dos projetos dele é o tal.
+                    "pior_dias": 0,
+                    "pior_projeto": "",
+                    "pior_motivo": "",
                 },
             )
             entrada["projetos"] += 1
             atraso = atrasos.get(m.projeto_id)
             if atraso and atraso.atrasado:
                 entrada["atrasados"] += 1
-                entrada["dias_acumulados"] += atraso.dias_totais
+                pior = max(atraso.motivos, key=lambda x: x.dias, default=None)
+                if pior and pior.dias > entrada["pior_dias"]:
+                    entrada["pior_dias"] = pior.dias
+                    entrada["pior_projeto"] = nomes_projeto.get(m.projeto_id, "")
+                    entrada["pior_motivo"] = pior.descricao
 
+        # Ordena pelo pior caso — o número que a tabela mostra —, com o número
+        # de atrasados como desempate. Ordenar pelo acumulado, que saiu da tela,
+        # deixaria a lista sem critério visível.
+        por_coordenador_lista = sorted(
+            por_coordenador.values(), key=lambda x: (-x["pior_dias"], -x["atrasados"])
+        )
+
+        # 🎯 Os três números da faixa do topo, calculados AQUI e não na tela: a
+        # divisão banca/entrega decide a leitura do §7.4 ("o pilar é a banca"),
+        # e o front recontar isso a partir das descrições seria reimplementar a
+        # classificação que o backend já faz.
+        motivos = [m for p in por_projeto for m in p["motivos"]]
         return {
             "por_projeto": por_projeto,
-            "por_coordenador": sorted(
-                por_coordenador.values(), key=lambda x: -x["dias_acumulados"]
-            ),
+            "por_coordenador": por_coordenador_lista,
+            "resumo": {
+                "projetos": len(por_projeto),
+                "pior_caso": max((m["dias"] for m in motivos), default=0),
+                # 🤝 Entrega travada do lado do CLIENTE.
+                #
+                # O §7.4 tira isso do que se cobra do time — a agenda não é
+                # dele. Mas continua sendo o caso mais delicado do portfólio:
+                # é o cliente esperando, e quem resolve é a diretoria falando
+                # com ele, não o coordenador trabalhando mais.
+                #
+                "com_externo": sum(
+                    1
+                    for p in por_projeto
+                    if any(m["tipo"] == "entrega_externa" for m in p["motivos"])
+                ),
+                "pior_externo": max(
+                    (m["dias"] for m in motivos if m["tipo"] == "entrega_externa"), default=0
+                ),
+            },
         }
 
     def _motivo_dict(self, motivo, justificativas) -> dict:

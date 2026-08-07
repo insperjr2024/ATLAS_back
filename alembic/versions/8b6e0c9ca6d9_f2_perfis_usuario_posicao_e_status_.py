@@ -35,23 +35,32 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_usuario_posicao_historico_id'), 'usuario_posicao_historico', ['id'], unique=False)
     op.create_index(op.f('ix_usuario_posicao_historico_usuario_id'), 'usuario_posicao_historico', ['usuario_id'], unique=False)
-    op.add_column('usuario', sa.Column('posicao', sa.Enum('diretor', 'gerente', 'coordenador', 'consultor', name='posicao_usuario'), server_default='consultor', nullable=False))
-    op.add_column('usuario', sa.Column('status', sa.Enum('ativo', 'ex_membro', 'desligado', name='status_usuario'), server_default='ativo', nullable=False))
+    # No MySQL o ENUM nasce junto com a coluna. No Postgres é um TYPE à parte
+    # — `add_column` numa tabela já existente não cria o type sozinho (só
+    # `create_table` faz isso), então precisa criar antes, explícito.
+    # `checkfirst=True` faz o `.create()` ser um no-op no MySQL.
+    posicao_usuario = sa.Enum('diretor', 'gerente', 'coordenador', 'consultor', name='posicao_usuario')
+    posicao_usuario.create(op.get_bind(), checkfirst=True)
+    op.add_column('usuario', sa.Column('posicao', posicao_usuario, server_default='consultor', nullable=False))
+    status_usuario = sa.Enum('ativo', 'ex_membro', 'desligado', name='status_usuario')
+    status_usuario.create(op.get_bind(), checkfirst=True)
+    op.add_column('usuario', sa.Column('status', status_usuario, server_default='ativo', nullable=False))
     # ### end Alembic commands ###
 
     # Backfill: quem já estava desativado vira ex_membro, não fica como "ativo".
     # `desligado` é decisão humana e não dá para inferir do booleano — quem foi
     # desligado de verdade a diretoria remarca pela tela de Membros.
-    op.execute("UPDATE usuario SET status = 'ex_membro' WHERE ativo = 0")
+    # `false`/`true` em vez de 0/1: Postgres não compara boolean com inteiro.
+    op.execute("UPDATE usuario SET status = 'ex_membro' WHERE ativo = false")
 
     # Quem já podia gerenciar cargos é a diretoria; o resto começa consultor e a
-    # diretoria ajusta na virada.
+    # diretoria ajusta na virada. Subquery em vez de `UPDATE ... JOIN`
+    # (exclusivo do MySQL) — essa forma roda igual em MySQL e Postgres.
     op.execute(
         """
-        UPDATE usuario u
-        JOIN cargo c ON c.id = u.cargo_id
-        SET u.posicao = 'diretor'
-        WHERE c.pode_gerenciar_cargos = 1
+        UPDATE usuario
+        SET posicao = 'diretor'
+        WHERE cargo_id IN (SELECT id FROM cargo WHERE pode_gerenciar_cargos = true)
         """
     )
 
