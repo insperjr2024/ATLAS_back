@@ -27,3 +27,23 @@ def redefinir_enum_postgres(op, tabela: str, coluna: str, nome_tipo: str, valore
     )
     op.execute(f"DROP TYPE {nome_tipo}")
     op.execute(f"ALTER TYPE {tipo_tmp} RENAME TO {nome_tipo}")
+
+
+def nome_da_fk(op, tabela: str, coluna: str):
+    """O nome real da FK daquela coluna, perguntando ao banco.
+
+    ⚠ **Nome de FK não é portável.** O Postgres gera
+    `configuracao_cargo_padrao_id_fkey`; o MySQL gera `configuracao_ibfk_1`.
+    Uma migration que crava o nome de um dos dois quebra no outro com 1091
+    ("Can't DROP ...; check that column/key exists") — foi o que aconteceu com
+    `03ea41a273d0` ao rodar em MySQL.
+
+    Devolve `None` quando não há FK naquela coluna, para o chamador poder
+    simplesmente pular o `drop_constraint` em vez de estourar.
+    """
+    import sqlalchemy as sa
+
+    for fk in sa.inspect(op.get_bind()).get_foreign_keys(tabela):
+        if coluna in fk["constrained_columns"]:
+            return fk["name"]
+    return None
