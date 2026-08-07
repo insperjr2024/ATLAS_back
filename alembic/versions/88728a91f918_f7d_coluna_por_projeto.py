@@ -43,7 +43,14 @@ def upgrade() -> None:
     # ⚠ A unicidade GLOBAL de `chave` tem que cair ANTES dos clones: cada
     # projeto vai ter o seu "a_fazer", e com ela de pé o primeiro INSERT já
     # bate em "Duplicate entry".
-    op.drop_constraint('chave', 'tarefa_coluna', type_='unique')
+    # 'chave' é o nome que o MySQL dá sozinho a um UNIQUE sem nome explícito
+    # (nomeia pela coluna) — o Postgres nomeia diferente, então busca o nome
+    # de verdade em vez de chutar.
+    _nome_unique_chave = next(
+        uq['name'] for uq in sa.inspect(conexao).get_unique_constraints('tarefa_coluna')
+        if uq['column_names'] == ['chave']
+    )
+    op.drop_constraint(_nome_unique_chave, 'tarefa_coluna', type_='unique')
 
     globais = conexao.execute(
         sa.text(
@@ -56,7 +63,7 @@ def upgrade() -> None:
     # 2 e 3 · Uma cópia por projeto, e as tarefas apontando para a própria.
     for (projeto_id,) in projetos:
         for antiga in globais:
-            resultado = conexao.execute(
+            conexao.execute(
                 sa.text(
                     "INSERT INTO tarefa_coluna "
                     "(projeto_id, chave, nome, cor, ordem, encerra_tarefa) "
@@ -71,12 +78,19 @@ def upgrade() -> None:
                     "encerra": antiga.encerra_tarefa,
                 },
             )
+            # `.lastrowid` é MySQL/SQLite — o Postgres não tem "last insert
+            # id" de cursor. Busca de volta pelo par (projeto, chave), que é
+            # único dentro deste loop.
+            nova_id = conexao.execute(
+                sa.text("SELECT id FROM tarefa_coluna WHERE projeto_id = :p AND chave = :chave"),
+                {"p": projeto_id, "chave": antiga.chave},
+            ).scalar()
             conexao.execute(
                 sa.text(
                     "UPDATE tarefa SET coluna_id = :nova "
                     "WHERE projeto_id = :p AND coluna_id = :antiga"
                 ),
-                {"nova": resultado.lastrowid, "p": projeto_id, "antiga": antiga.id},
+                {"nova": nova_id, "p": projeto_id, "antiga": antiga.id},
             )
 
     # 4 · As globais já não têm tarefa apontando para elas.

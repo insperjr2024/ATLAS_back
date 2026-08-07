@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.desempenho_mentoria.get_mentoria import serializar_mentoria
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -11,10 +12,16 @@ class CreateMentoriaRequest(BaseModel):
     mentorado_id: int
 
 
+#: Quem pode ser mentor — liderança acima do consultor. Coordenador é o
+#: caso comum, mas gerente e diretor também assumem mentorado quando a
+#: diretoria decide (2026-08-06).
+POSICOES_ELEGIVEIS_MENTOR = ("coordenador", "gerente", "diretor")
+
+
 class CreateMentoriaUseCase:
-    """Elegibilidade de mentor: `usuario.posicao == 'coordenador'` (regra
-    2.5) — sem tabela de cargo separada. O vínculo em si é sempre escolha
-    manual do admin."""
+    """Elegibilidade de mentor: posição em `POSICOES_ELEGIVEIS_MENTOR` — sem
+    tabela de cargo separada. O vínculo em si é sempre escolha manual do
+    admin."""
 
     def __init__(self, db: Session):
         self.repository = DesempenhoMentoriaRepository(db)
@@ -25,11 +32,19 @@ class CreateMentoriaUseCase:
             raise RegraDeNegocioError("Mentor e mentorado não podem ser a mesma pessoa")
 
         mentor = self.usuario_repo.get_by_id(request.mentor_id)
-        if not mentor or mentor.posicao != "coordenador":
-            raise RegraDeNegocioError("O mentor precisa ser um coordenador")
+        if not mentor or mentor.posicao not in POSICOES_ELEGIVEIS_MENTOR:
+            raise RegraDeNegocioError("O mentor precisa ser coordenador, gerente ou diretor")
 
         if self.repository.get_mentor_de(request.mentorado_id):
             raise RegraDeNegocioError("Este mentorado já tem um mentor — remova o vínculo atual primeiro")
 
         mentoria = self.repository.create(mentor_id=request.mentor_id, mentorado_id=request.mentorado_id)
-        return {"id": mentoria.id, "mentor_id": mentoria.mentor_id, "mentorado_id": mentoria.mentorado_id}
+        # Mesma forma da listagem, incluindo os nomes: a tela acrescenta o que
+        # volta daqui direto na lista que já está na mão, sem recarregar. Sem
+        # os nomes, o vínculo recém-criado aparecia como uma linha em branco
+        # até alguém dar F5.
+        mentorado = self.usuario_repo.get_by_id(request.mentorado_id)
+        return serializar_mentoria(
+            mentoria,
+            {mentor.id: mentor.nome, **({mentorado.id: mentorado.nome} if mentorado else {})},
+        )

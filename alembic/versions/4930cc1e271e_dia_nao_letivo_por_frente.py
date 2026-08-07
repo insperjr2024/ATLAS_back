@@ -42,7 +42,9 @@ def upgrade() -> None:
         'dia_nao_letivo',
         ['semestre_id', 'frente_id', 'data'],
     )
-    op.drop_index(op.f('uq_dia_nao_letivo_semestre_data'), table_name='dia_nao_letivo')
+    # Nasceu como `UniqueConstraint` (não índice) na `41718600bc82`. No MySQL
+    # os dois se derrubam do mesmo jeito; o Postgres exige `drop_constraint`.
+    op.drop_constraint('uq_dia_nao_letivo_semestre_data', 'dia_nao_letivo', type_='unique')
     op.create_foreign_key(
         'fk_dia_nao_letivo_frente', 'dia_nao_letivo', 'frente', ['frente_id'], ['id']
     )

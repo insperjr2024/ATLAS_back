@@ -29,6 +29,10 @@ from src.use_cases.banca.marcar_banca_escopo import (
     RegistrarResultadoBancaUseCase,
     RegistrarResultadoRequest,
 )
+from src.use_cases.banca.registrar_descricao_coordenador import (
+    RegistrarDescricaoCoordenadorRequest,
+    RegistrarDescricaoCoordenadorUseCase,
+)
 from src.use_cases.banca.update_banca import UpdateBancaUseCase, UpdateBancaRequest, DeleteBancaUseCase
 from src.use_cases.banca_frente.create_banca_frente import CreateBancaFrenteUseCase, CreateBancaFrenteRequest
 from src.use_cases.banca_frente.get_banca_frente import GetBancaFrenteUseCase, ListBancasFrentesUseCase
@@ -170,6 +174,23 @@ def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_u
     return result
 
 
+@router.patch("/bancas/{banca_id}/descricao-coordenador")
+def registrar_descricao_coordenador(
+    banca_id: int,
+    request: RegistrarDescricaoCoordenadorRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """O relato do coordenador sobre a banca — ele não é avaliador dela."""
+    try:
+        result = RegistrarDescricaoCoordenadorUseCase(db).execute(banca_id, request, usuario_id=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Banca não encontrada")
+    return result
+
+
 @router.patch("/bancas/{banca_id}/resultado")
 def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     """🔒 É o resultado que libera a entrega ao cliente (§5.5, §8)."""
@@ -218,6 +239,7 @@ def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, cu
             request,
             eh_diretor=current_user.posicao == "diretor",
             current_user=current_user,
+            registrado_por=current_user.id,
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))

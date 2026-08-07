@@ -30,7 +30,7 @@ class MembroEquipeRequest(BaseModel):
 
 class CreateProjetoRequest(BaseModel):
     nome: str
-    cliente: str
+    cliente: Optional[str] = None
     descricao: Optional[str] = None
     link_proposta: Optional[str] = None
     #: Sem teto: um projeto pode ser vendido para quantas frentes forem
@@ -101,7 +101,11 @@ class CreateProjetoUseCase:
         for frente_id in request.frente_ids:
             self.frente_repository.create(projeto_id=projeto.id, frente_id=frente_id)
 
-        for escopo in request.escopos:
+        # A ordem é a do array que chegou — a hierarquia dos 4 clássicos da
+        # Business (Merc/Op/Mkt/Fin) já vem aplicada pelo `EscopoPicker` no
+        # front, e as setinhas de lá deixam reordenar antes de criar. Aqui
+        # só respeita o que foi mandado, sem reinterpretar.
+        for indice, escopo in enumerate(request.escopos):
             self.escopo_repository.create(
                 projeto_id=projeto.id,
                 escopo_id=escopo.escopo_id,
@@ -110,6 +114,7 @@ class CreateProjetoUseCase:
                 dias_uteis_vendidos=escopo.dias_uteis_vendidos,
                 data_entrega_planejada=escopo.data_entrega_planejada,
                 status="nao_iniciado",
+                ordem=indice,
             )
 
         hoje = date.today()

@@ -35,7 +35,9 @@ def upgrade() -> None:
             'senha_provisoria',
             sa.Boolean(),
             nullable=False,
-            server_default=sa.text('0'),
+            # `false`, não `sa.text('0')`: um 0 cru sem aspas no DEFAULT não
+            # converte pra boolean sozinho no Postgres (o MySQL aceita).
+            server_default=sa.text('false'),
         ),
     )
 

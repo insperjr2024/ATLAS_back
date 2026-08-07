@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.authorization import (
     exigir_acesso_ao_projeto,
-    require_pode_aprovar_reajuste,
+    require_diretor,
     require_pode_definir_cronograma,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -57,7 +57,7 @@ def _projeto_da_etapa(etapa_id: int, current_user, db: Session) -> int:
 
 
 def _executar(acao):
-    """Regra de negócio vira 422.
+    """Traduz `RegraDeNegocioError` em 422 legível.
 
     O 409 de "cronograma oficializado" não existe mais — o cadeado saiu, e com
     ele o único conflito de ESTADO que estas rotas tinham. O que sobrou é
@@ -152,7 +152,7 @@ def solicitar_reajuste(
 
 @router.get("/reajustes/pendentes")
 def listar_reajustes_pendentes(
-    current_user=Depends(require_pode_aprovar_reajuste), db: Session = Depends(get_db)
+    current_user=Depends(require_diretor), db: Session = Depends(get_db)
 ):
     """§8: a fila de pedidos de dias. Só a diretoria — o gerente não decide."""
     return ListarReajustesPendentesUseCase(db).execute()
@@ -162,7 +162,7 @@ def listar_reajustes_pendentes(
 def responder_reajuste(
     solicitacao_id: int,
     request: ResponderReajusteRequest,
-    current_user=Depends(require_pode_aprovar_reajuste),
+    current_user=Depends(require_diretor),
     db: Session = Depends(get_db),
 ):
     """Aprovar SOMA os dias pedidos em `dias_uteis_ajustados` e estica a
@@ -172,3 +172,12 @@ def responder_reajuste(
         return ResponderReajusteUseCase(db).execute(solicitacao_id, request, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+@router.post("/escopos-projeto/{escopo_id}/oficializar")
+def oficializar(escopo_id: int, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
+    """§5.3: cravar o cronograma — marco informativo, não trava mais edição."""
+    _projeto_do_escopo(escopo_id, current_user, db)
+    result = _executar(lambda: OficializarCronogramaUseCase(db).execute(escopo_id))
+    if not result:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    return result

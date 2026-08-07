@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text
 from src.database.database import Base
 
 
@@ -41,3 +41,9 @@ class BancaModel(Base):
     #: diretoria define isto, para bancas cuja gestão precisa de mais gente
     #: que o padrão da(s) frente(s).
     piso_minimo_override = Column(Integer, nullable=True)
+    #: O relato do COORDENADOR do projeto sobre a banca — texto livre, sem
+    #: notas por bloco técnico. Ele não é candidato/avaliador desta banca
+    #: ("ninguém avalia o próprio grupo", ver `create_candidatura`), então
+    #: isto substitui o formulário de avaliação pra ele, não se soma a ele.
+    descricao_coordenador = Column(Text, nullable=True)
+    descricao_coordenador_enviada_em = Column(DateTime, nullable=True)

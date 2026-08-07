@@ -259,3 +259,38 @@ class DeleteMarcoUseCase:
 
     def execute(self, marco_id: int) -> bool:
         return self.repository.delete(marco_id)
+
+
+class OficializarCronogramaUseCase:
+    """§5.3: ao fim da ambientação, o coordenador CRAVA o cronograma.
+
+    `cronograma_oficializado_em` é só um marco informativo (aparece na tela
+    como "oficializado em X") — não bloqueia edição depois. O fluxo de
+    reajuste que travava isso foi removido a pedido do usuário (2026-08-06):
+    o cronograma continua livre pra editar como quiser, oficializado ou não.
+    """
+
+    def __init__(self, db: Session):
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.etapa_repository = CronogramaEtapaRepository(db)
+        self.banca_repository = BancaRepository(db)
+
+    def execute(self, projeto_escopo_id: int):
+        escopo = self.escopo_repository.get_by_id(projeto_escopo_id)
+        if not escopo:
+            return None
+        if escopo.cronograma_oficializado_em:
+            raise RegraDeNegocioError("Este cronograma já foi oficializado")
+
+        if not self.etapa_repository.get_by_escopo(projeto_escopo_id):
+            raise RegraDeNegocioError("Pinte pelo menos uma etapa antes de oficializar")
+        if not self.banca_repository.get_by_projeto_escopo(projeto_escopo_id):
+            raise RegraDeNegocioError("Marque a banca do escopo antes de oficializar")
+
+        atualizado = self.escopo_repository.update(
+            projeto_escopo_id, cronograma_oficializado_em=datetime.now()
+        )
+        return {
+            "id": atualizado.id,
+            "cronograma_oficializado_em": atualizado.cronograma_oficializado_em,
+        }

@@ -51,6 +51,8 @@ class GetBancaUseCase:
             "vagas": vagas,
             "alocados": len(candidaturas),
             "piso_minimo_override": banca.piso_minimo_override,
+            "descricao_coordenador": banca.descricao_coordenador,
+            "descricao_coordenador_enviada_em": banca.descricao_coordenador_enviada_em,
             # O piso REAL da composição (§8), já resolvido: override, senão a
             # soma do `piso_banca` das frentes. `vagas` acima é outra coisa —
             # é o teto de quantos cabem. Sem este campo a tela tinha de
@@ -120,6 +122,8 @@ class ListBancasUseCase:
                 "vagas": vagas,
                 "alocados": len(candidaturas),
                 "piso_minimo_override": b.piso_minimo_override,
+                "descricao_coordenador": b.descricao_coordenador,
+                "descricao_coordenador_enviada_em": b.descricao_coordenador_enviada_em,
                 "piso_minimo": calcular_piso_banca(
                     b,
                     [

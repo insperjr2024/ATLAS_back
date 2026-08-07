@@ -32,13 +32,12 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: mentor (ou a diretoria), não quem "enxerga o projeto".
     "pdi_prazo_proximo",
     "pdi_prazo_vencido",
-    #: 📌 Reajuste de cronograma (§5.6) — pedido do coordenador, resposta da
-    #: diretoria (nunca do gerente).
-    "reajuste_solicitado",
-    "reajuste_respondido",
     # 🔄 condições — calculadas na leitura; a linha só nasce ao marcar como lida
     "kickoff_pendente",
     "tarefa_vencida",
+    # Voltaram com o fluxo de reajuste (a main os removera junto com ele).
+    "reajuste_solicitado",
+    "reajuste_respondido",
     "banca_nao_marcada",
     "projeto_sem_reuniao",
     "banca_hoje",

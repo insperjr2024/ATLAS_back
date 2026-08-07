@@ -35,7 +35,7 @@ from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import func
 
-from src.database.database import SessionLocal
+from src.database.database import Base, SessionLocal
 from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
 from src.models.cargo_model import CargoModel
@@ -68,6 +68,11 @@ PESO_FRENTE = {"Business": 0.45, "Tech": 0.27, "Direito": 0.16, "Engenharia de P
 
 #: Fração dos projetos que nasce atrasada, e como.
 FATIA_ATRASADA = 0.35
+
+#: Quantos meses de entregas passadas gerar. Casa com `MESES_DE_TENDENCIA` do
+#: monitoramento: menos que isso deixa as primeiras barras do gráfico vazias e
+#: dá a impressão de que o núcleo não entregava nada até pouco tempo atrás.
+MESES_DE_HISTORICO = 6
 
 #: Como o quadro de tarefas de cada projeto nasce. As frações somam 1.0.
 #:
@@ -166,20 +171,26 @@ def limpar(db):
         db.flush()
         for c in db.query(TarefaColunaModel).filter(TarefaColunaModel.projeto_id.in_(ids)).all():
             db.delete(c)
-        for r in (
-            db.query(ReuniaoSemanalModel).filter(ReuniaoSemanalModel.projeto_id.in_(ids)).all()
-        ):
-            db.delete(r)
         for e in escopos:
             db.delete(e)
-        for m in db.query(ProjetoMembroModel).filter(ProjetoMembroModel.projeto_id.in_(ids)).all():
-            db.delete(m)
-        for f in db.query(ProjetoFrenteModel).filter(ProjetoFrenteModel.projeto_id.in_(ids)).all():
-            db.delete(f)
-        # ⚠ `flush` obrigatório antes de apagar os projetos. Não há
-        # `relationship` declarada entre `projeto` e `tarefa_coluna`, então o
-        # SQLAlchemy não deduz a ordem e pode mandar o DELETE do projeto
-        # primeiro — a FK barra e a limpeza inteira falha no meio.
+        db.flush()
+
+        # ⭐ **Quem mais aponta para `projeto` é DESCOBERTO, não listado.**
+        # Escrever a lista à mão envelhece: já quebrou duas vezes, primeiro com
+        # `tarefa_coluna` e depois com `projeto_status_historico`, que veio do
+        # agendador de status da `main`. Varrer o metadata pega também a próxima
+        # tabela que alguém criar.
+        for tabela in reversed(Base.metadata.sorted_tables):
+            for fk in tabela.foreign_keys:
+                if fk.column.table.name == "projeto":
+                    db.execute(
+                        tabela.delete().where(tabela.c[fk.parent.name].in_(ids))
+                    )
+                    break
+
+        # ⚠ `flush` obrigatório antes de apagar os projetos: sem `relationship`
+        # declarada, o SQLAlchemy não deduz a ordem e pode mandar o DELETE do
+        # projeto primeiro — a FK barra e a limpeza falha no meio.
         db.flush()
         for p in projetos:
             db.delete(p)
@@ -188,12 +199,27 @@ def limpar(db):
     pessoas = db.query(UsuarioModel).filter(UsuarioModel.email_insper.like(f"%{DOMINIO}")).all()
     pids = [u.id for u in pessoas]
     if pids:
-        for uf in db.query(UsuarioFrenteModel).filter(UsuarioFrenteModel.usuario_id.in_(pids)).all():
-            db.delete(uf)
-        # Segurança: se alguma pessoa do lote entrou num projeto que não é do
-        # lote, o vínculo tem de sair antes, senão a FK barra o delete.
-        for m in db.query(ProjetoMembroModel).filter(ProjetoMembroModel.usuario_id.in_(pids)).all():
-            db.delete(m)
+        # Mesma varredura de metadata, com uma distinção que importa: nem toda
+        # referência a usuário é POSSE.
+        #
+        #   coluna obrigatória  -> a linha existe por causa da pessoa
+        #                          (vínculo com frente, participação em projeto)
+        #                          e vai embora com ela.
+        #   coluna opcional     -> a linha é de outra coisa e só REGISTRA quem
+        #                          mexeu (`alterado_por`, `criado_por`). Apagar
+        #                          levaria junto histórico de projeto que não é
+        #                          do lote; então some só a autoria.
+        for tabela in reversed(Base.metadata.sorted_tables):
+            if tabela.name == "usuario":
+                continue
+            for fk in tabela.foreign_keys:
+                if fk.column.table.name != "usuario":
+                    continue
+                coluna = tabela.c[fk.parent.name]
+                if coluna.nullable:
+                    db.execute(tabela.update().where(coluna.in_(pids)).values({coluna: None}))
+                else:
+                    db.execute(tabela.delete().where(coluna.in_(pids)))
         db.flush()
         for u in pessoas:
             db.delete(u)
@@ -339,13 +365,43 @@ def gerar(db):
                 )
             )
 
+        # ⭐ Escopos ANTERIORES já entregues. Sem eles o banco não tinha uma
+        # única `data_entrega_real`, e dois cards da Visão geral ficavam vazios
+        # sem que ninguém soubesse se era falta de dado ou defeito: a tendência
+        # de entregas (que agora abre 6 meses) e o tempo parado entre escopos.
+        #
+        # As datas se espalham pelos últimos MESES_DE_HISTORICO meses para o
+        # gráfico mensal ter barra em todos eles, e não um pico solto no fim.
+        entregues = rnd.randint(0, 2)
+        for k in range(entregues):
+            dias_atras = rnd.randint(20, MESES_DE_HISTORICO * 30)
+            entrega = hoje - timedelta(days=dias_atras)
+            planejada = entrega - timedelta(days=rnd.randint(-8, 8))  # alguns atrasados
+            db.add(
+                ProjetoEscopoModel(
+                    projeto_id=projeto.id,
+                    escopo_id=rnd.choice(catalogo).id,
+                    frente_id=frentes[frente].id,
+                    dias_uteis_vendidos=rnd.choice([10, 15, 20]),
+                    status="entregue",
+                    data_inicio=entrega - timedelta(days=rnd.randint(25, 60)),
+                    data_entrega_planejada=planejada,
+                    data_entrega_real=entrega,
+                )
+            )
+
+        # TEMPO PARADO: escopo entregue + próximo na fila SEM `data_inicio` e
+        # nenhum rodando. É a combinação exata que `_tempo_parado` procura —
+        # com um escopo em curso o projeto não conta como parado, e é por isso
+        # que o card vivia vazio.
+        parado = entregues > 0 and rnd.random() < 0.25
         escopo = ProjetoEscopoModel(
             projeto_id=projeto.id,
             escopo_id=rnd.choice(catalogo).id,
             frente_id=frentes[frente].id,
             dias_uteis_vendidos=rnd.choice([10, 15, 20, 25]),
-            status="em_andamento",
-            data_inicio=kickoff + timedelta(days=5),
+            status="nao_iniciado" if parado else "em_andamento",
+            data_inicio=None if parado else kickoff + timedelta(days=5),
             # Atraso de ENTREGA: planejada no passado e sem entrega real.
             data_entrega_planejada=(
                 hoje - timedelta(days=rnd.randint(1, 25))

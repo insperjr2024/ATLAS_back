@@ -14,6 +14,10 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.projeto_justificativa_atraso_repository import (
+    ProjetoJustificativaAtrasoRepository,
+)
+from src.repositories.projeto_remarcacao_banca_repository import ProjetoRemarcacaoBancaRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.ambientacao import fim_da_ambientacao
@@ -40,6 +44,8 @@ def serializar_projeto_resumo(
         "data_kickoff": projeto.data_kickoff,
         "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
         "arquivado_em": projeto.arquivado_em,
+        # "Limpar histórico" (§4): corte de exibição da timeline, não exclusão.
+        "historico_oculto_ate": projeto.historico_oculto_ate,
         # §6.2: a banca mais próxima AINDA NÃO REALIZADA de qualquer escopo
         # deste projeto — `None` se nenhuma estiver marcada ou todas já
         # aconteceram.
@@ -178,15 +184,26 @@ class ListProjetosUseCase:
 class GetHistoricoProjetoUseCase:
     """§13: *"toda decisão, autorizada ou negada, entra na aba Histórico"*.
 
-    ⭐ **Composto na leitura, sem tabela de eventos.** São quatro fontes que já
+    ⭐ **Composto na leitura, sem tabela de eventos.** São CINCO fontes que já
     existem — mudanças de status, remarcações de banca, decisões sobre dias de
-    ajuste e alterações de data de entrega — e cada uma continua sendo a dona do
-    seu dado. Uma tabela genérica de eventos exigiria escrever duas vezes em
-    cada fluxo, e a segunda escrita é a que alguém esquece.
+    ajuste, alterações de data de entrega e justificativas de atraso (§7.4) — e
+    cada uma continua sendo a dona do seu dado. Uma tabela genérica de eventos
+    exigiria escrever duas vezes em cada fluxo, e a segunda escrita é a que
+    alguém esquece.
 
     Cada linha sai no mesmo formato (`tipo`, `em`, `por`, `titulo`, `detalhe`)
     para a tela renderizar uma lista só, ordenada do mais recente para o mais
-    antigo.
+    antigo. **Os campos `alterado_em`/`alterado_por` saem junto em toda linha**,
+    e não só nas de status: é o formato que a outra metade da tela já lê, e
+    mantê-lo custa duas chaves por linha.
+
+    ⚠ **Duas tabelas de remarcação.** `banca_remarcacao` e
+    `projeto_remarcacao_banca` nasceram em paralelo, em branches diferentes,
+    para a mesma coisa — cada uma com uma coluna que a outra não tem
+    (`autorizado_por` de um lado, `projeto_id`/`projeto_escopo_id` do outro).
+    Aqui as duas são lidas e o par é deduplicado por (banca, data anterior,
+    data nova), senão a mesma remarcação apareceria duas vezes na tela.
+    Unificar as tabelas é dívida registrada, não conserto de merge.
     """
 
     def __init__(self, db: Session):
@@ -195,24 +212,62 @@ class GetHistoricoProjetoUseCase:
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.banca_repository = BancaRepository(db)
         self.remarcacao_repository = BancaRemarcacaoRepository(db)
+        self.remarcacao_projeto_repository = ProjetoRemarcacaoBancaRepository(db)
         self.reajuste_repository = CronogramaReajusteRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.entrega_repository = EntregaAlteracaoRepository(db)
+        self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
+        self.projeto_repository = ProjetoRepository(db)
 
-    def execute(self, projeto_id: int):
+    def execute(self, projeto_id: int, incluir_ocultos: bool = False):
         linhas = self._status(projeto_id)
 
         escopos = self.escopo_repository.get_by_projeto(projeto_id)
         catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
         nomes = {e.id: nome_do_escopo(e, catalogo) for e in escopos}
 
-        linhas += self._remarcacoes(escopos, nomes)
+        linhas += self._remarcacoes(projeto_id, escopos, nomes)
         linhas += self._decisoes_de_ajuste(escopos, nomes)
         linhas += self._alteracoes_de_entrega(projeto_id, nomes)
+        linhas += self._justificativas_de_atraso(projeto_id, nomes)
+
+        # ⭐ "Limpar histórico" (§4) corta TODAS as fontes pelo mesmo carimbo —
+        # senão uma nota de atraso de antes do corte continuaria aparecendo com
+        # as transições de status ao redor dela já escondidas. Aplicado aqui, no
+        # fim, para valer também para as fontes que a main ainda não tinha.
+        if not incluir_ocultos:
+            projeto = self.projeto_repository.get_by_id(projeto_id)
+            corte = projeto.historico_oculto_ate if projeto else None
+            if corte:
+                linhas = [l for l in linhas if l["em"] and l["em"] > corte]
 
         # `datetime.min` para a linha sem data nunca derrubar a ordenação.
         linhas.sort(key=lambda l: l["em"] or datetime.min, reverse=True)
         return linhas
+
+    def _justificativas_de_atraso(self, projeto_id: int, nomes):
+        """§7.4: por que o projeto atrasou, na palavra de quem conduziu.
+
+        Fonte que vinha só da main. Sai no envelope de todos — `titulo` e
+        `detalhe` prontos —, mas mantém `motivo_tipo` e `projeto_escopo_id`,
+        que a tela de Atrasos lê para agrupar.
+        """
+        return [
+            {
+                "id": f"justificativa:{j.id}",
+                "tipo": "justificativa_atraso",
+                "em": j.registrado_em,
+                "por": j.registrado_por,
+                "titulo": f"Atraso justificado — {nomes.get(j.projeto_escopo_id) or 'projeto'}",
+                "detalhe": j.texto,
+                "projeto_escopo_id": j.projeto_escopo_id,
+                "motivo_tipo": j.tipo,
+                "registrado_por": j.registrado_por,
+                "alterado_em": j.registrado_em,
+                "alterado_por": j.registrado_por,
+            }
+            for j in self.justificativa_repository.get_by_projeto(projeto_id)
+        ]
 
     def _status(self, projeto_id: int):
         return [
@@ -232,7 +287,7 @@ class GetHistoricoProjetoUseCase:
             for h in self.repository.get_by_projeto(projeto_id)
         ]
 
-    def _remarcacoes(self, escopos, nomes):
+    def _remarcacoes(self, projeto_id: int, escopos, nomes):
         """§9: a data antiga de cada banca remarcada, com a justificativa.
 
         Sem esta fonte, "de 06/08 para 20/08" existiria só na notificação — que
@@ -240,24 +295,78 @@ class GetHistoricoProjetoUseCase:
         """
         bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])
         nome_por_banca = {b.id: nomes.get(eid) for eid, b in bancas.items()}
+        escopo_por_banca = {b.id: eid for eid, b in bancas.items()}
 
-        return [
-            {
-                "id": f"remarcacao:{r.id}",
-                "tipo": "banca_remarcada",
-                "em": r.criado_em,
-                "por": r.remarcado_por,
-                "titulo": (
-                    f"Banca remarcada — {nome_por_banca.get(r.banca_id) or 'escopo'}: "
-                    f"{_quando(r.data_anterior)} → {_quando(r.data_nova)}"
-                ),
-                "detalhe": r.justificativa,
-                # Preenchido só quando a diretoria precisou liberar a exceção
-                # do §13 (fora da janela, ou em cima da hora).
-                "autorizado_por": r.autorizado_por,
-            }
-            for r in self.remarcacao_repository.get_by_bancas({b.id for b in bancas.values()})
-        ]
+        # ⚠ **Duas tabelas para o mesmo evento.** As branches criaram
+        # `banca_remarcacao` e `projeto_remarcacao_banca` em paralelo, e cada
+        # uma guarda algo que a outra não tem. Ler só uma esconderia as
+        # remarcações gravadas pela outra — inclusive as que já estão no banco.
+        # A chave natural do evento é (banca, de, para): mesma remarcação vista
+        # por duas tabelas colapsa numa linha, e os campos se somam.
+        por_evento: dict = {}
+
+        def somar(chave, linha):
+            atual = por_evento.get(chave)
+            if atual is None:
+                por_evento[chave] = linha
+                return
+            # Nunca sobrescreve o que já está preenchido: o objetivo é a UNIÃO
+            # das duas fontes, não a última a falar.
+            for campo, valor in linha.items():
+                if atual.get(campo) in (None, "") and valor not in (None, ""):
+                    atual[campo] = valor
+
+        for r in self.remarcacao_repository.get_by_bancas({b.id for b in bancas.values()}):
+            somar(
+                (r.banca_id, r.data_anterior, r.data_nova),
+                {
+                    "id": f"remarcacao:{r.id}",
+                    "tipo": "banca_remarcada",
+                    "em": r.criado_em,
+                    "por": r.remarcado_por,
+                    "titulo": (
+                        f"Banca remarcada — {nome_por_banca.get(r.banca_id) or 'escopo'}: "
+                        f"{_quando(r.data_anterior)} → {_quando(r.data_nova)}"
+                    ),
+                    "detalhe": r.justificativa,
+                    # Preenchido só quando a diretoria precisou liberar a exceção
+                    # do §13 (fora da janela, ou em cima da hora).
+                    "autorizado_por": r.autorizado_por,
+                    "projeto_escopo_id": escopo_por_banca.get(r.banca_id),
+                    "data_anterior": r.data_anterior,
+                    "data_nova": r.data_nova,
+                    "justificativa": r.justificativa,
+                    "registrado_por": r.remarcado_por,
+                    "alterado_em": r.criado_em,
+                    "alterado_por": r.remarcado_por,
+                },
+            )
+
+        for r in self.remarcacao_projeto_repository.get_by_projeto(projeto_id):
+            somar(
+                (r.banca_id, r.data_anterior, r.data_nova),
+                {
+                    "id": f"remarcacao-projeto:{r.id}",
+                    "tipo": "banca_remarcada",
+                    "em": r.registrado_em,
+                    "por": r.registrado_por,
+                    "titulo": (
+                        f"Banca remarcada — {nome_por_banca.get(r.banca_id) or 'escopo'}: "
+                        f"{_quando(r.data_anterior)} → {_quando(r.data_nova)}"
+                    ),
+                    "detalhe": r.justificativa,
+                    "autorizado_por": None,
+                    "projeto_escopo_id": r.projeto_escopo_id,
+                    "data_anterior": r.data_anterior,
+                    "data_nova": r.data_nova,
+                    "justificativa": r.justificativa,
+                    "registrado_por": r.registrado_por,
+                    "alterado_em": r.registrado_em,
+                    "alterado_por": r.registrado_por,
+                },
+            )
+
+        return list(por_evento.values())
 
     def _decisoes_de_ajuste(self, escopos, nomes):
         """§8: os pedidos de dias — aprovados E negados.

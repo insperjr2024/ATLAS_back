@@ -19,12 +19,15 @@ from src.models.configuracao_model import ConfiguracaoModel
 # Prioridade 1 — todo model novo precisa entrar aqui, senão o `alembic
 # revision --autogenerate` não o enxerga e gera uma migration vazia.
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
+from src.models.grade_horaria_model import GradeHorariaModel
 from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoModel
 from src.models.projeto_model import ProjetoModel
 from src.models.projeto_frente_model import ProjetoFrenteModel
 from src.models.projeto_membro_model import ProjetoMembroModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
+from src.models.projeto_justificativa_atraso_model import ProjetoJustificativaAtrasoModel
+from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
 from src.models.cronograma_reajuste_solicitacao_model import CronogramaReajusteSolicitacaoModel
 from src.models.entrega_alteracao_model import EntregaAlteracaoModel

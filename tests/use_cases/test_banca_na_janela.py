@@ -113,6 +113,21 @@ def marcar(monkeypatch):
                 estado.remarcacoes.append(campos)
                 return SimpleNamespace(id=1, **campos)
 
+        class RemarcacaoProjetoFake:
+            """A OUTRA tabela de remarcação.
+
+            `banca_remarcacao` e `projeto_remarcacao_banca` nasceram em paralelo
+            em branches diferentes, para o mesmo evento, e cada uma guarda uma
+            coluna que a outra não tem. As duas continuam sendo escritas para
+            nenhum dos dois lados perder função — o histórico deduplica na
+            leitura. Aqui basta o dublê não estourar; quem os testes verificam é
+            `estado.remarcacoes`, alimentado pela outra.
+            """
+
+            def __init__(self, db): pass
+            def create(self, **campos):
+                return SimpleNamespace(id=1, **campos)
+
         class DiaNaoLetivoFake:
             def __init__(self, db): pass
             def get_all(self):
@@ -138,6 +153,7 @@ def marcar(monkeypatch):
             ("BancaEscopoRepository", BancaEscopoFake),
             ("EscopoRepository", CatalogoFake),
             ("BancaRemarcacaoRepository", RemarcacaoFake),
+            ("ProjetoRemarcacaoBancaRepository", RemarcacaoProjetoFake),
             ("DiaNaoLetivoRepository", DiaNaoLetivoFake),
             ("ProjetoStatusHistoricoRepository", HistoricoFake),
         ]:

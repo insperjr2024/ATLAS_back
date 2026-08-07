@@ -11,14 +11,12 @@ class CreateCargoRequest(BaseModel):
     pode_gerir_membros: bool = False
     pode_marcar_kickoff: bool = False
     pode_definir_cronograma: bool = False
-    pode_aprovar_reajuste: bool = False
     pode_criar_tarefa: bool = False
     pode_mover_editar_tarefa: bool = False
     pode_ver_proprios_projetos: bool = False
     pode_ver_monitoramento: bool = False
     pode_administrar_desempenho: bool = False
     pode_editar_formularios_desempenho: bool = False
-    pode_ver_nucleo: bool = False
     pode_administrar_configuracoes: bool = False
 
 

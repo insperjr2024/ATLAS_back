@@ -3,10 +3,11 @@ from src.database.database import Base
 
 
 class DesempenhoMentoriaModel(Base):
-    """Vínculo mentor (coordenador) <-> mentorado. Elegibilidade de mentor é
-    `usuario.posicao == "coordenador"`, checada na camada de use case, não
-    aqui (regra 2.5) — o vínculo em si é escolha manual do admin. Um
-    mentorado só tem 1 mentor por vez; um mentor pode ter vários."""
+    """Vínculo mentor <-> mentorado. Elegibilidade de mentor é
+    `usuario.posicao in POSICOES_ELEGIVEIS_MENTOR` (coordenador, gerente ou
+    diretor — ver `create_mentoria.py`), checada na camada de use case, não
+    aqui — o vínculo em si é escolha manual do admin. Um mentorado só tem 1
+    mentor por vez; um mentor pode ter vários."""
 
     __tablename__ = "desempenho_mentoria"
 

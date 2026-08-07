@@ -45,7 +45,7 @@ def notificar_alocacao(db: Session, projeto, usuario_id: int) -> None:
         usuario_id=usuario_id,
         tipo="alocado_em_projeto",
         titulo=f"Você entrou no projeto {projeto.nome}",
-        corpo=f"Cliente: {projeto.cliente}",
+        corpo=f"Cliente: {projeto.cliente}" if projeto.cliente else None,
         projeto_id=projeto.id,
         rota=f"/projetos/{projeto.id}",
         # Por PROJETO e por pessoa: quem sai e volta na mesma equipe não é

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, Enum, ForeignKey, Integer, String
+from sqlalchemy import Column, Date, DateTime, Enum, ForeignKey, Integer, String
 from src.database.database import Base
 
 
@@ -39,6 +39,11 @@ class ProjetoEscopoModel(Base):
     #: Dias extras autorizados pela diretoria, nos 3 primeiros dias úteis da
     #: janela. Só cresce, e é a soma de todos os pedidos aprovados.
     dias_uteis_ajustados = Column(Integer, nullable=False, default=0, server_default="0")
+    # Ordem de exibição na tela do projeto — não é o `id` (que é ordem de
+    # criação, e reordenar não deveria recriar linha). Default 0 pra quem já
+    # existia antes deste campo: com todo mundo empatado, o desempate por
+    # `id` mantém a ordem de sempre sem precisar de backfill.
+    ordem = Column(Integer, nullable=False, default=0, server_default="0")
     status = Column(
         Enum("nao_iniciado", "em_andamento", "entregue", "cancelado", name="status_projeto_escopo"),
         nullable=False,
@@ -50,6 +55,11 @@ class ProjetoEscopoModel(Base):
     #: pode ter banca marcada. Derivada das reuniões, nunca digitada — ver
     #: `sincronizar_inicio_do_escopo`.
     data_inicio = Column(Date, nullable=True)
+    # Carimbo informativo do §5.3 — não trava edição do cronograma. A janela
+    # do escopo (`utils/janela_escopo.py`) não o consulta, mas o `oficializar`
+    # de `update_cronograma.py` continua gravando aqui: a coluna sobrevive à
+    # reformulação porque os dois conceitos convivem sem se atrapalhar.
+    cronograma_oficializado_em = Column(DateTime, nullable=True)
     data_entrega_planejada = Column(Date, nullable=True)
     # Preenchê-la congela a contagem — trava do §5.5 mora no use case de entrega.
     data_entrega_real = Column(Date, nullable=True)

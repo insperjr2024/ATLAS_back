@@ -11,7 +11,9 @@ class ProjetoModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
     nome = Column(String(150), nullable=False)
-    cliente = Column(String(150), nullable=False)
+    #: Único campo do cadastro (§6.3) que não é obrigatório — nem todo
+    #: projeto tem um cliente externo definido já na criação.
+    cliente = Column(String(150), nullable=True)
     descricao = Column(Text, nullable=True)
     link_proposta = Column(String(255), nullable=True)
     # A proposta é ou um link, ou um PDF anexado — nunca os dois (ver
@@ -45,3 +47,9 @@ class ProjetoModel(Base):
     # Arquivar não é excluir: some das listagens normais, mas nada é apagado
     # — banca, avaliação e histórico continuam intactos (ver ArquivarProjetoUseCase).
     arquivado_em = Column(DateTime, nullable=True)
+    # "Limpar histórico" também não apaga nada: as linhas de
+    # `projeto_status_historico` anteriores a este corte só saem da timeline
+    # (§4). Continuam no banco intactas porque alimentam a contagem de dias
+    # (§5.4) — apagá-las de verdade mudaria retroativamente esse cálculo.
+    # `None` = nada oculto, mostra a timeline inteira.
+    historico_oculto_ate = Column(DateTime, nullable=True)

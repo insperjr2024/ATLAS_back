@@ -38,6 +38,7 @@ class UpdateEscopoProjetoRequest(BaseModel):
     nome_customizado: Optional[str] = None
     dias_uteis_vendidos: Optional[int] = None
     data_entrega_planejada: Optional[date] = None
+    ordem: Optional[int] = None
 
 
 class UpdateEscopoProjetoUseCase:
