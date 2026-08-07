@@ -132,9 +132,9 @@ def get_me(current_user=Depends(get_current_user_em_definicao_de_senha)):
         "id": current_user.id,
         "nome": current_user.nome,
         "email_insper": current_user.email_insper,
-        "cargo_id": current_user.cargo_id,
-        # `posicao` é o que o front usa para o recorte de visão e para a matriz
-        # do §3; `cargo_id` continua valendo só para as ações de banca.
+        # `posicao` é o que decide tanto o recorte de visão quanto as 13
+        # caixas de permissão (`GET /posicoes-permissoes`) — desde
+        # 2026-08-07 é a única dimensão, não há mais `cargo_id` separado.
         "posicao": current_user.posicao,
         "status": current_user.status,
         "ativo": current_user.ativo,

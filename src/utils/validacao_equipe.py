@@ -1,12 +1,14 @@
 """Quem pode ocupar cada papel na equipe de um projeto (§6.3).
 
-Coordenador é estrito: só quem É coordenador na plataforma (§3). Consultor
-aceita posição igual ou acima na hierarquia (diretor > gerente > coordenador
-> consultor) — um coordenador que também atua como consultor num outro
-projeto pode ocupar essa vaga, nunca o contrário (consultor não vira
-coordenador de um projeto sem ser promovido de posição de verdade, isso é o
-§10). Diretoria e gerência só ocupam vaga como consultor; como coordenador,
-nunca.
+Os dois papéis aceitam posição igual ou acima na hierarquia ATÉ gerente
+(gerente > coordenador > consultor) — 2026-08-07: um gerente que também
+coordena projeto na prática (ex.: Murilo) pode ocupar a vaga de coordenador
+sem precisar virar "coordenador" de posição de verdade, o que trocaria as
+permissões dele de gerente pelas de coordenador. **Diretor fica de fora das
+duas listas de propósito**: supervisiona, não é alocado na equipe de
+execução de projeto nenhum. O que NUNCA abre, pra ninguém, é o sentido
+inverso: consultor não vira coordenador de projeto sem ser promovido de
+posição de verdade — isso é o §10, não uma vaga de equipe.
 
 Nada aqui olha os OUTROS projetos da pessoa de propósito: coordenador e
 consultor podem estar alocados em quantos projetos forem necessários — a
@@ -15,8 +17,10 @@ validação é sempre dentro do projeto que está sendo salvo.
 
 from src.utils.exceptions import RegraDeNegocioError
 
-# Espelha `POSICOES_ELEGIVEIS_CONSULTOR` de `MemberPicker.tsx`.
-POSICOES_ELEGIVEIS_CONSULTOR = ("consultor", "coordenador", "gerente", "diretor")
+# Espelha `POSICOES_ELEGIVEIS_CONSULTOR`/`POSICOES_ELEGIVEIS_COORDENADOR` de
+# `MemberPicker.tsx`. Diretor fica de fora das duas — só supervisiona.
+POSICOES_ELEGIVEIS_CONSULTOR = ("consultor", "coordenador", "gerente")
+POSICOES_ELEGIVEIS_COORDENADOR = ("coordenador", "gerente")
 
 ROTULO_POSICAO = {
     "diretor": "diretor(a)",
@@ -49,11 +53,10 @@ def validar_equipe(equipe, usuario_repository):
             raise RegraDeNegocioError(f"Usuário {membro.usuario_id} não encontrado")
 
         if membro.papel == "coordenador":
-            if usuario.posicao != "coordenador":
+            if usuario.posicao not in POSICOES_ELEGIVEIS_COORDENADOR:
                 raise RegraDeNegocioError(
                     f"{usuario.nome} é {ROTULO_POSICAO.get(usuario.posicao, usuario.posicao)} "
-                    f"e não pode entrar como coordenador do projeto — esse papel é "
-                    f"só de quem tem a posição {ROTULO_POSICAO['coordenador']}."
+                    f"e não pode entrar como coordenador do projeto."
                 )
         elif usuario.posicao not in POSICOES_ELEGIVEIS_CONSULTOR:
             raise RegraDeNegocioError(

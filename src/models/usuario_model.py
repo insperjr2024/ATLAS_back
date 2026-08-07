@@ -1,13 +1,13 @@
-from sqlalchemy import Boolean, Column, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Enum, Integer, String
 from src.database.database import Base
 
 
 class UsuarioModel(Base):
     """O membro da empresa.
 
-    Duas dimensões diferentes, de propósito:
-    - `cargo_id` → as 3 flags de permissão DO MÓDULO DE BANCAS (P2/P3);
-    - `posicao`  → o perfil do §3, que manda no resto da plataforma.
+    `posicao` é a única dimensão de permissão (desde 2026-08-07 — antes
+    convivia com `cargo_id`, removido: as 13 caixas de permissão agora são
+    editadas por posição, ver `PosicaoPermissaoModel`).
 
     `status` distingue os dois casos de saída do §10 — o booleano `ativo`
     sozinho não conseguia. `ativo` vira espelho (`status == "ativo"`) para não
@@ -28,7 +28,6 @@ class UsuarioModel(Base):
     #: Nasce `False` para todo mundo que já estava cadastrado — quem já tem
     #: senha própria não é empurrado para tela nenhuma.
     senha_provisoria = Column(Boolean, nullable=False, default=False, server_default="0")
-    cargo_id = Column(Integer, ForeignKey("cargo.id"), nullable=False)
     posicao = Column(
         Enum("diretor", "gerente", "coordenador", "consultor", name="posicao_usuario"),
         nullable=False,

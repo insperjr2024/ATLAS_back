@@ -1,29 +1,31 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Boolean, Column, Enum, Integer
 from src.database.database import Base
 
 
-class CargoModel(Base):
-    """As permissões da plataforma, uma caixa por ação.
+class PosicaoPermissaoModel(Base):
+    """As permissões da plataforma, uma caixa por ação — POR POSIÇÃO.
 
-    9 das 10 são as linhas da tabela do §3 do briefing — "aprovar reajuste"
-    saiu em 2026-08-06 junto com a feature de reajuste de cronograma, que foi
-    removida a pedido do usuário. Antes elas eram hardcoded por `posicao`
-    (`require_gestao`, `require_lideranca`, `require_diretor` direto nas
-    rotas); agora a posição só define o PADRÃO com que cada cargo nasce, e
-    quem decide em runtime é a caixa.
+    Substitui `cargo` (removido em 2026-08-07): eram duas dimensões de
+    permissão convivendo (posição decidia o recorte de visão, cargo decidia
+    o resto), e a distinção não sobreviveu ao uso real — cargo só criava
+    combinação estranha (ex.: "Admin" que não amplia visão de projeto
+    nenhuma) sem servir pra delegar de verdade. Só 4 linhas, uma por posição,
+    sem CRUD de criar/apagar linha — só editar as caixas.
 
-    As 3 seguintes (Avaliação de Desempenho, formulários dela, Configurações)
-    não estão no §3 — nasceram travadas só por posição e viraram caixa a
-    pedido explícito do usuário (2026-08-06), pro mesmo motivo das 9: dar pra
-    delegar sem precisar tornar alguém "diretor" inteiro. ("Ver o Núcleo"
-    existiu brevemente como uma 4ª extensão, mas a página foi substituída
-    pelo Dashboard Bancas antes de a permissão ser usada, e saiu junto.)
+    Mesmas 13 caixas que `cargo` tinha: as 9 da tabela do §3 do briefing, as
+    3 extensões (Avaliação de Desempenho, formulários dela, Configurações) e
+    `pode_ver_todos_projetos` (2026-08-07) — a única que muda QUAIS projetos
+    aparecem; as outras só ligam/desligam funcionalidade.
     """
 
-    __tablename__ = "cargo"
+    __tablename__ = "posicao_permissao"
 
     id = Column(Integer, primary_key=True, index=True)
-    nome = Column(String(100), nullable=False)
+    posicao = Column(
+        Enum("diretor", "gerente", "coordenador", "consultor", name="posicao_permissao_posicao"),
+        nullable=False,
+        unique=True,
+    )
 
     # 1. Criar projeto e alocar equipe
     pode_criar_projeto = Column(Boolean, default=False, nullable=False)
@@ -44,7 +46,10 @@ class CargoModel(Base):
     # 10. Monitoramento e alocação
     pode_ver_monitoramento = Column(Boolean, default=False, nullable=False)
 
-    # Extensão além das 10 do §3 (ver docstring da classe).
+    # Extensões além das 10 do §3.
     pode_administrar_desempenho = Column(Boolean, default=False, nullable=False)
     pode_editar_formularios_desempenho = Column(Boolean, default=False, nullable=False)
     pode_administrar_configuracoes = Column(Boolean, default=False, nullable=False)
+
+    # A única que muda QUAIS projetos aparecem (ver docstring da classe).
+    pode_ver_todos_projetos = Column(Boolean, default=False, nullable=False)

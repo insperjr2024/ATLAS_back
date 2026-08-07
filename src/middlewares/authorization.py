@@ -1,17 +1,16 @@
 """Permissões e recorte de visão.
 
-Duas dimensões que convivem, e não devem ser confundidas:
+Até 2026-08-07 eram duas dimensões (`cargo`, editável, decidia a maioria das
+caixas; `posicao` decidia só o recorte de visão e o que não virou caixa).
+Foram unificadas: as mesmas 13 caixas agora são editadas POR POSIÇÃO — só 4
+linhas fixas (`posicao_permissao`), sem catálogo aberto. `cargo` foi removido
+inteiro; a distinção não sobrevivia ao uso real (dava pra marcar "Admin" numa
+pessoa sem isso ampliar quais projetos ela via, por exemplo).
 
-- **`cargo`** (9 das 10 caixas da tabela do §3 — "aprovar reajuste" saiu em
-  2026-08-06 junto com a feature de reajuste, que foi removida — + as 3 que
-  estenderam essa tabela depois — Avaliação de Desempenho, formulários dela
-  e Configurações) → quem DECIDE em runtime, editável na tela de Cargos.
-  ("Ver o Núcleo" existiu brevemente como a 4ª extensão, mas a página em si
-  foi substituída pelo Dashboard Bancas antes de a permissão ser usada, e
-  saiu junto em 2026-08-06.)
-- **`posicao`** (diretor · gerente · coordenador · consultor) → define o PADRÃO
-  com que cada cargo nasce (ver a migration `7514970fac39`); `require_diretor`
-  e `require_posicao(...)` ainda travam o que não virou caixa de cargo.
+`require_diretor` e `require_posicao(...)` continuam existindo para o que é
+identidade organizacional, não permissão delegável (última pessoa na
+diretoria, elegibilidade de coordenador/consultor num projeto, composição de
+banca) — essas nunca viraram caixa.
 
 O recorte de visão (`aplicar_recorte_visao`) é a regra mais importante daqui:
 o front só ESCONDE, quem DECIDE é o backend.
@@ -23,14 +22,14 @@ from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.validate_user_auth_token import get_current_user
-from src.repositories.cargo_repository import CargoRepository
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
 
 
-# -------------------------------------------------- cargo (as 10 da tabela §3)
+# -------------------------------------------------- permissão (as 13 caixas, por posição)
 
 def usuario_tem_permissao(current_user, db: Session, campo: str) -> bool:
-    cargo = CargoRepository(db).get_by_id(current_user.cargo_id)
-    return bool(cargo and getattr(cargo, campo, False))
+    registro = PosicaoPermissaoRepository(db).get_by_posicao(current_user.posicao)
+    return bool(registro and getattr(registro, campo, False))
 
 
 def _exigir_permissao(current_user, db: Session, campo: str, mensagem: str):
@@ -93,11 +92,12 @@ require_pode_ver_monitoramento = _dependencia_permissao(
 # O briefing não define permissão pra estas áreas — o docstring do módulo as
 # lista como "o que ficou de fora da tabela" e elas nasceram travadas só por
 # posição (diretor, ou diretor+gerente). A pedido explícito do usuário
-# (2026-08-06), viraram caixas de cargo como as outras 10, pra dar pra
+# (2026-08-06), viraram caixa editável como as outras 9, pra dar pra
 # delegar sem precisar tornar alguém "diretor" inteiro.
-# `pode_administrar_configuracoes` é a mais sensível: quem a tem edita cargos,
-# inclusive o próprio — mas só quem já tem a caixa consegue concedê-la a
-# outro cargo, então a auto-escalada exige já ter a permissão de largada.
+# `pode_administrar_configuracoes` é a mais sensível: quem a tem edita as
+# permissões de TODAS as posições, inclusive a própria — mas só quem já tem
+# a caixa consegue mexer nela, então a auto-escalada exige já ter a
+# permissão de largada.
 
 require_pode_administrar_desempenho = _dependencia_permissao(
     "pode_administrar_desempenho",
@@ -229,7 +229,13 @@ def aplicar_recorte_visao(query, current_user, db: Session, frente_id: Optional[
     from src.models.projeto_membro_model import ProjetoMembroModel
     from src.models.projeto_model import ProjetoModel
 
-    if current_user.posicao == "diretor":
+    # A única caixa que muda QUAIS projetos aparecem — as outras 12 só
+    # ligam/desligam funcionalidade, nunca o recorte. Uma posição com isto
+    # marcado é tratada como diretor pra fins de visão (ver
+    # `PosicaoPermissaoModel.pode_ver_todos_projetos`).
+    if current_user.posicao == "diretor" or usuario_tem_permissao(
+        current_user, db, "pode_ver_todos_projetos"
+    ):
         if frente_id is not None:
             query = query.filter(
                 ProjetoModel.id.in_(

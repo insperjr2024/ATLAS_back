@@ -14,7 +14,7 @@ from src.use_cases.grade_horaria.grade_horaria import (
 )
 from src.utils.exceptions import RegraDeNegocioError
 
-# Sem guarda de cargo: é área de todo mundo, sobre os próprios dados. O id do
+# Sem guarda de permissão: é área de todo mundo, sobre os próprios dados. O id do
 # usuário vem sempre do token — nenhuma rota aceita "grade de outra pessoa".
 router = APIRouter(tags=["grade-horaria"], dependencies=[Depends(get_current_user)])
 
