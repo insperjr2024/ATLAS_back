@@ -24,6 +24,11 @@ class ProjetoEscopoModel(Base):
     nome_customizado = Column(String(150), nullable=True)
     frente_id = Column(Integer, ForeignKey("frente.id"), nullable=False, index=True)
     dias_uteis_vendidos = Column(Integer, nullable=False)
+    # Ordem de exibição na tela do projeto — não é o `id` (que é ordem de
+    # criação, e reordenar não deveria recriar linha). Default 0 pra quem já
+    # existia antes deste campo: com todo mundo empatado, o desempate por
+    # `id` mantém a ordem de sempre sem precisar de backfill.
+    ordem = Column(Integer, nullable=False, default=0, server_default="0")
     status = Column(
         Enum("nao_iniciado", "em_andamento", "entregue", "cancelado", name="status_projeto_escopo"),
         nullable=False,
