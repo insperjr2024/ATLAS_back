@@ -4,7 +4,18 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn src.app:app --host 0.0.0.0 --port $PORT
+    # As migrations rodam ANTES do uvicorn. Sem isto, o deploy sobe código
+    # que espera colunas que o banco não tem, e o app morre no primeiro SELECT
+    # com "column does not exist".
+    #
+    # No `startCommand` e não no `preDeployCommand` porque aquele exige plano
+    # pago. O custo é rodar a cada reinício — barato, porque `upgrade head` não
+    # faz nada quando o banco já está em dia.
+    #
+    # ⚠ Se a migration falhar, o app NÃO sobe. É de propósito: servir com o
+    # esquema errado é pior que ficar fora do ar, e o erro aparece no log do
+    # deploy em vez de virar 500 para o usuário.
+    startCommand: alembic upgrade head && uvicorn src.app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
