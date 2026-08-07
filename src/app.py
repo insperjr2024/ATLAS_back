@@ -20,6 +20,7 @@ from src.routers import (
     projetos,
     solicitacoes_troca,
     tarefas,
+    grade_horaria,
     usuarios,
 )
 from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
@@ -248,6 +249,7 @@ app.include_router(auth.router_publico)
 app.include_router(auth.router)
 app.include_router(catalogo.router)
 app.include_router(usuarios.router)
+app.include_router(grade_horaria.router)
 app.include_router(projetos.router)
 app.include_router(cronograma.router)
 app.include_router(tarefas.router)
