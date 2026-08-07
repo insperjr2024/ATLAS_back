@@ -14,7 +14,7 @@ Projetos em si não são filtrados por semestre — o §12 diz que os que
 atravessam a virada continuam ativos.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -183,6 +183,40 @@ class _BaseMonitoramento:
         }
 
 
+#: Quantos meses a tendência de entregas cobre.
+MESES_DE_TENDENCIA = 6
+
+
+def _tendencia_mensal(entregas, hoje: date) -> List[dict]:
+    """As entregas por MÊS nos últimos `MESES_DE_TENDENCIA`, do mais antigo ao
+    mais novo.
+
+    Mês, e não semana: entrega de escopo é evento raro — num núcleo com 50
+    projetos saem poucas por semana, e a série semanal virava uma fileira de
+    zeros com um pico solto. No mês o ritmo aparece.
+
+    ⚠ O mês corrente entra **incompleto**, e é assim que tem de ser: a última
+    barra é "o que saiu até agora", não uma previsão. Quem olha no dia 3 vê
+    pouco porque de fato ainda é dia 3.
+
+    A aritmética é feita em (ano, mês) e não somando dias: 6 × 30 dias não é
+    meio ano, e somar `timedelta` a uma data de 31 escorrega de mês.
+    """
+    meses = []
+    ano, mes = hoje.year, hoje.month
+    for _ in range(MESES_DE_TENDENCIA):
+        meses.append((ano, mes))
+        mes -= 1
+        if mes == 0:
+            ano, mes = ano - 1, 12
+    meses.reverse()
+
+    por_mes = Counter((e["data"].year, e["data"].month) for e in entregas)
+    return [
+        {"inicio": date(a, m, 1), "total": por_mes.get((a, m), 0)} for a, m in meses
+    ]
+
+
 def _agrupar(itens, campo: str) -> Dict[int, list]:
     mapa = defaultdict(list)
     for item in itens:
@@ -282,48 +316,34 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         ]
 
     def _entregas(self, projetos, ctx, semestre, hoje):
-        """Contador + lista + tendência semanal (§7.1) — o contraponto positivo."""
-        nomes_projeto = {p.id: p.nome for p in projetos}
-        realizadas = []
-        for projeto_id, escopos in ctx["escopos_por_projeto"].items():
-            for e in escopos:
-                if not e.data_entrega_real:
-                    continue
-                if semestre and not (semestre.inicio <= e.data_entrega_real <= semestre.fim):
-                    continue
-                no_prazo = (
-                    e.data_entrega_planejada is None
-                    or e.data_entrega_real <= e.data_entrega_planejada
-                )
-                realizadas.append(
-                    {
-                        "projeto_id": projeto_id,
-                        "projeto_nome": nomes_projeto.get(projeto_id, ""),
-                        "escopo": ctx["nomes_escopo"].get(e.id, ""),
-                        "data": e.data_entrega_real,
-                        "no_prazo": no_prazo,
-                    }
-                )
-        realizadas.sort(key=lambda r: r["data"], reverse=True)
+        """Contador + lista + tendência mensal (§7.1) — o contraponto positivo.
 
-        # Tendência por semana nas últimas 8 — bucketizar em Python é mais
-        # simples e testável do que em SQL.
-        tendencia = []
-        for semanas_atras in range(7, -1, -1):
-            inicio = hoje - timedelta(days=hoje.weekday() + 7 * semanas_atras)
-            fim = inicio + timedelta(days=6)
-            tendencia.append(
-                {
-                    "inicio": inicio,
-                    "total": sum(1 for r in realizadas if inicio <= r["data"] <= fim),
-                }
-            )
+        ⚠ **O contador e a tendência medem populações DIFERENTES, de propósito.**
+        `total_escopos` conta só a gestão atual, que é o assunto do card. A
+        tendência abre 6 meses e **ignora o semestre**: a gestão 2026.2 começou
+        em julho, então uma janela de meio ano recortada por ela viria com
+        quatro meses zerados — um gráfico que não responde nada.
+
+        Como as duas leituras convivem no mesmo card, somar as barras NÃO dá o
+        número do título.
+
+        A lista `recentes` e a contagem `projetos_finalizados` saíram em
+        2026-08-06: o card virou só o gráfico e nenhuma das duas tinha mais
+        quem as lesse.
+        """
+        todas = [
+            {"data": e.data_entrega_real}
+            for escopos in ctx["escopos_por_projeto"].values()
+            for e in escopos
+            if e.data_entrega_real
+        ]
+        na_gestao = [
+            r for r in todas if not semestre or semestre.inicio <= r["data"] <= semestre.fim
+        ]
 
         return {
-            "total_escopos": len(realizadas),
-            "projetos_finalizados": sum(1 for p in projetos if p.status == "finalizado"),
-            "recentes": realizadas[:5],
-            "tendencia": tendencia,
+            "total_escopos": len(na_gestao),
+            "tendencia": _tendencia_mensal(todas, hoje),
         }
 
     def _bancas_proximas(self, projetos, ctx, hoje):
@@ -348,6 +368,9 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             item = por_banca.setdefault(
                 banca.id,
                 {
+                    # O id da banca vai para a tela: sem ele o card só consegue
+                    # levar ao projeto, e o pedido é abrir A BANCA.
+                    "banca_id": banca.id,
                     "projeto_id": projeto_id,
                     "projeto_nome": nomes_projeto.get(projeto_id, ""),
                     "escopos": [],
@@ -358,6 +381,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
 
         proximas = [
             {
+                "banca_id": item["banca_id"],
                 "projeto_id": item["projeto_id"],
                 "projeto_nome": item["projeto_nome"],
                 "escopo": " + ".join(sorted(item["escopos"])),
