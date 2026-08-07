@@ -17,7 +17,6 @@ class CreateCargoRequest(BaseModel):
     pode_ver_monitoramento: bool = False
     pode_administrar_desempenho: bool = False
     pode_editar_formularios_desempenho: bool = False
-    pode_ver_nucleo: bool = False
     pode_administrar_configuracoes: bool = False
 
 

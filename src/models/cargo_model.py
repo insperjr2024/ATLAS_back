@@ -12,10 +12,12 @@ class CargoModel(Base):
     rotas); agora a posição só define o PADRÃO com que cada cargo nasce, e
     quem decide em runtime é a caixa.
 
-    As 4 seguintes (Avaliação de Desempenho, formulários dela, Núcleo,
-    Configurações) não estão no §3 — nasceram travadas só por posição e
-    viraram caixa a pedido explícito do usuário (2026-08-06), pro mesmo motivo
-    das 9: dar pra delegar sem precisar tornar alguém "diretor" inteiro.
+    As 3 seguintes (Avaliação de Desempenho, formulários dela, Configurações)
+    não estão no §3 — nasceram travadas só por posição e viraram caixa a
+    pedido explícito do usuário (2026-08-06), pro mesmo motivo das 9: dar pra
+    delegar sem precisar tornar alguém "diretor" inteiro. ("Ver o Núcleo"
+    existiu brevemente como uma 4ª extensão, mas a página foi substituída
+    pelo Dashboard Bancas antes de a permissão ser usada, e saiu junto.)
     """
 
     __tablename__ = "cargo"
@@ -45,5 +47,4 @@ class CargoModel(Base):
     # Extensão além das 10 do §3 (ver docstring da classe).
     pode_administrar_desempenho = Column(Boolean, default=False, nullable=False)
     pode_editar_formularios_desempenho = Column(Boolean, default=False, nullable=False)
-    pode_ver_nucleo = Column(Boolean, default=False, nullable=False)
     pode_administrar_configuracoes = Column(Boolean, default=False, nullable=False)

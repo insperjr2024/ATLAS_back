@@ -39,6 +39,8 @@ def serializar_projeto_resumo(
         "data_kickoff": projeto.data_kickoff,
         "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
         "arquivado_em": projeto.arquivado_em,
+        # "Limpar histórico" (§4): corte de exibição da timeline, não exclusão.
+        "historico_oculto_ate": projeto.historico_oculto_ate,
         # §6.2: a banca mais próxima AINDA NÃO REALIZADA de qualquer escopo
         # deste projeto — `None` se nenhuma estiver marcada ou todas já
         # aconteceram.
@@ -171,8 +173,24 @@ class GetHistoricoProjetoUseCase:
         self.repository = ProjetoStatusHistoricoRepository(db)
         self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
         self.remarcacao_repository = ProjetoRemarcacaoBancaRepository(db)
+        self.projeto_repository = ProjetoRepository(db)
 
-    def execute(self, projeto_id: int):
+    def execute(self, projeto_id: int, incluir_ocultos: bool = False):
+        linhas = self.repository.get_by_projeto(projeto_id)
+        justificativas_raw = self.justificativa_repository.get_by_projeto(projeto_id)
+        remarcacoes_raw = self.remarcacao_repository.get_by_projeto(projeto_id)
+
+        # "Limpar histórico" (§4) corta as TRÊS listas pelo mesmo carimbo —
+        # senão uma nota de atraso de antes do corte continuava aparecendo
+        # mesmo com as transições de status ao redor dela já escondidas.
+        if not incluir_ocultos:
+            projeto = self.projeto_repository.get_by_id(projeto_id)
+            corte = projeto.historico_oculto_ate if projeto else None
+            if corte:
+                linhas = [h for h in linhas if h.alterado_em > corte]
+                justificativas_raw = [j for j in justificativas_raw if j.registrado_em > corte]
+                remarcacoes_raw = [r for r in remarcacoes_raw if r.registrado_em > corte]
+
         status = [
             {
                 "tipo": "status",
@@ -182,7 +200,7 @@ class GetHistoricoProjetoUseCase:
                 "alterado_por": h.alterado_por,
                 "alterado_em": h.alterado_em,
             }
-            for h in self.repository.get_by_projeto(projeto_id)
+            for h in linhas
         ]
         justificativas = [
             {
@@ -194,7 +212,7 @@ class GetHistoricoProjetoUseCase:
                 "registrado_por": j.registrado_por,
                 "alterado_em": j.registrado_em,
             }
-            for j in self.justificativa_repository.get_by_projeto(projeto_id)
+            for j in justificativas_raw
         ]
         remarcacoes = [
             {
@@ -207,6 +225,6 @@ class GetHistoricoProjetoUseCase:
                 "registrado_por": r.registrado_por,
                 "alterado_em": r.registrado_em,
             }
-            for r in self.remarcacao_repository.get_by_projeto(projeto_id)
+            for r in remarcacoes_raw
         ]
         return sorted(status + justificativas + remarcacoes, key=lambda h: h["alterado_em"])

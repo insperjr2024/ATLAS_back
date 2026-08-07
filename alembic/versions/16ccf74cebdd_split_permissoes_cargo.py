@@ -33,9 +33,12 @@ def upgrade() -> None:
         "cargo",
         sa.Column("pode_gerenciar_nucleo", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
+    # `true`/`false` em vez de 1/0: o Postgres tem tipo boolean de verdade e
+    # não compara com inteiro; o MySQL aceita `true`/`false` como sinônimo,
+    # então funciona nos dois.
     op.execute(
-        "UPDATE cargo SET pode_gerenciar_membros = 1, pode_gerenciar_nucleo = 1 "
-        "WHERE pode_gerenciar_cargos = 1"
+        "UPDATE cargo SET pode_gerenciar_membros = true, pode_gerenciar_nucleo = true "
+        "WHERE pode_gerenciar_cargos = true"
     )
 
 

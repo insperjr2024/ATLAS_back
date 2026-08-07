@@ -22,6 +22,8 @@ from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.frente_repository import FrenteRepository
+from src.repositories.grade_horaria_repository import GradeHorariaRepository
+from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.notificar import notificar
@@ -40,6 +42,8 @@ class PushAlocacaoAutomaticaUseCase:
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
         self.frente_repository = FrenteRepository(db)
         self.usuario_frente_repository = UsuarioFrenteRepository(db)
+        self.grade_horaria_repository = GradeHorariaRepository(db)
+        self.semestre_repository = SemestreRepository(db)
         self.usuario_repository = UsuarioRepository(db)
 
     def execute(self) -> List[dict]:
@@ -193,12 +197,52 @@ class PushAlocacaoAutomaticaUseCase:
         }
 
     def _excluidos(self, banca: BancaModel, candidaturas_atuais: list) -> Set[int]:
-        """Quem já é candidato, e a equipe do próprio projeto (que não pode
-        se candidatar à própria banca — mesma regra de `create_candidatura`)."""
+        """Quem o push não pode escalar nesta banca.
+
+        ⭐ É o ÚNICO portão: tanto o laço por frente quanto o fallback geral em
+        `_processar_banca` filtram por este conjunto, então somar alguém aqui
+        o tira de todos os caminhos de uma vez.
+        """
         excluidos = {c.usuario_id for c in candidaturas_atuais}
         excluidos.add(banca.coordenador_id)
         excluidos.update(e.usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id))
+        excluidos.update(self._com_aula_no_horario(banca))
         return excluidos
+
+    def _com_aula_no_horario(self, banca: BancaModel) -> Set[int]:
+        """Quem tem aula na hora da banca (§8 e §11).
+
+        📐 A trava vale só para o push. Quem quiser se inscrever por vontade
+        própria mesmo tendo aula continua podendo — o §8 é explícito nisso, e
+        `create_candidatura` não checa grade nenhuma.
+
+        📐 Quem não preencheu a grade não é barrado: ausência de linha quer
+        dizer "não sei", não "está livre". Barrar por falta de dado esvaziaria
+        o rodízio no primeiro semestre, antes de alguém preencher.
+
+        ⚠ Compara pelo INÍCIO da banca. A banca não guarda duração, então uma
+        que comece 13:00 e avance sobre a aula das 14:15 não é detectada. Para
+        pegar isso seria preciso gravar quanto dura cada banca.
+        """
+        if not banca.data_hora:
+            return set()
+
+        # `weekday()` já é 0=segunda … 6=domingo, a mesma convenção da grade.
+        dia_semana = banca.data_hora.weekday()
+        if dia_semana > 4:
+            return set()
+
+        semestre = self.semestre_repository.get_por_data(banca.data_hora.date())
+        if not semestre:
+            return set()
+
+        hora = banca.data_hora.time()
+        return {
+            faixa.usuario_id
+            for faixa in self.grade_horaria_repository.get_por_semestre(semestre.id)
+            if faixa.dia_semana == dia_semana
+            and faixa.hora_inicio <= hora < faixa.hora_fim
+        }
 
     def _ordenar_por_rodizio(
         self, usuarios: List[UsuarioModel], ultima_alocacao: Dict[int, datetime]

@@ -142,22 +142,24 @@ def _migrar_catalogo_e_perguntas() -> None:
         ).scalar()
         conn.execute(
             sa.text(
-                "INSERT INTO escopo (nome, frente_id, ativo) VALUES (:nome, :frente_id, 1)"
+                "INSERT INTO escopo (nome, frente_id, ativo) VALUES (:nome, :frente_id, true)"
             ),
             {"nome": nome, "frente_id": frente_id},
         )
 
     formulario_id = conn.execute(
-        sa.text("SELECT id FROM formulario WHERE ativo = 1 ORDER BY id DESC LIMIT 1")
+        sa.text("SELECT id FROM formulario WHERE ativo = true ORDER BY id DESC LIMIT 1")
     ).scalar()
     if not formulario_id:
         # Ninguém publicou uma versão do formulário ainda (ex.: banco de
         # desenvolvimento recém-migrado) — cria uma pra já nascer com as
         # perguntas dos blocos técnicos, em vez de deixar a avaliação sem
         # nenhum formulário ativo.
+        # CURRENT_DATE é sinônimo de CURDATE() no MySQL — uma forma só que
+        # roda nos dois.
         semestre_id = conn.execute(
             sa.text(
-                "SELECT id FROM semestre WHERE CURDATE() BETWEEN inicio AND fim "
+                "SELECT id FROM semestre WHERE CURRENT_DATE BETWEEN inicio AND fim "
                 "ORDER BY inicio DESC LIMIT 1"
             )
         ).scalar()
@@ -170,12 +172,18 @@ def _migrar_catalogo_e_perguntas() -> None:
             # há como associar um formulário; scripts/seed.py cobre a carga
             # inicial completa nesse caso.
             return
-        formulario_id = conn.execute(
+        # `.lastrowid` é MySQL/SQLite — o Postgres não tem "last insert id"
+        # de cursor, então busca de volta em vez de depender dele.
+        conn.execute(
             sa.text(
-                "INSERT INTO formulario (semestre_id, ativo) VALUES (:semestre_id, 1)"
+                "INSERT INTO formulario (semestre_id, ativo) VALUES (:semestre_id, true)"
             ),
             {"semestre_id": semestre_id},
-        ).lastrowid
+        )
+        formulario_id = conn.execute(
+            sa.text("SELECT id FROM formulario WHERE semestre_id = :semestre_id ORDER BY id DESC LIMIT 1"),
+            {"semestre_id": semestre_id},
+        ).scalar()
 
     ordem = (
         conn.execute(

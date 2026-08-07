@@ -18,7 +18,6 @@ class UpdateCargoRequest(BaseModel):
     pode_ver_monitoramento: Optional[bool] = None
     pode_administrar_desempenho: Optional[bool] = None
     pode_editar_formularios_desempenho: Optional[bool] = None
-    pode_ver_nucleo: Optional[bool] = None
     pode_administrar_configuracoes: Optional[bool] = None
 
 

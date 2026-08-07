@@ -59,8 +59,17 @@ def upgrade() -> None:
     # índice que uma FK ainda usa por baixo (erro 1553). Dropar a FK já leva
     # junto o índice não-único que ela usava (`ix_..._pasta_id`), por isso
     # só o `drop_index` do unique continua explícito abaixo.
-    op.drop_constraint(op.f('desempenho_pdi_envio_ibfk_3'), 'desempenho_pdi_envio', type_='foreignkey')
-    op.drop_index(op.f('uq_pdi_envio_pasta_mentorado'), table_name='desempenho_pdi_envio')
+    # Nome no padrão do MySQL — no Postgres a FK sem nome nasce diferente,
+    # então busca o nome de verdade pela coluna em vez de chutar.
+    _inspector = sa.inspect(op.get_bind())
+    _fk_pasta_id = next(
+        fk['name'] for fk in _inspector.get_foreign_keys('desempenho_pdi_envio')
+        if fk['constrained_columns'] == ['pasta_id']
+    )
+    op.drop_constraint(_fk_pasta_id, 'desempenho_pdi_envio', type_='foreignkey')
+    # Nasceu como `UniqueConstraint` (não índice) na `7d0730fbe457`. No MySQL
+    # os dois se derrubam do mesmo jeito; o Postgres exige `drop_constraint`.
+    op.drop_constraint('uq_pdi_envio_pasta_mentorado', 'desempenho_pdi_envio', type_='unique')
     op.create_index(op.f('ix_desempenho_pdi_envio_item_id'), 'desempenho_pdi_envio', ['item_id'], unique=False)
     op.create_unique_constraint('uq_pdi_envio_item_mentorado', 'desempenho_pdi_envio', ['item_id', 'mentorado_id'])
     op.create_foreign_key(None, 'desempenho_pdi_envio', 'desempenho_pdi_item', ['item_id'], ['id'])

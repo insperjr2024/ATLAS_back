@@ -79,6 +79,20 @@ class FakeUsuarioRepo:
         return self._usuarios
 
 
+class FakeSemestreRepo:
+    """Sem semestre cadastrado = `_com_aula_no_horario` (§11) devolve vazio
+    sem tocar na grade — os testes deste arquivo não são sobre choque de
+    horário, então mantém o comportamento de antes dessa checagem existir."""
+
+    def get_por_data(self, data):
+        return None
+
+
+class FakeGradeHorariaRepo:
+    def get_por_semestre(self, semestre_id):
+        return []
+
+
 def frente(id, nome, piso_banca):
     return SimpleNamespace(id=id, nome=nome, piso_banca=piso_banca)
 
@@ -106,6 +120,8 @@ def montar(
     uc.equipe_projeto_repository = FakeEquipeProjetoRepo()
     uc.usuario_frente_repository = FakeUsuarioFrenteRepo(por_frente)
     uc.usuario_repository = FakeUsuarioRepo(usuarios)
+    uc.semestre_repository = FakeSemestreRepo()
+    uc.grade_horaria_repository = FakeGradeHorariaRepo()
     banca = SimpleNamespace(
         id=1,
         nome_projeto="Projeto X",

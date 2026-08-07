@@ -22,7 +22,13 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.add_column('banca', sa.Column('projeto_escopo_id', sa.Integer(), nullable=True))
     op.add_column('banca', sa.Column('realizado_em', sa.DateTime(), nullable=True))
-    op.add_column('banca', sa.Column('resultado', sa.Enum('aprovada', 'nao_aprovada', name='resultado_banca'), nullable=True))
+    # No MySQL o ENUM nasce junto com a coluna. No Postgres é um TYPE à parte
+    # — `add_column` numa tabela já existente não cria o type sozinho (só
+    # `create_table` faz isso), então precisa criar antes, explícito.
+    # `checkfirst=True` faz o `.create()` ser um no-op no MySQL.
+    resultado_banca = sa.Enum('aprovada', 'nao_aprovada', name='resultado_banca')
+    resultado_banca.create(op.get_bind(), checkfirst=True)
+    op.add_column('banca', sa.Column('resultado', resultado_banca, nullable=True))
     op.add_column('banca', sa.Column('excecao_choque_por', sa.Integer(), nullable=True))
     op.add_column('banca', sa.Column('excecao_choque_nota', sa.String(length=255), nullable=True))
     op.alter_column('banca', 'escopo_id',
