@@ -39,6 +39,9 @@ from src.repositories.projeto_justificativa_atraso_repository import (
     ProjetoJustificativaAtrasoRepository,
 )
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.repositories.projeto_status_historico_repository import (
+    ProjetoStatusHistoricoRepository,
+)
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
@@ -52,6 +55,7 @@ from src.utils.condicoes_alerta import (
     TAREFA_VENCIDA,
     detectar_condicoes,
 )
+from src.utils.contagem_dias import calcular_contagem_projeto
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
 from src.utils.janela_escopo import calcular_janela, dias_de_atraso, dias_parados
 from src.utils.tarefa_status import (
@@ -119,6 +123,26 @@ class _BaseMonitoramento:
         self.frente_repository = FrenteRepository(db)
         self.usuario_frente_repository = UsuarioFrenteRepository(db)
         self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
+        #: O histórico de status revela as janelas de ⏸ Pausado, que entram no
+        #: cálculo de atraso da janela do escopo (§10).
+        self.historico_repository = ProjetoStatusHistoricoRepository(db)
+
+    def _calendario_de_janela(self) -> List[date]:
+        """⭐ O calendário INTEIRO — para tudo que calcula JANELA DE ESCOPO.
+
+        ⚠ Não use `_dias_nao_letivos(desde, ate)` aqui. Aquele recorta até a
+        referência (hoje), e a janela de um escopo termina no FUTURO: um escopo
+        que começou em 19/08 com 14 dias úteis fecha em 08/09, atravessando o
+        feriado de 07/09 que o recorte não carregou. Sem o feriado, a janela era
+        calculada um dia mais curta e uma banca feita no último dia aparecia
+        como **1 dia de atraso** — exatamente o sintoma que apareceu em TX1.
+
+        Carregar tudo é o que `get_escopos_projeto` já faz para a mesma conta, e
+        é o que mantém o número do Monitoramento igual ao da tela do projeto —
+        que é a razão de existir desta seção. O calendário é o acadêmico do
+        semestre: dezenas de linhas, não milhares.
+        """
+        return [d.data for d in self.dia_nao_letivo_repository.get_all()]
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -339,10 +363,13 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             ),
             "projeto_id",
         )
-        mais_antigo = min(
-            (p.data_kickoff for p in projetos if p.data_kickoff), default=hoje
-        )
-        nao_letivos = self._dias_nao_letivos(mais_antigo, hoje)
+        # ⚠ Era `_dias_nao_letivos(kickoff mais antigo, hoje)`, e tinha o mesmo
+        # defeito do `_escopos_atrasados`: este bloco chama `calcular_janela` e
+        # `dias_de_atraso`, e a janela do escopo termina no FUTURO — o recorte
+        # até hoje escondia os feriados que ela atravessa e encurtava a janela
+        # em um dia por feriado. `dias_parados` abaixo só olha o passado e não
+        # se importa, mas divide o mesmo calendário.
+        nao_letivos = self._calendario_de_janela()
 
         linhas = []
         for projeto in projetos:
@@ -538,36 +565,92 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         return proximas
 
     def _tempo_parado(self, projetos, ctx, hoje):
-        """😴 Escopo entregue e o próximo sem `data_inicio` — o vão em que os
-        projetos costumam morrer (§7.1)."""
-        parados = []
+        """😴 O VÃO ENTRE ESCOPOS: da entrega ao cliente de um até a reunião
+        inicial do seguinte — o intervalo em que os projetos costumam morrer.
+
+        ⭐ **É um vão por PAR de escopos, não um por projeto.** Um projeto de
+        três escopos tem dois vãos, e eles podem ser muito diferentes.
+
+        ⚠ Três defeitos que esta versão corrige:
+
+        1. **Media sempre até HOJE.** Mesmo com o escopo seguinte já iniciado, a
+           conta ia da última entrega ao relógio — então o vão que de fato
+           aconteceu (entrega 10/07 → reunião inicial 15/07 = 5 dias) nunca
+           aparecia, e o número só existia enquanto ninguém resolvia.
+        2. **Dava número NEGATIVO.** `(hoje - entrega)` com entrega registrada
+           para o futuro devolvia -16, e o card exibia "-16 dias parado". Uma
+           entrega que ainda não aconteceu não abre vão nenhum.
+        3. **Sumia quando havia qualquer escopo em curso**, o que escondia o
+           vão de projetos que rodam escopos em sequência — justamente os que
+           a métrica existe para vigiar.
+
+        Vão ABERTO (o seguinte ainda não teve reunião inicial) continua correndo
+        até hoje: é o alerta. Vão FECHADO fica com o tamanho que teve.
+
+        Dias CORRIDOS, não úteis — é tempo de calendário parado, não esforço
+        (ver a distinção no docstring de `_metricas_de_janela`).
+        """
+        vaos = []
         for p in projetos:
             if p.status in ("finalizado", "pausado"):
                 continue
-            escopos = ctx["escopos_por_projeto"].get(p.id, [])
-            entregues = [e for e in escopos if e.data_entrega_real]
-            esperando = [e for e in escopos if not e.data_inicio and e.status != "cancelado"]
-            # ⚠ Só está PARADO quem não tem nada rodando. Um projeto com 3
-            # escopos sequenciais (um entregue, um em curso, um na fila)
-            # aparecia como parado — mas ele está trabalhando.
-            em_curso_agora = [
-                e for e in escopos if e.data_inicio and not e.data_entrega_real
+            escopos = [
+                e for e in ctx["escopos_por_projeto"].get(p.id, []) if e.status != "cancelado"
             ]
-            if not entregues or not esperando or em_curso_agora:
+            # A métrica é sobre a SEQUÊNCIA de escopos: com um só não há vão.
+            if len(escopos) < 2:
                 continue
-            ultima = max(e.data_entrega_real for e in entregues)
-            parados.append(
-                {
-                    "projeto_id": p.id,
-                    "projeto_nome": p.nome,
-                    "escopo_entregue": ctx["nomes_escopo"].get(
-                        max(entregues, key=lambda e: e.data_entrega_real).id, ""
-                    ),
-                    "dias_parado": (hoje - ultima).days,
-                }
-            )
-        parados.sort(key=lambda x: x["dias_parado"], reverse=True)
-        return parados
+
+            # Quem ainda nem começou é o que mantém um vão aberto.
+            esperando = [e for e in escopos if not e.data_inicio]
+
+            for entregue in escopos:
+                entrega = entregue.data_entrega_real
+                # Entrega no futuro ainda não aconteceu — era daqui que saía o
+                # número negativo.
+                if not entrega or entrega > hoje:
+                    continue
+
+                # O próximo a começar DEPOIS desta entrega. Ordenar por
+                # `data_inicio` e não por `ordem`: a ordem é de exibição e vem
+                # zerada na maioria dos projetos, então ela não diz a sequência
+                # real em que os escopos rodaram.
+                seguintes = [
+                    e for e in escopos if e.data_inicio and e.data_inicio >= entrega
+                ]
+                proximo = min(seguintes, key=lambda e: e.data_inicio) if seguintes else None
+
+                if proximo:
+                    dias = (proximo.data_inicio - entrega).days
+                    seguinte_nome = ctx["nomes_escopo"].get(proximo.id, "")
+                elif esperando:
+                    dias = (hoje - entrega).days
+                    seguinte_nome = None
+                else:
+                    # Todos os escopos já rodaram: não há próximo a esperar.
+                    continue
+
+                # Zero dia não é vão: o próximo escopo começou no mesmo dia da
+                # entrega, que é a passagem de bastão perfeita. Listá-la num
+                # card de tempo PARADO seria reportar o caso bem-sucedido.
+                if dias == 0:
+                    continue
+
+                vaos.append(
+                    {
+                        "projeto_id": p.id,
+                        "projeto_nome": p.nome,
+                        "escopo_entregue": ctx["nomes_escopo"].get(entregue.id, ""),
+                        #: `None` = o vão está ABERTO, ninguém começou o próximo.
+                        "escopo_seguinte": seguinte_nome,
+                        "aberto": proximo is None,
+                        "dias_parado": dias,
+                    }
+                )
+
+        # Vão aberto primeiro — é o que ainda dá para resolver; depois o maior.
+        vaos.sort(key=lambda x: (not x["aberto"], -x["dias_parado"]))
+        return vaos
 
     def _atencao_agora(self, projetos, ctx, atrasos, hoje):
         """§7.1: o motivo precisa ser EXPLÍCITO, nunca um rótulo genérico.
@@ -1219,26 +1302,100 @@ class AtrasosUseCase(_BaseMonitoramento):
         return {
             "por_projeto": por_projeto,
             "por_coordenador": por_coordenador_lista,
+            "escopos_atrasados": self._escopos_atrasados(projetos, ctx, hoje),
+            # ⚠ `com_externo` e `pior_externo` saíram daqui em 2026-08-12,
+            # junto com o motivo de entrega que os alimentava: sem
+            # `entrega_externa` eles seriam dois zeros permanentes na faixa do
+            # topo, dizendo "nenhum projeto travado no cliente" sobre uma
+            # pergunta que a plataforma deixou de fazer.
             "resumo": {
                 "projetos": len(por_projeto),
                 "pior_caso": max((m["dias"] for m in motivos), default=0),
-                # 🤝 Entrega travada do lado do CLIENTE.
-                #
-                # O §7.4 tira isso do que se cobra do time — a agenda não é
-                # dele. Mas continua sendo o caso mais delicado do portfólio:
-                # é o cliente esperando, e quem resolve é a diretoria falando
-                # com ele, não o coordenador trabalhando mais.
-                #
-                "com_externo": sum(
-                    1
-                    for p in por_projeto
-                    if any(m["tipo"] == "entrega_externa" for m in p["motivos"])
-                ),
-                "pior_externo": max(
-                    (m["dias"] for m in motivos if m["tipo"] == "entrega_externa"), default=0
-                ),
             },
         }
+
+    def _escopos_atrasados(self, projetos, ctx, referencia: date) -> List[dict]:
+        """⭐ §10: os escopos que passaram da JANELA, com o porquê escrito.
+
+        ⚠ **Não são os `motivos` de `por_projeto`.** Aqueles perguntam "o que
+        venceu e não aconteceu?" — banca não realizada, entrega que não saiu — e
+        fecham quando o fato acontece. Este pergunta outra coisa: "o trabalho
+        passou do tempo que foi vendido?". Um escopo pode estourar a janela com
+        a banca já realizada e a entrega em dia, e aí nenhum dos três motivos
+        dispara e o projeto nem aparece na lista de atrasos.
+
+        É a mesma conta da coluna "Atraso" do card "Escopos vendidos", via
+        `calcular_contagem_projeto` — a MESMA função que a tela do projeto usa,
+        e não uma reimplementação: o número que a diretoria lê aqui tem de ser
+        o mesmo que o coordenador vê lá, inclusive no desconto das pausas.
+        """
+        historico_por_projeto = _agrupar(
+            self.historico_repository.get_by_projetos(ctx["ids"]), "projeto_id"
+        )
+        justificativas_por_escopo = self._notas_de_escopo(ctx["ids"])
+        nomes_usuario = {u.id: u.nome for u in self.usuario_repository.get_all()}
+
+        # Calendário inteiro: a janela termina no futuro (ver
+        # `_calendario_de_janela`).
+        nao_letivos = self._calendario_de_janela()
+
+        linhas = []
+        for projeto in projetos:
+            do_projeto = ctx["escopos_por_projeto"].get(projeto.id, [])
+            if not do_projeto:
+                continue
+            contagens = calcular_contagem_projeto(
+                do_projeto,
+                historico_por_projeto.get(projeto.id, []),
+                nao_letivos,
+                referencia=referencia,
+                bancas_por_escopo=ctx["bancas_por_escopo"],
+            )
+            for escopo in do_projeto:
+                contagem = contagens.get(escopo.id)
+                if escopo.status == "cancelado" or not contagem or contagem.atraso <= 0:
+                    continue
+                nota = justificativas_por_escopo.get(escopo.id)
+                linhas.append(
+                    {
+                        "projeto_id": projeto.id,
+                        "projeto_nome": projeto.nome,
+                        "projeto_escopo_id": escopo.id,
+                        "escopo_nome": ctx["nomes_escopo"].get(escopo.id, "escopo"),
+                        "dias": contagem.atraso,
+                        "dias_vendidos": escopo.dias_uteis_vendidos,
+                        "dias_ajustados": escopo.dias_uteis_ajustados,
+                        # `None` = ninguém explicou ainda, e é isso que a tela
+                        # mostra como pendência em vez de inventar um motivo.
+                        "justificativa": nota.texto if nota else None,
+                        "justificativa_id": nota.id if nota else None,
+                        "registrado_por": (
+                            nomes_usuario.get(nota.registrado_por) if nota else None
+                        ),
+                        "registrado_em": nota.registrado_em if nota else None,
+                    }
+                )
+
+        # Sem justificativa primeiro, e dentro de cada grupo o pior atraso no
+        # topo: a lista é uma fila de trabalho da diretoria, e o que falta
+        # explicação é o que ela precisa cobrar.
+        linhas.sort(key=lambda x: (x["justificativa"] is not None, -x["dias"]))
+        return linhas
+
+    def _notas_de_escopo(self, projeto_ids) -> Dict[int, object]:
+        """A nota MAIS RECENTE de atraso de janela, por escopo.
+
+        As anteriores continuam no Histórico do projeto — aqui vale a última,
+        que é a que descreve o atraso como ele está hoje.
+        """
+        mais_recente: Dict[int, object] = {}
+        for j in self.justificativa_repository.get_by_projetos(projeto_ids):
+            if j.tipo != "escopo" or j.projeto_escopo_id is None:
+                continue
+            atual = mais_recente.get(j.projeto_escopo_id)
+            if atual is None or j.registrado_em > atual.registrado_em:
+                mais_recente[j.projeto_escopo_id] = j
+        return mais_recente
 
     def _motivo_dict(self, motivo, justificativas) -> dict:
         cobrindo = self._justificativa_cobrindo(motivo, justificativas)
