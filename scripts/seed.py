@@ -13,7 +13,6 @@ from datetime import date, datetime, time, timedelta
 from src.database.database import SessionLocal
 from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
-from src.models.cargo_model import CargoModel
 from src.models.configuracao_model import ConfiguracaoModel
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
 from src.models.escopo_model import EscopoModel
@@ -294,9 +293,15 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
                     "data_inicio": dias(14),
                     "data_entrega_planejada": hoje + timedelta(days=7),
                     # ✅ Realizada e aprovada → a entrega está liberada (§5.5).
+                    #
+                    # ⚠ ONTEM, não 3 dias atrás. O prazo de avaliação é de 2
+                    # dias corridos (§8, `PRAZO_AVALIACAO_DIAS`), então uma
+                    # banca de 3 dias atrás JÁ NASCE vencida — e com todas as
+                    # bancas do seed vencidas era impossível testar o envio de
+                    # avaliação: a tela só mostrava "Prazo esgotado".
                     "_banca": {
-                        "data_hora": datetime.combine(dias(3), time(14, 0)),
-                        "realizado_em": datetime.combine(dias(3), time(15, 30)),
+                        "data_hora": datetime.combine(dias(1), time(14, 0)),
+                        "realizado_em": datetime.combine(dias(1), time(15, 30)),
                         "resultado": "aprovada",
                     },
                 },
@@ -388,8 +393,8 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
                     "data_entrega_planejada": dias(9),
                     "tipo_atraso_entrega": "externo",
                     "_banca": {
-                        "data_hora": datetime.combine(dias(12), time(14, 0)),
-                        "realizado_em": datetime.combine(dias(12), time(15, 0)),
+                        "data_hora": datetime.combine(dias(1), time(9, 0)),
+                        "realizado_em": datetime.combine(dias(1), time(10, 30)),
                         "resultado": "aprovada",
                     },
                 },
@@ -538,6 +543,10 @@ def projetos_da_demo(hoje, frentes, catalogo, usuarios):
                     "dias_uteis_vendidos": 20,
                     "status": "em_andamento",
                     "data_inicio": dias(53),
+                    # ⚠ A ÚNICA com prazo de avaliação vencido, de propósito:
+                    # é o caso que mostra a trava do §8 funcionando ("Prazo
+                    # esgotado", botão de avaliar desabilitado). As demais
+                    # nascem dentro dos 2 dias para o fluxo feliz ser testável.
                     "_banca": {
                         "data_hora": datetime.combine(dias(30), time(10, 0)),
                         "realizado_em": datetime.combine(dias(30), time(11, 30)),
@@ -603,7 +612,7 @@ def executar():
     db = SessionLocal()
     hoje = date.today()
     criados = {
-        "frente": 0, "escopo": 0, "cargo": 0, "usuario": 0, "dia": 0,
+        "frente": 0, "escopo": 0, "usuario": 0, "dia": 0,
         "projeto": 0, "escopo_vendido": 0, "banca": 0, "coluna": 0,
         "tarefa": 0, "reuniao": 0,
     }
@@ -628,32 +637,10 @@ def executar():
                 escopo.ativo = True
                 criados["escopo"] += novo
 
-        # 3 · Cargos (as 10 permissões da tabela do §3)
-        cargos = {}
-        for (
-            nome, criar_projeto, editar_equipe, gerir_membros, marcar_kickoff,
-            definir_cronograma, aprovar_reajuste, criar_tarefa, mover_editar_tarefa,
-            ver_proprios_projetos, ver_monitoramento,
-        ) in CARGOS:
-            cargo, novo = obter_ou_criar(
-                db,
-                CargoModel,
-                {"nome": nome},
-                {
-                    "pode_criar_projeto": criar_projeto,
-                    "pode_editar_equipe": editar_equipe,
-                    "pode_gerir_membros": gerir_membros,
-                    "pode_marcar_kickoff": marcar_kickoff,
-                    "pode_definir_cronograma": definir_cronograma,
-                    "pode_aprovar_reajuste": aprovar_reajuste,
-                    "pode_criar_tarefa": criar_tarefa,
-                    "pode_mover_editar_tarefa": mover_editar_tarefa,
-                    "pode_ver_proprios_projetos": ver_proprios_projetos,
-                    "pode_ver_monitoramento": ver_monitoramento,
-                },
-            )
-            cargos[nome] = cargo
-            criados["cargo"] += novo
+        # As permissões vivem em `posicao_permissao`, populada pela migration
+        # `03ea41a273d0` — o seed não recria. Antes existia uma tabela `cargo`
+        # com as mesmas caixas; ela foi removida quando posição virou a única
+        # dimensão de permissão.
 
         # 4 · Gestão semestral + calendário do Insper
         nome_sem, inicio, fim = SEMESTRE
@@ -709,7 +696,6 @@ def executar():
                 {
                     "nome": nome,
                     "senha_hash": hash_senha(SENHA_PADRAO),
-                    "cargo_id": cargos[nome_cargo].id,
                     "posicao": posicao,
                     "status": status,
                     "ativo": status == "ativo",
@@ -859,9 +845,7 @@ def executar():
         # 8 · Configuração global
         config = db.query(ConfiguracaoModel).first()
         if not config:
-            config = ConfiguracaoModel(
-                vagas_por_banca=5, cargo_padrao_id=cargos["Membro"].id
-            )
+            config = ConfiguracaoModel(vagas_por_banca=5)
             db.add(config)
 
         db.commit()

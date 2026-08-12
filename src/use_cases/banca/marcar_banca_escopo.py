@@ -30,7 +30,6 @@ from src.repositories.projeto_status_historico_repository import (
 )
 from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
-from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.piso_banca import calcular_piso_banca
 from src.utils.banca_status import calcular_status_banca
@@ -379,7 +378,6 @@ class RegistrarRealizacaoBancaUseCase:
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
-        self.composicao_checker = ComposicaoBancaChecker(db)
 
     def execute(
         self,
@@ -421,31 +419,27 @@ class RegistrarRealizacaoBancaUseCase:
         }
 
     def _exigir_composicao(self, banca, request, eh_diretor: bool) -> None:
-        """A banca não fecha com menos gente que o combinado, nem faltando a
-        distribuição certa entre frentes e a liderança de cada uma (§8).
+        """A banca não fecha com menos gente que o combinado (§8).
 
-        📐 O piso TOTAL é a SOMA do `piso_banca` das frentes vinculadas (§8:
-        Business 3 · Tech 2 · Eng. de Processos 2 · Direito 1) — vem de
-        `calcular_piso_banca`, o mesmo caminho do push automático. Mas total
-        não basta: uma banca Business+Tech (piso 3+2=5) não pode fechar com 5
-        de Business e ZERO de Tech, então `ComposicaoBancaChecker` confere o
-        piso POR frente e a liderança (gerente da frente, ou diretor) de cada
-        uma, excluindo a equipe do próprio projeto da contagem. Só depois de
-        cada frente cumprida é que o resto das vagas pode ser de qualquer uma.
+        📐 Só o TOTAL é exigido: a SOMA do `piso_banca` das frentes vinculadas
+        (§8: Business 3 · Tech 2 · Eng. de Processos 2 · Direito 1), vinda de
+        `calcular_piso_banca` — o mesmo caminho do push automático. **Quem
+        preenche esse total pode ser de qualquer frente.**
 
-        `piso_minimo_override` (a diretoria já afrouxou esta banca específica)
-        relaxa TUDO — total, por frente e liderança — não só o total.
+        ⚠ O piso POR frente e a exigência de liderança de cada frente foram
+        REMOVIDOS (2026-08-12, decisão do núcleo). O §8 os descreve, e havia
+        implementação própria (`ComposicaoBancaChecker`), mas na prática eles
+        barravam banca que já tinha acontecido: o núcleo não consegue garantir
+        a composição exata por frente, e a banca ficava impossível de
+        registrar — o que a deixava "atrasada" para sempre e contaminava o
+        §7.4. O checker continua no código, sem uso aqui.
 
         ⚠ NÃO é `configuracao.vagas_por_banca`: aquilo é o TETO de quantos
         cabem na banca (`create_candidatura` recusa em "banca lotada"), e usar
-        o teto como piso reprovaria quase toda banca — 5 alocados exigidos
-        onde o §8 pede 3.
+        o teto como piso reprovaria quase toda banca.
 
         A saída é `forcar`, e só para a diretoria — é ela que libera exceção às
-        regras de composição no §8. Sem essa porta, uma banca que aconteceu com
-        4 pessoas ficaria "atrasada" para sempre, e o §7.4 mede atraso
-        exatamente por isso: a nota de rodapé viraria dado errado no
-        monitoramento.
+        regras de composição no §8.
         """
         vinculos = self.banca_frente_repository.get_by_banca(banca.id)
         frentes = [
@@ -455,27 +449,12 @@ class RegistrarRealizacaoBancaUseCase:
         candidaturas = self.candidatura_repository.get_by_banca(banca.id)
         alocados = len(candidaturas)
 
-        problemas = []
-        if alocados < minimo:
-            problemas.append(f"{alocados} de {minimo} pessoas alocadas")
-
-        if banca.piso_minimo_override is None and frentes:
-            configuracao = self.configuracao_repository.get()
-            lideranca_minima = configuracao.lideranca_minima_por_frente if configuracao else 1
-            candidato_ids = {c.usuario_id for c in candidaturas}
-            status = self.composicao_checker.verificar(banca, frentes, candidato_ids, lideranca_minima)
-            for deficit in status.deficits:
-                if deficit.piso_faltando:
-                    problemas.append(f"faltam {deficit.piso_faltando} de {deficit.frente_nome}")
-                if deficit.lideranca_faltando:
-                    problemas.append(f"falta liderança de {deficit.frente_nome}")
-
-        if not problemas:
+        if alocados >= minimo:
             return
 
         if not request.forcar:
             raise RegraDeNegocioError(
-                "Composição incompleta (" + "; ".join(problemas) + "). "
+                f"Esta banca tem {alocados} de {minimo} pessoas alocadas. "
                 "Só a diretoria pode registrá-la assim mesmo."
             )
         if not eh_diretor:
