@@ -156,9 +156,26 @@ def calcular_contagem_escopo(
     # (desconto, janela e atraso), e um gerador se esgotaria na primeira.
     janelas_pausa = list(janelas_pausa)
 
-    # Regra 2: a entrega congela o fim da janela. É a única linha que faz o
-    # "escopo entregue pausa a contagem" — depois dela, o relógio é irrelevante.
-    fim = data_entrega_real or referencia
+    # ⭐ Regra 2: a contagem para quando o escopo entra em CORREÇÕES — o que
+    # acontece na banca REALIZADA, não na entrega.
+    #
+    # ⚠ Isto era `data_entrega_real or referencia`, e o efeito era uma tela que
+    # se contradizia: um escopo com banca feita 1 dia depois da janela e entrega
+    # ainda não registrada mostrava "22/12 (+10)" ao lado de "Atraso: 1 dia".
+    # Os dois números mediam o mesmo estouro com réguas diferentes — o consumo
+    # corria até hoje, o atraso parava na banca.
+    #
+    # A régua certa é a da banca, e é o §11 que diz: os dias depois dela são
+    # CORREÇÃO, e correção "não consome dias e não é atraso". Contar o tempo de
+    # arrumar o que a banca apontou como se fosse trabalho vendido inflava o
+    # estouro de todo escopo que ainda não teve a entrega registrada — e ele
+    # crescia sozinho, um dia por dia, sem ninguém trabalhar.
+    #
+    # `marco_das_correcoes` já resolve a precedência (banca realizada, senão a
+    # entrega) e é a mesma função que as correções usam logo abaixo: uma régua
+    # só para os dois lados da mesma fronteira.
+    inicio_das_correcoes = marco_das_correcoes(banca_realizado_em, data_entrega_real)
+    fim = inicio_das_correcoes or referencia
 
     bruto = contar_dias_uteis(data_inicio, fim, dias_nao_letivos)
 
@@ -200,7 +217,11 @@ def calcular_contagem_escopo(
         consumidos=consumidos,
         restantes=total - consumidos,
         estourou=consumidos > total,
-        em_contagem=data_entrega_real is None,
+        # Acompanha a Regra 2: o relógio para no mesmo ponto em que `fim` para.
+        # Era `data_entrega_real is None`, o que passou a mentir quando a
+        # contagem virou a banca — dizia "ainda correndo" sobre um número que
+        # já estava congelado.
+        em_contagem=inicio_das_correcoes is None,
         data_inicio=data_inicio,
         fim_da_janela=fim,
         fim_janela_prevista=janela.fim,

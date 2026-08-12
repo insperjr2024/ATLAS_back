@@ -17,6 +17,9 @@ from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRe
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_justificativa_atraso_repository import (
+    ProjetoJustificativaAtrasoRepository,
+)
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.banca_status import calcular_status_banca
@@ -71,6 +74,7 @@ class ListEscoposProjetoUseCase:
         self.reajuste_repository = CronogramaReajusteRepository(db)
         self.etapa_repository = CronogramaEtapaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
+        self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
 
     def execute(self, projeto_id: int, referencia: Optional[date] = None) -> List[dict]:
         escopos = self.repository.get_by_projeto(projeto_id)
@@ -122,6 +126,16 @@ class ListEscoposProjetoUseCase:
         }
         nomes_usuario = {u.id: u.nome for u in self.usuario_repository.get_all()}
 
+        # §7.4/§10: a nota do atraso de JANELA de cada escopo — a mais recente,
+        # que é a que a tela mostra. Uma consulta só para o projeto inteiro; as
+        # anteriores continuam no Histórico, que é o registro completo.
+        justificativas = {}
+        for j in self.justificativa_repository.get_by_projeto(projeto_id):
+            if j.tipo == "escopo" and j.projeto_escopo_id is not None:
+                atual = justificativas.get(j.projeto_escopo_id)
+                if atual is None or j.registrado_em > atual.registrado_em:
+                    justificativas[j.projeto_escopo_id] = j
+
         return [
             serializar_escopo(
                 e,
@@ -132,6 +146,7 @@ class ListEscoposProjetoUseCase:
                 pendentes.get(e.id),
                 nomes_usuario,
                 janelas.get(e.id),
+                justificativas.get(e.id),
             )
             for e in escopos
         ]
@@ -146,6 +161,7 @@ def serializar_escopo(
     reajuste_pendente=None,
     nomes_usuario=None,
     janela=None,
+    justificativa_atraso=None,
 ) -> dict:
     return {
         "id": escopo.id,
@@ -171,6 +187,25 @@ def serializar_escopo(
         # consumidos · atraso · correções. Derivados aqui para as telas nunca
         # divergirem entre si — mesmo princípio de `consumidos`.
         "atraso": contagem.atraso,
+        # ⭐ §7.4: o "porquê" do atraso acima, escrito por quem conduz o
+        # projeto. `None` = ainda não justificado, e é isso que faz o card
+        # "Escopos vendidos" pedir a nota em vez de só mostrar o número.
+        #
+        # Só a MAIS RECENTE: a tela responde "este atraso está explicado?", que
+        # é pergunta de uma resposta só. O histórico completo das notas fica no
+        # Histórico do projeto, que é onde ele serve.
+        "justificativa_atraso": (
+            {
+                "id": justificativa_atraso.id,
+                "texto": justificativa_atraso.texto,
+                "registrado_por": (nomes_usuario or {}).get(
+                    justificativa_atraso.registrado_por
+                ),
+                "registrado_em": justificativa_atraso.registrado_em,
+            }
+            if justificativa_atraso
+            else None
+        ),
         "correcoes": contagem.correcoes,
         # A janela do §5, para o calendário desenhar a faixa e o banner saber
         # quando avisar.

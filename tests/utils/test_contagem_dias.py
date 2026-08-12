@@ -327,3 +327,76 @@ class TestContagemProjetoInteiro:
         # 24/08 a 11/09 = 14 bruto, menos a pausa inteira (5) = 9
         assert resultado[2].consumidos == 9
         assert resultado[3].consumidos == 0
+
+
+class TestBancaCongelaAContagem:
+    """⭐ A contagem para na BANCA REALIZADA, não na entrega.
+
+    É o §11 aplicado ao consumo: depois da banca, tudo que se mexe naquele
+    escopo é CORREÇÃO, e correção "não consome dias e não é atraso". Contar o
+    tempo de arrumar o que a banca apontou como se fosse trabalho vendido
+    inflava o estouro — e ele crescia sozinho, um dia por dia, enquanto a
+    entrega não fosse registrada.
+
+    ⚠ O sintoma que trouxe isto à tona: a mesma linha da tela mostrava
+    "22/12 (+10)" ao lado de "Atraso: 1 dia". Os dois números mediam o mesmo
+    estouro com réguas diferentes — o consumo corria até hoje, o atraso parava
+    na banca. Os testes abaixo cobrem justamente a igualdade entre eles.
+    """
+
+    #: 12 dias úteis vendidos a partir de 14/07 fecham a janela em 29/07.
+    INICIO = date(2026, 7, 14)
+    BANCA = datetime(2026, 7, 30, 11, 30)  # 1 dia útil além da janela
+    HOJE = date(2026, 8, 12)  # duas semanas depois, sem entrega registrada
+
+    def contagem(self, **kwargs):
+        base = dict(
+            data_inicio=self.INICIO,
+            data_entrega_real=None,
+            dias_uteis_vendidos=12,
+            dias_nao_letivos=[],
+            referencia=self.HOJE,
+            banca_realizado_em=self.BANCA,
+        )
+        base.update(kwargs)
+        return calcular_contagem_escopo(**base)
+
+    def test_o_consumo_para_na_banca(self):
+        """Sem a regra, seriam 22 — os dias de correção entrando como consumo."""
+        assert self.contagem().consumidos == 13
+
+    def test_o_estouro_bate_com_o_atraso(self):
+        """⭐ A asserção que a tela representa: `(+N)` e "Atraso: N dias" são o
+        MESMO número. Enquanto divergirem, a linha se contradiz."""
+        c = self.contagem()
+
+        assert -c.restantes == c.atraso == 1
+
+    def test_o_numero_nao_cresce_sozinho_depois_da_banca(self):
+        """Duas semanas a mais no relógio não mudam nada: ninguém trabalhou
+        mais no vendido, e o que se fez ali é correção."""
+        depois = self.contagem(referencia=date(2026, 8, 26))
+
+        assert depois.consumidos == self.contagem().consumidos
+        assert depois.atraso == self.contagem().atraso
+
+    def test_em_contagem_acompanha_o_congelamento(self):
+        """O campo dizia "ainda correndo" sobre um número já parado."""
+        assert self.contagem().em_contagem is False
+
+    def test_sem_banca_realizada_o_relogio_continua(self):
+        """A regra é sobre a banca ACONTECER — banca marcada e não realizada
+        não congela nada, senão o escopo pararia de consumir sem ter
+        apresentado."""
+        c = self.contagem(banca_realizado_em=None)
+
+        assert c.consumidos == 22
+        assert c.em_contagem is True
+
+    def test_a_entrega_ainda_congela_quando_nao_ha_banca(self):
+        """O caminho antigo continua valendo para escopo legado, sem registro
+        de banca realizada — `marco_das_correcoes` cai na entrega."""
+        c = self.contagem(banca_realizado_em=None, data_entrega_real=date(2026, 7, 30))
+
+        assert c.consumidos == 13
+        assert c.em_contagem is False
