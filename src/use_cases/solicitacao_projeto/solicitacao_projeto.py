@@ -16,6 +16,7 @@ Quem responde:
 do sistema — não é reimplementado aqui.
 """
 
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -35,6 +36,8 @@ from src.use_cases.notificacao.registrar_notificacao import registrar
 
 #: Teto de projetos por consultor. É o mesmo limiar que o §7.3 usa para marcar
 #: gargalo — quem está em 3 já aparece com o alerta no seletor de equipe.
+logger = logging.getLogger(__name__)
+
 MAX_PROJETOS_POR_CONSULTOR = 3
 
 #: Status que não aceitam gente nova: o projeto acabou ou está congelado.
@@ -284,21 +287,42 @@ class SolicitacaoProjetoUseCase:
         coordenador = next((v for v in vinculos if v.papel == "coordenador"), None)
         if coordenador:
             usuario = self.usuario_repository.get_by_id(usuario_id)
+            # ⚠ **O pedido já está gravado — a notificação não pode derrubá-lo.**
+            #
+            # O commit acima é o que a pessoa pediu; avisar o coordenador é
+            # consequência. Quando isso não estava protegido, uma falha aqui
+            # devolvia erro para uma solicitação que EXISTIA: o consultor via
+            # "erro ao enviar", tentava de novo e ouvia que já tinha um pedido
+            # em análise — um pedido que ele nunca tinha visto aparecer.
+            #
+            # Foi o que aconteceu de verdade: o enum `tipo_notificacao` do
+            # Postgres não tinha `solicitacao_projeto` (ver a revisão
+            # a71c4e93b8d2), e todo pedido nascia órfão assim.
+            #
             # `registrar` direto, e não `notificar`: aquele helper é dos
             # eventos de banca e só sabe carregar `banca_id`.
-            registrar(
-                self.db,
-                usuario_id=coordenador.usuario_id,
-                tipo="solicitacao_projeto",
-                titulo=(
-                    f"{usuario.nome if usuario else 'Alguém'} quer entrar no projeto "
-                    f"{projeto.nome}."
-                ),
-                corpo=solicitacao.justificativa,
-                projeto_id=projeto.id,
-                rota="/projetos/solicitacoes",
-                chave_dedup=f"solicitacao_projeto:{solicitacao.id}",
-            )
+            try:
+                registrar(
+                    self.db,
+                    usuario_id=coordenador.usuario_id,
+                    tipo="solicitacao_projeto",
+                    titulo=(
+                        f"{usuario.nome if usuario else 'Alguém'} quer entrar no projeto "
+                        f"{projeto.nome}."
+                    ),
+                    corpo=solicitacao.justificativa,
+                    projeto_id=projeto.id,
+                    rota="/projetos/solicitacoes",
+                    chave_dedup=f"solicitacao_projeto:{solicitacao.id}",
+                )
+            except Exception:
+                # Em Postgres a transação fica envenenada depois do erro, e
+                # qualquer query seguinte nesta sessão morreria junto.
+                self.db.rollback()
+                logger.exception(
+                    "Solicitação %s gravada, mas a notificação do coordenador falhou",
+                    solicitacao.id,
+                )
 
         return {"id": solicitacao.id, "status": solicitacao.status}
 
