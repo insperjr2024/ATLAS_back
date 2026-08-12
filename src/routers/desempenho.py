@@ -3,8 +3,10 @@ e coordenadores. Não confundir com `avaliacoes.py` (feedback de banca)."""
 
 from typing import Optional
 
+import mimetypes
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -56,7 +58,6 @@ from src.use_cases.desempenho_pdi.upload_envio import UploadPdiEnvioUseCase
 from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
-from src.utils.storage import pasta_pdi
 
 router = APIRouter(tags=["avaliação de desempenho"], dependencies=[Depends(get_current_user)])
 
@@ -361,10 +362,12 @@ def download_pdi_envio(
     envio = DesempenhoPdiEnvioRepository(db).get_por_item_e_mentorado(item_id, usuario_id)
     if not envio:
         raise HTTPException(status_code=404, detail="Nenhum envio neste item")
-    caminho = pasta_pdi() / envio.arquivo_path
-    if not caminho.exists():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-    return FileResponse(caminho, filename=envio.arquivo_nome)
+    media_type = mimetypes.guess_type(envio.arquivo_nome)[0] or "application/octet-stream"
+    return Response(
+        content=envio.arquivo_conteudo,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{envio.arquivo_nome}"'},
+    )
 
 
 @router.delete("/usuarios/{usuario_id}/desempenho/pdi/itens/{item_id}/envio", status_code=204)

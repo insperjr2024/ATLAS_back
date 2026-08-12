@@ -5,7 +5,6 @@ from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRep
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.use_cases.desempenho_pdi.upload_envio import pode_enviar_pdi
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.storage import pasta_pdi
 
 
 class DeletePdiEnvioUseCase:
@@ -31,9 +30,4 @@ class DeletePdiEnvioUseCase:
         envio = self.envio_repository.get_por_item_e_mentorado(item_id, mentorado_id)
         if not envio:
             return False
-
-        arquivo = pasta_pdi() / envio.arquivo_path
-        removido = self.envio_repository.delete(envio.id)
-        if removido and arquivo.exists():
-            arquivo.unlink()
-        return removido
+        return self.envio_repository.delete(envio.id)

@@ -1,5 +1,3 @@
-import uuid
-
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
@@ -8,7 +6,6 @@ from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioR
 from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRepository
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.storage import pasta_pdi
 from src.utils.validar_arquivo_pdi import validar_arquivo_pdi
 
 
@@ -45,31 +42,25 @@ class UploadPdiEnvioUseCase:
             raise RegraDeNegocioError("Você não tem permissão para enviar neste item")
 
         conteudo = arquivo.file.read()
-        extensao = validar_arquivo_pdi(arquivo.filename or "", conteudo, item.tipo_arquivo)
+        validar_arquivo_pdi(arquivo.filename or "", conteudo, item.tipo_arquivo)
 
-        pasta_disco = pasta_pdi()
-        nome_arquivo = f"{uuid.uuid4().hex}{extensao}"
-        (pasta_disco / nome_arquivo).write_bytes(conteudo)
-
-        # Reenviar substitui: apaga o arquivo antigo do disco e faz upsert na
-        # linha (mesmo par item+mentorado nunca tem 2 envios ao mesmo tempo).
+        # Reenviar substitui: mesmo par item+mentorado nunca tem 2 envios ao
+        # mesmo tempo, então é upsert na linha — o conteúdo antigo é
+        # sobrescrito junto (guardado no banco, não em disco: ver model).
         anterior = self.envio_repository.get_por_item_e_mentorado(item_id, mentorado_id)
         if anterior:
-            arquivo_antigo = pasta_disco / anterior.arquivo_path
             envio = self.envio_repository.update(
                 anterior.id,
                 enviado_por=current_user.id,
-                arquivo_path=nome_arquivo,
+                arquivo_conteudo=conteudo,
                 arquivo_nome=(arquivo.filename or "arquivo").strip(),
             )
-            if arquivo_antigo.exists():
-                arquivo_antigo.unlink()
         else:
             envio = self.envio_repository.create(
                 item_id=item_id,
                 mentorado_id=mentorado_id,
                 enviado_por=current_user.id,
-                arquivo_path=nome_arquivo,
+                arquivo_conteudo=conteudo,
                 arquivo_nome=(arquivo.filename or "arquivo").strip(),
             )
 
