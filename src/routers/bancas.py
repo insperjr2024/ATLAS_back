@@ -16,6 +16,7 @@ from src.middlewares.authorization import (
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequest
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
+from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
@@ -111,6 +112,27 @@ def get_banca(banca_id: int, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return result
+
+
+@router.get("/bancas/{banca_id}/detalhes")
+def get_banca_detalhes(
+    banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """A ficha da banca com os nomes resolvidos, para abrir de dentro do
+    cronograma do projeto.
+
+    ⚠ **Exige login e acesso ao projeto**, diferente do `GET /bancas/{id}` ao
+    lado: aqui saem NOMES de pessoas (equipe e avaliadores), e o recorte de
+    visão do §3 vale para eles como vale para o resto do projeto. Banca legada,
+    sem escopo vinculado, não tem projeto de onde derivar acesso — fica com o
+    login só, que é o que o `GET` vizinho já pedia (nem isso, na verdade).
+    """
+    detalhes = GetBancaDetalhesUseCase(db).execute(banca_id)
+    if not detalhes:
+        raise HTTPException(status_code=404, detail="Banca não encontrada")
+    if detalhes["projeto_id"]:
+        exigir_acesso_ao_projeto(detalhes["projeto_id"], current_user, db)
+    return detalhes
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
