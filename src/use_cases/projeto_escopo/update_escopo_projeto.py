@@ -5,6 +5,7 @@ apresentado ao cliente sem antes passar pela banca — a plataforma deve
 IMPEDIR esse pulo". O front esconde o botão; quem barra é este use case.
 """
 
+import logging
 from datetime import date
 from typing import Optional
 
@@ -19,6 +20,8 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.notificacao.eventos import notificar_entrega, notificar_entrega_alterada
 from src.utils.exceptions import RegraDeNegocioError
+
+logger = logging.getLogger(__name__)
 
 
 def _nome_escopo(escopo, catalogo_repository) -> str:
@@ -207,6 +210,27 @@ class RegistrarEntregaEscopoUseCase:
                     if eh_diretor and data_antiga is not None
                     else None
                 ),
+            )
+
+        # 🤖 §4: com todos os escopos entregues, o projeto passa a Período de
+        # ajustes sozinho. Depois da trava, como as notificações — um status
+        # avançado por uma entrega que o §5.5 barrou seria mentira.
+        #
+        # Import local: `avancar_status` lê escopos e bancas, e no topo seria
+        # circular. Silencioso: a entrega não pode falhar porque o status não
+        # avançou, e o job da madrugada pega o que escapar.
+        from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
+
+        try:
+            AvancarStatusAutomaticoUseCase(self.db).executar_para(atualizado.projeto_id)
+        except Exception:  # noqa: BLE001
+            # ⚠ Engolido de propósito, e só aqui: a ENTREGA é o fato: ela não
+            # pode ser recusada porque o status derivado dela não pôde avançar.
+            # `exception()` deixa o traceback no log — não é silêncio, é
+            # não-bloqueio —, e o job da madrugada refaz a conta.
+            logger.exception(
+                "Entrega gravada, mas o status do projeto %s não avançou",
+                atualizado.projeto_id,
             )
 
         # Depois da trava, nunca antes: notificar uma entrega que o §5.5 acabou
