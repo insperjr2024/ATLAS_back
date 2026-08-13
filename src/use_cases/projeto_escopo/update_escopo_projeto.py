@@ -126,25 +126,65 @@ class RegistrarEntregaEscopoUseCase:
         if not escopo.data_inicio:
             raise RegraDeNegocioError("Este escopo ainda não foi iniciado")
 
+        # ⚠ Entregar antes de começar é impossível, e a data entra em contas que
+        # ninguém revisa: `data_entrega_cliente` do projeto é o MAIOR
+        # `data_entrega_real` dos escopos, e o "tempo parado entre escopos" mede
+        # a partir dela. Uma data digitada errada (2019 em vez de 2029) não
+        # aparece como erro — aparece como um vão de dez anos num insight.
+        #
+        # Só esta borda, e de propósito: entregar DEPOIS do fim da janela é
+        # legítimo (§5.5 — a apresentação ao cliente vem depois da banca), e um
+        # teto no futuro seria arbitrário.
+        if request.data_entrega_real < escopo.data_inicio:
+            raise RegraDeNegocioError(
+                f"A entrega não pode ser anterior ao início do escopo "
+                f"({escopo.data_inicio:%d/%m/%Y})"
+            )
+
         data_antiga = escopo.data_entrega_real
         self._exigir_alteracao_permitida(data_antiga, request, eh_diretor)
 
-        # 🔒 A trava do §5.5: nada vai ao cliente sem passar por banca.
+        # 🔒 A trava do §5.5: nada vai ao cliente sem a banca APROVAR.
         #
-        # O que ela lê é a banca ter ACONTECIDO, não um veredito de aprovação —
-        # a diretoria decidiu que aprovar/rejeitar não faz parte do processo.
-        # A regra que o case pede continua de pé: sem banca realizada, sem
-        # entrega. O que saiu foi o passo extra depois dela.
-        banca = self.banca_repository.get_by_projeto_escopo(escopo_id)
-        if not banca:
-            raise RegraDeNegocioError(
-                "A entrega só é liberada depois da banca do escopo acontecer — "
-                "este escopo ainda não tem banca marcada"
-            )
-        if not banca.realizado_em:
-            raise RegraDeNegocioError(
-                "A entrega só é liberada depois da banca do escopo ser realizada"
-            )
+        # ⚠ **Só vale para a PRIMEIRA marcação.** Corrigir a data de uma entrega
+        # que já aconteceu é outro assunto — é o §13, e ele já tem gate próprio
+        # logo acima (`_exigir_alteracao_permitida`, que exige diretoria e
+        # justificativa). Aplicar a trava aqui também devolveria 422 sobre fato
+        # consumado: nem a diretoria conseguiria acertar a data de um escopo
+        # entregue antes desta regra existir. Mesmo raciocínio do
+        # `update_cronograma.py`, que libera o cronograma depois da entrega.
+        #
+        # ⭐ Três degraus, e cada mensagem diz qual falhou — "não pode entregar"
+        # sem dizer por quê deixa quem marca sem saída. Marcar a banca, realizar
+        # a banca, e a banca aprovar.
+        #
+        # O terceiro degrau só existe porque agora há como preenchê-lo: o
+        # resultado sai do VOTO dos avaliadores (`utils/apuracao_banca.py`).
+        # Enquanto o veredito era uma string que ninguém digitava, exigi-lo aqui
+        # teria travado todas as entregas sem caminho de saída — foi por isso
+        # que a exigência tinha sido removida antes.
+        if data_antiga is None:
+            banca = self.banca_repository.get_by_projeto_escopo(escopo_id)
+            if not banca:
+                raise RegraDeNegocioError(
+                    "A entrega só é liberada depois da banca do escopo acontecer — "
+                    "este escopo ainda não tem banca marcada"
+                )
+            if not banca.realizado_em:
+                raise RegraDeNegocioError(
+                    "A entrega só é liberada depois da banca do escopo ser realizada"
+                )
+            if banca.resultado is None:
+                raise RegraDeNegocioError(
+                    "A banca deste escopo ainda não tem resultado — a entrega libera "
+                    "quando os avaliadores votarem. Se o prazo já passou sem votos, a "
+                    "diretoria pode registrar o resultado manualmente"
+                )
+            if banca.resultado != "aprovada":
+                raise RegraDeNegocioError(
+                    "A banca deste escopo não foi aprovada — é preciso marcar uma nova "
+                    "banca antes de entregar ao cliente"
+                )
 
         atualizado = self.repository.update(
             escopo_id, data_entrega_real=request.data_entrega_real, status="entregue"
@@ -158,14 +198,40 @@ class RegistrarEntregaEscopoUseCase:
                 data_nova=atualizado.data_entrega_real,
                 justificativa=(request.justificativa or "").strip() or "Primeira marcação",
                 alterado_por=getattr(current_user, "id", None),
-                autorizado_por=getattr(current_user, "id", None) if eh_diretor else None,
+                # ⚠ Só na ALTERAÇÃO. Na primeira marcação ninguém autorizou
+                # nada — ela não passa pelo gate do §13 —, e carimbar o diretor
+                # que marcou faria o histórico afirmar que houve uma
+                # autorização que nunca foi pedida.
+                autorizado_por=(
+                    getattr(current_user, "id", None)
+                    if eh_diretor and data_antiga is not None
+                    else None
+                ),
             )
 
         # Depois da trava, nunca antes: notificar uma entrega que o §5.5 acabou
         # de barrar avisaria a diretoria de algo que não aconteceu.
+        #
+        # ⭐ Dois avisos diferentes para dois fatos diferentes. "O escopo foi
+        # entregue" só acontece uma vez; mudar a data DEPOIS é outra notícia, e
+        # é a que a diretoria precisa ver (foi ela quem autorizou). Mandar
+        # `notificar_entrega` na alteração anunciava uma entrega que já tinha
+        # sido anunciada, e a segunda alteração não avisava nada — a dedupe da
+        # notificação engolia o repetido.
         projeto = self.projeto_repository.get_by_id(atualizado.projeto_id)
         if projeto:
-            notificar_entrega(self.db, projeto, escopo_id, _nome_escopo(atualizado, self.catalogo_repository))
+            nome = _nome_escopo(atualizado, self.catalogo_repository)
+            if data_antiga is None:
+                notificar_entrega(self.db, projeto, escopo_id, nome)
+            elif data_antiga != atualizado.data_entrega_real:
+                notificar_entrega_alterada(
+                    self.db,
+                    projeto,
+                    data_antiga,
+                    atualizado.data_entrega_real,
+                    nome_escopo=nome,
+                    escopo_id=escopo_id,
+                )
 
         return {
             "id": atualizado.id,

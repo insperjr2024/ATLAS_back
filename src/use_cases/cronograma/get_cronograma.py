@@ -263,14 +263,34 @@ class GetCronogramaUseCase:
             (e.data_entrega_real for e in escopos if e.data_entrega_real), default=None
         )
         if ha_escopo_esperando and ultima_entrega:
-            faixas.append(
-                {
-                    "tipo": "pausa",
-                    "projeto_escopo_id": None,
-                    "inicio": ultima_entrega + timedelta(days=1),
-                    "fim": date.today(),
-                    "rotulo": "Parado entre escopos",
-                }
+            # ⚠ A faixa fecha quando o PRÓXIMO escopo começa, não em `hoje`.
+            #
+            # Com três escopos — um entregue, um já em curso e um esperando —
+            # a condição acima continua verdadeira, e a faixa ia da entrega do
+            # primeiro até hoje, ATRAVESSANDO o escopo do meio que está sendo
+            # trabalhado. O cronograma pintava "Parado entre escopos" por cima
+            # de trabalho em andamento, e contradizia o "tempo parado" que o
+            # Monitoramento reporta para o mesmo projeto — que fecha o vão na
+            # reunião inicial do escopo seguinte.
+            comecou_depois = [
+                e.data_inicio
+                for e in escopos
+                if e.data_inicio and e.data_inicio > ultima_entrega
+            ]
+            fim_da_pausa = (
+                min(comecou_depois) - timedelta(days=1) if comecou_depois else date.today()
             )
+            inicio_da_pausa = ultima_entrega + timedelta(days=1)
+            # Escopo que começou no dia seguinte à entrega não deixa vão nenhum.
+            if fim_da_pausa >= inicio_da_pausa:
+                faixas.append(
+                    {
+                        "tipo": "pausa",
+                        "projeto_escopo_id": None,
+                        "inicio": inicio_da_pausa,
+                        "fim": fim_da_pausa,
+                        "rotulo": "Parado entre escopos",
+                    }
+                )
 
         return faixas

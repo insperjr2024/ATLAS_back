@@ -18,6 +18,7 @@ from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_remarcacao_repository import BancaRemarcacaoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.banca_sessao_repository import BancaSessaoRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
@@ -69,6 +70,7 @@ class MarcarBancaEscopoUseCase:
         self.catalogo_repository = EscopoRepository(db)
         self.remarcacao_repository = ProjetoRemarcacaoBancaRepository(db)
         self.banca_remarcacao_repository = BancaRemarcacaoRepository(db)
+        self.sessao_repository = BancaSessaoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
 
@@ -88,17 +90,64 @@ class MarcarBancaEscopoUseCase:
         existente = self.repository.get_by_projeto_escopo(escopo_id)
         escopos_cobertos = self._resolver_escopos(escopo, request, existente)
 
-        self._checar_choque(request.data_hora, ignorar_banca_id=existente.id if existente else None)
+        # Precisa ser decidido ANTES dos gates: a 2ª banca (a que sucede uma
+        # que já aconteceu) segue regras diferentes das do adiamento.
+        eh_segunda_banca = bool(existente and existente.realizado_em is not None)
+
+        self._checar_choque(
+            request.data_hora,
+            ignorar_banca_id=existente.id if existente else None,
+            projeto_escopo_id=escopo_id,
+        )
         # ⭐ §9: o ÚNICO bloqueio duro do cronograma. Pintar além da janela
         # avisa (§15); marcar banca fora dela não passa sem a diretoria.
-        self._exigir_janela(escopos_cobertos, request, eh_diretor)
+        self._exigir_janela(escopos_cobertos, request, eh_diretor, eh_segunda_banca)
 
         if existente:
             data_anterior = existente.data_hora
-            # §9: remarcação nunca é silenciosa — justificativa SEMPRE, mesmo
-            # quando é livre. O que o §13 dispensa é a diretoria, não o registro.
+            # ⭐ Dois caminhos MUITO diferentes chegam aqui, e a régua que os
+            # separa é `realizado_em`:
+            #
+            # - a banca ainda não aconteceu → é ADIAMENTO, com os gates do §13;
+            # - a banca já aconteceu → é a 2ª BANCA do escopo, e os gates do
+            #   adiamento não fazem sentido nela (ver `_exigir_segunda_permitida`).
             if data_anterior is not None and data_anterior != request.data_hora:
-                self._exigir_remarcacao_permitida(existente, request, eh_diretor)
+                if eh_segunda_banca:
+                    # ⚠ **Apurar ANTES de julgar.** `_exigir_segunda_permitida`
+                    # lê `existente.resultado` para recusar a 2ª banca de uma
+                    # banca APROVADA — mas a apuração da sessão que está sendo
+                    # descartada só acontecia depois, dentro de
+                    # `_sincronizar_sessao`. A guarda nunca via a aprovação que
+                    # ela existe para barrar.
+                    #
+                    # O estrago era exatamente o que ela previne: a sessão era
+                    # arquivada como "aprovada", a 2ª banca nascia assim mesmo e
+                    # `_campos_da_remarcacao` zerava `banca.resultado` — a
+                    # coluna que a trava da entrega lê (§5.5). O escopo ficava
+                    # aprovado no histórico e travado na tela, e o próprio
+                    # histórico dizia "Segunda banca — a anterior foi reprovada"
+                    # ao lado de "Resultado: aprovada".
+                    existente = self._apurar_sessao_em_curso(existente)
+                    self._exigir_segunda_permitida(existente)
+                else:
+                    # §9: remarcação nunca é silenciosa — justificativa SEMPRE,
+                    # mesmo quando é livre. O que o §13 dispensa é a diretoria,
+                    # não o registro.
+                    self._exigir_remarcacao_permitida(existente, request, eh_diretor)
+
+            # ⚠ ANTES do update: `_campos_da_remarcacao` zera `realizado_em` e
+            # `resultado`, e é justamente isso que a sessão precisa arquivar.
+            # Invertida a ordem, a sessão guardaria campos já limpos e a
+            # reprovação se perderia de novo.
+            #
+            # ⚠ E SÓ quando a data muda. `_campos_da_remarcacao` faz early-return
+            # se a data é a mesma — a banca continua realizada. Sincronizar
+            # assim mesmo abriria uma sessão 2 fantasma numa banca que não foi
+            # remarcada, e os votos carimbados com `sessao=1` passariam a
+            # apontar para uma sessão encerrada: a apuração leria a sessão nova,
+            # vazia, e nunca fecharia.
+            if data_anterior != request.data_hora:
+                self._sincronizar_sessao(existente, request)
 
             banca = self.repository.update(
                 existente.id, **self._campos_da_remarcacao(existente, request)
@@ -126,7 +175,15 @@ class MarcarBancaEscopoUseCase:
                     projeto_escopo_id=escopo.id,
                     data_anterior=data_anterior,
                     data_nova=banca.data_hora,
-                    justificativa=request.justificativa.strip(),
+                    # ⚠ Era `request.justificativa.strip()` cru, e quebrava com
+                    # `None` desde que a 2ª banca passou a dispensar o texto.
+                    # O fallback não é enfeite: diz por que a linha existe sem
+                    # justificativa, em vez de gravar vazio e deixar quem lê o
+                    # Histórico achar que alguém esqueceu de preencher.
+                    justificativa=(
+                        (request.justificativa or "").strip()
+                        or "Segunda banca — a anterior foi reprovada"
+                    ),
                     registrado_por=registrado_por,
                 )
         else:
@@ -150,6 +207,12 @@ class MarcarBancaEscopoUseCase:
                 coordenador_id=coordenador.usuario_id,
                 data_hora=request.data_hora,
             )
+            # Toda banca nasce com a sessão nº 1. Sem ela, `get_corrente`
+            # devolveria `None` numa banca perfeitamente normal e a realização
+            # não teria onde se registrar.
+            self.sessao_repository.create(
+                banca_id=banca.id, numero=1, data_hora=banca.data_hora
+            )
 
         self.banca_escopo_repository.definir(banca.id, [e.id for e in escopos_cobertos])
         self._garantir_frentes(banca.id, [e.frente_id for e in escopos_cobertos])
@@ -167,7 +230,7 @@ class MarcarBancaEscopoUseCase:
 
         ⭐ **É uma banca por escopo, sempre a mesma linha** — inclusive quando a
         banca foi reprovada e precisa acontecer de novo (§9). Por isso, marcar
-        uma data NOVA para uma banca que já aconteceu tem de apagar
+        uma data NOVA para uma banca que já aconteceu tem de limpar
         `realizado_em` e `resultado`: eles descrevem a sessão anterior, não a
         que acabou de ser marcada.
 
@@ -176,8 +239,11 @@ class MarcarBancaEscopoUseCase:
         seguia com `entrega_liberada: true` — o escopo podia ser entregue ao
         cliente com a nova banca ainda por acontecer.
 
-        A sessão antiga não se perde: `banca_remarcacao` guarda a data anterior
-        e a justificativa, e é ela que aparece no Histórico.
+        ⚠ **Limpar aqui já foi APAGAR.** Antes de `banca_sessao` existir, o
+        veredito da sessão anterior sumia do banco: sobrava a data antiga em
+        `banca_remarcacao` e nada dizendo que a banca havia sido REPROVADA.
+        Agora `_abrir_proxima_sessao` arquiva a sessão antes que estes campos
+        sejam zerados — quem chama precisa fazer as duas coisas, nesta ordem.
         """
         campos = {"data_hora": request.data_hora}
         if existente.data_hora == request.data_hora:
@@ -186,6 +252,80 @@ class MarcarBancaEscopoUseCase:
             campos["realizado_em"] = None
             campos["resultado"] = None
         return campos
+
+    def _apurar_sessao_em_curso(self, banca):
+        """Fecha a conta dos votos ANTES de decidir o destino da sessão (§8).
+
+        ⭐ Roda no exato ponto em que a 2ª banca vai ser julgada, e é essa
+        ordem que importa. A sessão que está prestes a ser descartada pode ter
+        votos que nunca viraram veredito — 2 de 3 votaram e o terceiro sumiu.
+        Duas coisas dependem de apurá-los agora:
+
+        1. **Não perder os votos.** Arquivada a sessão, eles ficam presos ao
+           número antigo, e o job diário — que varre `banca.realizado_em`,
+           zerado na remarcação — nunca mais os alcança.
+        2. **Deixar a guarda enxergar a aprovação.** `_exigir_segunda_permitida`
+           recusa a 2ª banca de uma banca APROVADA. Se a apuração só rodasse
+           depois dela, uma banca que a urna acabou de aprovar ganharia uma 2ª
+           banca e perderia o veredito que libera a entrega — o mesmo estrago
+           que a guarda existe para impedir, por uma janela de ordenação.
+
+        `prazo_vencido=True` porque a sessão acaba AQUI, não daqui a dois dias:
+        quem não votou até a remarcação não vai mais votar naquela banca. Sem
+        voto nenhum continua sem veredito, como sempre.
+
+        Devolve a banca RECARREGADA — `apurar_banca` grava direto no banco, e
+        quem chama precisa enxergar o resultado que acabou de nascer.
+        """
+        # Import local: `submeter_avaliacao` importa `registrar_resultado_na_sessao`
+        # deste módulo, e no topo isto seria circular.
+        from src.use_cases.avaliacao.submeter_avaliacao import apurar_banca
+
+        apurar_banca(self.db, banca, prazo_vencido=True)
+        return self.repository.get_by_id(banca.id) or banca
+
+    def _sincronizar_sessao(self, banca, request: MarcarBancaEscopoRequest) -> None:
+        """⭐ Adiar ≠ segunda banca — e é aqui que a diferença é decidida.
+
+        Duas coisas muito diferentes chegam nesta mesma rota:
+
+        - **Adiar** uma banca que ainda não aconteceu: é a MESMA tentativa em
+          outro dia. A sessão corrente só muda de data; quem registra o "de →
+          para" é `banca_remarcacao`, como sempre foi.
+        - **Marcar de novo** uma banca que já aconteceu (na prática, que foi
+          REPROVADA — a aprovada não precisa de outra): a sessão anterior
+          fecha guardando `realizado_em` e `resultado`, e nasce a sessão
+          seguinte. É esta que a tela chama de "2ª banca do escopo".
+
+        A régua é `realizado_em`, não `resultado`: uma banca realizada e ainda
+        sem veredito apurado também merece sessão nova se for remarcada —
+        aconteceu, e o que vem é outra sessão.
+        """
+        corrente = self.sessao_repository.get_corrente(banca.id)
+
+        if corrente is None:
+            # Banca anterior ao `banca_sessao` que escapou do backfill, ou uma
+            # cuja última sessão já foi encerrada com veredito. Abre a próxima.
+            self.sessao_repository.create(
+                banca_id=banca.id,
+                numero=self.sessao_repository.proximo_numero(banca.id),
+                data_hora=request.data_hora,
+            )
+            return
+
+        if corrente.realizado_em is None:
+            self.sessao_repository.update(corrente.id, data_hora=request.data_hora)
+            return
+
+        # A apuração da sessão que está sendo descartada já rodou em
+        # `_apurar_sessao_em_curso`, ANTES da guarda que decide se esta 2ª banca
+        # pode existir. Aqui só resta arquivar.
+        self.sessao_repository.update(corrente.id, encerrada_em=datetime.now())
+        self.sessao_repository.create(
+            banca_id=banca.id,
+            numero=self.sessao_repository.proximo_numero(banca.id),
+            data_hora=request.data_hora,
+        )
 
     def _resolver_escopos(self, escopo, request: MarcarBancaEscopoRequest, existente):
         """Quais escopos esta banca vai cobrir — e se pode cobri-los.
@@ -265,7 +405,11 @@ class MarcarBancaEscopoUseCase:
         )
 
     def _exigir_janela(
-        self, escopos_cobertos, request: MarcarBancaEscopoRequest, eh_diretor: bool
+        self,
+        escopos_cobertos,
+        request: MarcarBancaEscopoRequest,
+        eh_diretor: bool,
+        eh_segunda_banca: bool = False,
     ) -> None:
         """§9: a banca só cabe em dia dentro da janela do escopo.
 
@@ -277,6 +421,14 @@ class MarcarBancaEscopoUseCase:
         Fora da janela não é proibido: é decisão da diretoria (§13), e os dias
         entre o fim da janela e a data nova viram atraso sozinhos — não há o
         que gravar, `dias_de_atraso` deriva.
+
+        ⭐ **A 2ª banca continua precisando de diretoria, mas não de texto.**
+        Ela quase sempre cai fora da janela — é da natureza de uma reprovação
+        empurrar o escopo para além do vendido —, e isentá-la do gate apagaria
+        do monitoramento exatamente o atraso que a reprovação causou. O que ela
+        dispensa é a JUSTIFICATIVA digitada: o motivo é a reprovação, que já
+        está gravada na sessão anterior. Exigir que se escreva de novo o que o
+        sistema acabou de registrar é pedir carimbo.
         """
         for alvo in escopos_cobertos:
             janela = self._janela_do_escopo(alvo)
@@ -304,7 +456,10 @@ class MarcarBancaEscopoUseCase:
                 )
             # §13: fora da janela é "autorização **+ justificativa**". Vale
             # também na primeira marcação — sem isso, o Histórico registraria
-            # um atraso que ninguém explicou.
+            # um atraso que ninguém explicou. A 2ª banca é a exceção: o texto
+            # dela já existe, é a reprovação da sessão anterior.
+            if eh_segunda_banca:
+                continue
             if not (request.justificativa or "").strip():
                 raise RegraDeNegocioError(
                     f"Marcar a banca fora da janela de '{self._nome(alvo)}' exige "
@@ -314,7 +469,7 @@ class MarcarBancaEscopoUseCase:
     def _exigir_remarcacao_permitida(
         self, existente, request: MarcarBancaEscopoRequest, eh_diretor: bool
     ) -> None:
-        """Os dois gates de remarcação do §13.
+        """Os dois gates de remarcação do §13 — só para ADIAMENTO.
 
         Remarcar dentro da janela e com folga é **livre** para quem edita o
         projeto — era decisão da diretoria para tudo, e isso fazia da exceção
@@ -324,6 +479,10 @@ class MarcarBancaEscopoUseCase:
 
         A justificativa é sempre obrigatória, com ou sem gate: §9 diz que
         remarcação nunca é silenciosa, e é ela que vai para o Histórico.
+
+        ⚠ **Não chame isto para uma 2ª banca.** Ver `_exigir_segunda_permitida`:
+        os dois gates daqui pressupõem uma banca que ainda VAI acontecer, e
+        aplicá-los a uma que já aconteceu barra o caso legítimo.
         """
         if not (request.justificativa or "").strip():
             raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
@@ -338,18 +497,55 @@ class MarcarBancaEscopoUseCase:
                 "escalados. Remarcar em cima da hora é decisão da diretoria (§13)"
             )
 
-    def _checar_choque(self, data_hora: datetime, ignorar_banca_id: Optional[int]) -> None:
-        """§8: o sistema bloqueia duas bancas no mesmo horário; a exceção só é
-        liberada pela diretoria, gravando `excecao_choque_por`."""
-        for outra in self.repository.get_por_data_hora(data_hora):
-            if outra.id == ignorar_banca_id:
-                continue
-            if outra.excecao_choque_por is not None:
-                continue
+    def _exigir_segunda_permitida(self, existente) -> None:
+        """§9: marcar OUTRA banca para um escopo cuja banca já aconteceu.
+
+        ⭐ **O gate de "em cima da hora" NÃO se aplica aqui, e isso é
+        aritmética, não opinião.** `dias_uteis_ate_a_banca` devolve `0` para
+        data no passado, e `0 <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS` é sempre
+        verdadeiro — passar uma 2ª banca por `_exigir_remarcacao_permitida`
+        exigiria diretoria em **todas** elas. O gate existe para proteger a
+        agenda de avaliadores já escalados; numa banca que já aconteceu não há
+        agenda a proteger, eles compareceram.
+
+        ⚠ **Banca APROVADA não ganha segunda.** Antes isto passava e o
+        `_campos_da_remarcacao` apagava a aprovação em silêncio — o escopo
+        perdia o veredito que liberava a entrega, sem registro em lugar nenhum.
+        Se a data da banca aprovada estiver errada, o caminho é corrigir o
+        registro, não marcar outra.
+
+        A justificativa fica OPCIONAL: o motivo da 2ª banca é a reprovação, que
+        já está registrada na sessão anterior. Cobrar um texto aqui seria pedir
+        que se escrevesse de novo o que o sistema acabou de gravar.
+        """
+        if existente.resultado == "aprovada":
             raise RegraDeNegocioError(
-                f"Já existe uma banca marcada para este horário ({outra.nome_projeto}). "
-                "A exceção de choque só é liberada pela diretoria"
+                "Esta banca foi APROVADA — não há segunda banca a marcar. "
+                "Se a data está errada, corrija o registro da banca."
             )
+
+    def _checar_choque(
+        self,
+        data_hora: datetime,
+        ignorar_banca_id: Optional[int],
+        projeto_escopo_id: Optional[int] = None,
+    ) -> None:
+        """§8, delegado para `excecao_choque.checar_choque`.
+
+        A regra saiu daqui para virar função de módulo quando se descobriu que
+        `POST /bancas` e `PATCH /bancas/{id}` gravavam `data_hora` sem passá-la.
+        Este wrapper fica porque os testes e a leitura do fluxo apontam para
+        ele, mas quem decide é um lugar só.
+        """
+        from src.use_cases.banca.excecao_choque import checar_choque
+
+        checar_choque(
+            self.db,
+            data_hora,
+            banca_repository=self.repository,
+            ignorar_banca_id=ignorar_banca_id,
+            projeto_escopo_id=projeto_escopo_id,
+        )
 
 
 class RegistrarRealizacaoRequest(BaseModel):
@@ -379,6 +575,7 @@ class RegistrarRealizacaoBancaUseCase:
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
+        self.sessao_repository = BancaSessaoRepository(db)
         self.composicao_checker = ComposicaoBancaChecker(db)
 
     def execute(
@@ -397,6 +594,15 @@ class RegistrarRealizacaoBancaUseCase:
 
         realizado_em = request.realizado_em or banca.data_hora
         banca = self.repository.update(banca_id, realizado_em=realizado_em)
+
+        # A sessão corrente é a que ACONTECEU. Sem espelhar aqui, a próxima
+        # remarcação arquivaria uma sessão sem data de realização e o histórico
+        # de tentativas ficaria mudo sobre quando cada uma foi.
+        corrente = self.sessao_repository.get_corrente(banca_id)
+        if corrente:
+            self.sessao_repository.update(
+                corrente.id, realizado_em=realizado_em, data_hora=banca.data_hora
+            )
 
         candidaturas = self.candidatura_repository.get_by_banca(banca_id)
         if request.presentes is not None:
@@ -511,10 +717,20 @@ class RegistrarResultadoRequest(BaseModel):
 
 
 class RegistrarResultadoBancaUseCase:
-    """🔒 O resultado é o que libera ou trava a entrega ao cliente (§8)."""
+    """🔒 O resultado é o que libera ou trava a entrega ao cliente (§8).
+
+    ⚠ **Isto é o OVERRIDE da diretoria, não o caminho normal.** O veredito sai
+    do voto de quem assistiu (`utils/apuracao_banca.py`) — esta rota existe
+    para o caso que a apuração não resolve: banca realizada em que ninguém
+    votou, e que ficaria travando a entrega para sempre.
+
+    Por isso o router a restringe a `require_diretor`: sobrescrever a maioria
+    não é ação de rotina de quem conduz o cronograma.
+    """
 
     def __init__(self, db: Session):
         self.repository = BancaRepository(db)
+        self.sessao_repository = BancaSessaoRepository(db)
 
     def execute(self, banca_id: int, request: RegistrarResultadoRequest):
         if request.resultado not in ("aprovada", "nao_aprovada"):
@@ -530,7 +746,29 @@ class RegistrarResultadoBancaUseCase:
             )
 
         banca = self.repository.update(banca_id, resultado=request.resultado)
+        registrar_resultado_na_sessao(self.sessao_repository, banca)
         return {"id": banca.id, "resultado": banca.resultado}
+
+
+def registrar_resultado_na_sessao(sessao_repository, banca) -> None:
+    """Copia o veredito para a sessão corrente e a ENCERRA.
+
+    Função solta porque tem dois chamadores por natureza diferentes: o override
+    da diretoria acima e a apuração automática por voto. Duplicar isso nos dois
+    seria duas versões de "o que significa fechar uma sessão".
+
+    ⭐ Encerrar aqui é o que faz a próxima marcação abrir a sessão seguinte em
+    vez de sobrescrever esta — é a fronteira entre "adiar" e "2ª banca".
+    """
+    corrente = sessao_repository.get_corrente(banca.id)
+    if not corrente:
+        return
+    sessao_repository.update(
+        corrente.id,
+        realizado_em=banca.realizado_em,
+        resultado=banca.resultado,
+        encerrada_em=datetime.now(),
+    )
 
 
 class LiberarExcecaoChoqueRequest(BaseModel):

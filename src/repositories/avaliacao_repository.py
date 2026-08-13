@@ -17,11 +17,13 @@ class AvaliacaoRepository:
                tipo_avaliador: Optional[str] = None,
                projeto_avaliado: Optional[str] = None,
                escopo_avaliado_id: Optional[int] = None,
-               escopo_avaliado_outro: Optional[str] = None) -> AvaliacaoModel:
+               escopo_avaliado_outro: Optional[str] = None,
+               sessao: int = 1) -> AvaliacaoModel:
         avaliacao = AvaliacaoModel(
             banca_id=banca_id,
             avaliador_id=avaliador_id,
             formulario_id=formulario_id,
+            sessao=sessao,
             status=status,
             comentario_feedback=comentario_feedback,
             submetida_em=submetida_em,
@@ -44,6 +46,18 @@ class AvaliacaoRepository:
 
     def get_by_avaliador(self, avaliador_id: int) -> List[AvaliacaoModel]:
         return self.db.query(AvaliacaoModel).filter(AvaliacaoModel.avaliador_id == avaliador_id).all()
+
+    def get_by_banca(self, banca_id: int, sessao: Optional[int] = None) -> List[AvaliacaoModel]:
+        """As avaliações de uma banca — opcionalmente só as de uma sessão (§9).
+
+        ⭐ O filtro por `sessao` é o que separa as tentativas. `banca_id` é o
+        mesmo nas duas: sem ele, os votos que reprovaram a 1ª banca contariam
+        de novo na 2ª e a segunda chance não existiria na prática.
+        """
+        query = self.db.query(AvaliacaoModel).filter(AvaliacaoModel.banca_id == banca_id)
+        if sessao is not None:
+            query = query.filter(AvaliacaoModel.sessao == sessao)
+        return query.all()
 
     def update(self, avaliacao_id: int, **kwargs) -> Optional[AvaliacaoModel]:
         avaliacao = self.get_by_id(avaliacao_id)
