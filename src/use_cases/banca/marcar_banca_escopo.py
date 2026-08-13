@@ -34,7 +34,7 @@ from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.piso_banca import calcular_piso_banca
 from src.utils.banca_status import calcular_status_banca
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import CODIGO_BANCA_ABAIXO_DO_MINIMO, RegraDeNegocioError
 from src.utils.janela_escopo import (
     FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS,
     calcular_janela,
@@ -664,9 +664,14 @@ class RegistrarRealizacaoBancaUseCase:
             return
 
         if not request.forcar:
+            # ⭐ É o CÓDIGO que destrava o "registrar assim mesmo" na tela, não
+            # a frase. Ver `RegraDeNegocioError`: as duas telas que ofereciam
+            # esse botão procuravam trechos de texto e as duas pararam de
+            # funcionar quando a mensagem mudou de redação.
             raise RegraDeNegocioError(
                 f"Esta banca tem {alocados} de {minimo} pessoas alocadas. "
-                "Só a diretoria pode registrá-la assim mesmo."
+                "Só a diretoria pode registrá-la assim mesmo.",
+                codigo=CODIGO_BANCA_ABAIXO_DO_MINIMO,
             )
         if not eh_diretor:
             raise RegraDeNegocioError(
