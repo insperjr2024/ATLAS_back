@@ -117,10 +117,18 @@ class ListarAprovacoesPendentesUseCase:
         lado, e o projeto segue com a vaga aberta. Vivia só na tela "Vagas em
         projetos" — quem não passasse por lá não sabia que alguém esperava.
 
-        Delega para `listar_do_coordenador`, que é o mesmo caminho da tela de
+        Delega para `listar_para_decisao`, que é o mesmo caminho da tela de
         Vagas: o recorte de quem pode responder é regra de negócio e não pode
         ter duas implementações. Filtra só os pendentes — os já respondidos
         seguem visíveis lá, como histórico.
+
+        ⚠ Chamava `listar_do_coordenador`, que a main renomeou e dividiu em
+        dois quando a decisão sobre pedidos de vaga saiu do coordenador e foi
+        para gerência e diretoria (2026-08-12): `listar_projetos_coordenados` é
+        a visão SÓ-LEITURA do coordenador, e `listar_para_decisao` é a de quem
+        pode responder. Esta aba é a fila de quem DECIDE, então é a segunda —
+        usar a primeira encheria a fila da diretoria com pedidos que ela vê mas
+        não pode responder.
         """
         if current_user is None:
             return []
@@ -129,7 +137,7 @@ class ListarAprovacoesPendentesUseCase:
             SolicitacaoProjetoUseCase,
         )
 
-        pedidos = SolicitacaoProjetoUseCase(self.db).listar_do_coordenador(current_user)
+        pedidos = SolicitacaoProjetoUseCase(self.db).listar_para_decisao(current_user)
         return [p for p in pedidos if p["status"] == "pendente"]
 
     def _bancas_sem_resultado(self, escopos, por_id, nomes_escopo) -> List[dict]:
