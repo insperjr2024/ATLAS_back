@@ -61,7 +61,7 @@ TEORES = [
     (16, "alta", "Muita folga para marcar reunião"),
     (11, "boa", "Boa janela de horários"),
     (6, "media", "Dá para marcar, com opções limitadas"),
-    (1, "baixa", "Quase não sobra horário — combinar vai ser difícil"),
+    (1, "baixa", "Quase não sobra horário, combinar vai ser difícil"),
     (0, "nenhuma", "Não há nenhum horário livre para todos ao mesmo tempo"),
 ]
 
@@ -156,7 +156,7 @@ class GradeHorariaUseCase:
         if len(sem_grade) == len(ids):
             teor, teor_texto = (
                 "desconhecida",
-                "Ninguém do time preencheu a grade — não dá para comparar horários.",
+                "Ninguém do time preencheu a grade, não dá para comparar horários.",
             )
         return {
             "semestre_id": semestre_id,
