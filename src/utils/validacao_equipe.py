@@ -10,9 +10,15 @@ execução de projeto nenhum. O que NUNCA abre, pra ninguém, é o sentido
 inverso: consultor não vira coordenador de projeto sem ser promovido de
 posição de verdade — isso é o §10, não uma vaga de equipe.
 
+Coordenador e gerente continuam elegíveis à cadeira de consultor: o que
+2026-08-12 fechou foi o AUTOATENDIMENTO — eles não pedem para entrar em
+projeto (ver `solicitacao_projeto.py`), mas a gestão pode alocá-los como
+consultor normalmente.
+
 Nada aqui olha os OUTROS projetos da pessoa de propósito: coordenador e
 consultor podem estar alocados em quantos projetos forem necessários — a
-validação é sempre dentro do projeto que está sendo salvo.
+validação é sempre dentro do projeto que está sendo salvo. A escala de
+`situacao_carga` é recomendação da diretoria, não teto.
 """
 
 from src.utils.exceptions import RegraDeNegocioError

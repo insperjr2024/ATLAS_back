@@ -10,10 +10,3 @@ def pasta_propostas() -> Path:
     pasta = Path(get_settings().UPLOADS_DIR) / "propostas"
     pasta.mkdir(parents=True, exist_ok=True)
     return pasta
-
-
-def pasta_pdi() -> Path:
-    """Cria (se preciso) e devolve a pasta onde os arquivos de PDI ficam."""
-    pasta = Path(get_settings().UPLOADS_DIR) / "pdi"
-    pasta.mkdir(parents=True, exist_ok=True)
-    return pasta

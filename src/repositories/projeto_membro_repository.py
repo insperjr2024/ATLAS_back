@@ -44,8 +44,14 @@ class ProjetoMembroRepository(BaseRepository[ProjetoMembroModel]):
         Mesma régua de carga do §7.3 (`AlocacaoUseCase`): projeto finalizado
         ou arquivado não ocupa ninguém. Sem recorte de visão de propósito —
         quem monta a equipe precisa saber que a pessoa já está alocada mesmo
-        em frente que ela própria não enxerga; vai só o número, nunca o nome
-        dos projetos.
+        em frente que ela própria não enxerga.
+
+        ⚠ Este método continua devolvendo só o número. O que mudou em
+        2026-08-13 é que o painel de alocação passou a listar também os NOMES
+        desses projetos, igualmente sem recorte, por decisão da diretoria —
+        ver `_projetos_ativos` em `solicitacao_projeto.py`. Se alguém precisar
+        da regra antiga ("só o número, nunca o nome"), ela vale para as outras
+        telas, não para aquela.
         """
         linhas = (
             self.db.query(

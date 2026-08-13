@@ -68,6 +68,23 @@ def registrar(
                 rota=dados.get("rota"),
             )
     except Exception:  # noqa: BLE001 — ver a docstring do módulo
+        # ⚠ **Engolir a exceção não basta no Postgres.**
+        #
+        # Lá um statement que falha ABORTA a transação inteira: a partir dele
+        # toda query na mesma sessão morre com `InFailedSqlTransaction`. O
+        # `except` acima segurava o erro aqui, e a ação do chamador estourava
+        # algumas linhas depois — longe da causa, e sem os headers de CORS, o
+        # que no navegador vira um "Failed to fetch" sem explicação nenhuma.
+        #
+        # Foi assim que o pedido de vaga quebrou: a notificação do coordenador
+        # não entrava (faltava o valor no enum), e o consultor recebia erro num
+        # pedido que JÁ estava gravado.
+        #
+        # O rollback não perde trabalho de ninguém: uma vez abortada, o que o
+        # chamador tinha pendente já era irrecuperável. Ele só devolve a sessão
+        # ao estado usável, que é o que a promessa do topo deste módulo — "o
+        # aviso é efeito colateral do trabalho, não o trabalho" — exige.
+        db.rollback()
         logger.exception("Falha ao registrar notificação %s para o usuário %s", tipo, usuario_id)
 
 

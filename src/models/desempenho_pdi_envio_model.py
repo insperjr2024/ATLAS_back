@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, LargeBinary, String, UniqueConstraint
 from sqlalchemy.sql import func
 from src.database.database import Base
 
@@ -9,7 +9,10 @@ class DesempenhoPdiEnvioModel(Base):
     mentorado) — inclusive itens do PDI inicial: a diretoria sobe um arquivo
     por mentorado, não um só pra todo mundo. Reenviar no mesmo item
     substitui o arquivo anterior (ver `UploadPdiEnvioUseCase`), por isso a
-    unique constraint."""
+    unique constraint.
+
+    O conteúdo do arquivo fica no próprio banco (`arquivo_conteudo`), não em
+    disco — o disco do Render é efêmero e some a cada redeploy/restart."""
 
     __tablename__ = "desempenho_pdi_envio"
 
@@ -17,7 +20,7 @@ class DesempenhoPdiEnvioModel(Base):
     item_id = Column(Integer, ForeignKey("desempenho_pdi_item.id"), nullable=False, index=True)
     mentorado_id = Column(Integer, ForeignKey("usuario.id"), nullable=False, index=True)
     enviado_por = Column(Integer, ForeignKey("usuario.id"), nullable=False)
-    arquivo_path = Column(String(255), nullable=False)
+    arquivo_conteudo = Column(LargeBinary, nullable=False)
     arquivo_nome = Column(String(255), nullable=False)
     enviado_em = Column(DateTime, nullable=False, server_default=func.now())
 
