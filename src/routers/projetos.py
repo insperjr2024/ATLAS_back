@@ -208,10 +208,23 @@ def mostrar_historico_completo(
 def registrar_justificativa_atraso(
     projeto_id: int,
     request: RegistrarJustificativaAtrasoRequest,
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_lideranca),
     db: Session = Depends(get_db),
 ):
-    """§7.4 — só a diretoria registra o porquê de um atraso."""
+    """§7.4 — o porquê de um atraso, na palavra de quem conduz o projeto.
+
+    ⚠ **Era `require_diretor`.** A diretoria continua podendo registrar, mas
+    quem SABE por que o escopo estourou a janela é o coordenador dele — e
+    fazer a nota depender de a diretora perguntar primeiro deixava o atraso sem
+    explicação justamente enquanto ele era recente. Agora o card "Escopos
+    vendidos" pede a justificativa a quem está lá dentro, e o Monitoramento
+    lê o que foi escrito.
+
+    `require_lideranca` (coordenador, gerente, diretor) somado ao
+    `exigir_acesso_ao_projeto` abaixo: consultor não justifica atraso, e
+    coordenador de OUTRO projeto não enxerga este para poder tentar.
+    """
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         result = RegistrarJustificativaAtrasoUseCase(db).execute(
             projeto_id, request, registrado_por=current_user.id

@@ -15,6 +15,22 @@ class ProjetoStatusHistoricoRepository(BaseRepository[ProjetoStatusHistoricoMode
             .all()
         )
 
+    def get_by_projetos(self, projeto_ids: List[int]) -> List[ProjetoStatusHistoricoModel]:
+        """O mesmo, para vários projetos — o Monitoramento varre o portfólio.
+
+        O histórico é o que revela as janelas de ⏸ Pausado, e elas entram na
+        conta de atraso (`contagem_dias.calcular_contagem_projeto`). Chamar
+        `get_by_projeto` dentro do laço seria uma query por projeto.
+        """
+        if not projeto_ids:
+            return []
+        return (
+            self.db.query(ProjetoStatusHistoricoModel)
+            .filter(ProjetoStatusHistoricoModel.projeto_id.in_(projeto_ids))
+            .order_by(ProjetoStatusHistoricoModel.alterado_em)
+            .all()
+        )
+
     def get_ultima(self, projeto_id: int) -> Optional[ProjetoStatusHistoricoModel]:
         return (
             self.db.query(ProjetoStatusHistoricoModel)

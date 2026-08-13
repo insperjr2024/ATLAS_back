@@ -88,22 +88,32 @@ class TestBancaAtrasada:
         assert not calcular([escopo()], {1: banca(SEX_18)}, referencia=SEX_11).atrasado
 
 
-class TestEntregaAtrasada:
-    def test_conta_em_dias_uteis(self):
-        r = calcular([escopo(entrega_planejada=SEX_11)])
-        assert r.dias_totais == 1
+class TestEntregaNaoGeraMaisAtraso:
+    """⚠ A entrega ao cliente SAIU dos insights (2026-08-12).
 
-    def test_entrega_feita_nao_atrasa(self):
+    Esta classe testava o "Pilar 2": entrega planejada vencida virava motivo,
+    com a distinção interno/externo. A diretoria tirou a métrica — ela media a
+    agenda do cliente e não o trabalho do time, e deixava vermelho um projeto
+    cuja banca tinha acontecido no prazo.
+
+    Os testes ficam invertidos, e não apagados, porque a regra em vigor é
+    justamente esta: entrega vencida **não** é atraso. Sem eles, alguém
+    reintroduz o pilar sem perceber que foi uma decisão.
+    """
+
+    def test_entrega_vencida_nao_gera_motivo(self):
+        assert not calcular([escopo(entrega_planejada=SEX_11)]).atrasado
+
+    def test_entrega_feita_tambem_nao(self):
         e = escopo(entrega_planejada=SEX_11, entrega_real=SEG_14)
         assert not calcular([e]).atrasado
 
-    def test_externo_vira_tipo_proprio(self):
-        e = escopo(entrega_planejada=SEX_11, tipo_atraso="externo")
-        assert calcular([e]).motivos[0].tipo == "entrega_externa"
-
-    def test_interno_vira_tipo_proprio(self):
-        e = escopo(entrega_planejada=SEX_11, tipo_atraso="interno")
-        assert calcular([e]).motivos[0].tipo == "entrega_interna"
+    def test_a_classificacao_interno_externo_deixou_de_pesar(self):
+        """`tipo_atraso_entrega` continua no banco e na rota que o grava — o
+        que sumiu foi o motivo derivado dele."""
+        for tipo in ("interno", "externo"):
+            e = escopo(entrega_planejada=SEX_11, tipo_atraso=tipo)
+            assert calcular([e]).motivos == []
 
 
 class TestAgregacao:
@@ -111,21 +121,24 @@ class TestAgregacao:
         e = escopo(status="cancelado", entrega_planejada=SEX_11)
         assert not calcular([e], {1: banca(SEX_11)}).atrasado
 
-    def test_banca_e_entrega_do_mesmo_escopo_somam(self):
-        """Um escopo pode entrar duas vezes — pela banca e pela entrega."""
+    def test_so_a_banca_gera_motivo(self):
+        """Era "banca e entrega do mesmo escopo somam", com 2 motivos. Com o
+        pilar da entrega removido, o mesmo escopo entra UMA vez só."""
         r = calcular([escopo(entrega_planejada=SEX_11)], {1: banca(SEX_11)})
-        assert len(r.motivos) == 2
-        assert r.dias_totais == 2
+        assert [m.tipo for m in r.motivos] == ["banca"]
+        assert r.dias_totais == 1
 
     def test_projeto_sem_marco_nao_esta_atrasado(self):
         r = calcular([escopo()])
         assert not r.atrasado
         assert r.dias_totais == 0
 
-    def test_atrasado_por_banca_ignora_entrega(self):
-        """O placar da gestão só olha a banca — a entrega depende do cliente."""
+    def test_entrega_vencida_sozinha_nao_atrasa_o_projeto(self):
+        """Era: `atrasado` sim, `atrasado_por_banca` não — o projeto ficava
+        vermelho por causa da agenda do cliente. Hoje os dois são falsos, e o
+        placar da gestão e a lista de atrasos passaram a concordar."""
         r = calcular([escopo(entrega_planejada=SEX_11)])
-        assert r.atrasado
+        assert not r.atrasado
         assert not r.atrasado_por_banca
 
     def test_zero_dias_uteis_ainda_e_atraso(self):

@@ -14,10 +14,14 @@ Consequência prática: quem chama precisa passar os dias não letivos. Não há
 mais régua diferente entre esta aba e a de Execução — se aparecer código
 falando em "corridos", está desatualizado.
 
-**O pilar é a banca.** "Um escopo está atrasado quando passa da data da sua
-banca sem que ela tenha acontecido" — o marco sob controle do time. A entrega
-ao cliente depende da agenda dele e é acompanhada à parte, com a distinção
-interno/externo (`projeto_escopo.tipo_atraso_entrega`).
+⭐ **O único pilar é a banca.** "Um escopo está atrasado quando passa da data
+da sua banca sem que ela tenha acontecido" — o marco sob controle do time.
+
+⚠ Desde 2026-08-12 é literalmente o único: o atraso da ENTREGA ao cliente saiu
+dos insights por decisão da diretoria. Ele media a agenda do cliente, não o
+trabalho do time, e inflava o alerta de projetos cuja banca tinha acontecido no
+prazo. `projeto_escopo.tipo_atraso_entrega` e a rota que o classifica continuam
+existindo; o que sumiu foi o motivo derivado dele.
 """
 
 from dataclasses import dataclass, field
@@ -30,7 +34,10 @@ from src.utils.dias_uteis import dias_uteis_de_atraso
 
 @dataclass
 class MotivoAtraso:
-    #: "banca" | "entrega_interna" | "entrega_externa"
+    #: Hoje só existe `"banca"`. `entrega_interna`/`entrega_externa` saíram em
+    #: 2026-08-12 (ver o comentário no lugar do antigo Pilar 2); o campo
+    #: continua sendo string, e não um literal, porque as notas de justificativa
+    #: já gravadas com os tipos antigos seguem no banco e precisam casar.
     tipo: str
     descricao: str
     dias: int
@@ -100,30 +107,18 @@ def calcular_atraso_projeto(
                     )
                 )
 
-        # Pilar 2 — a entrega planejada passou e não saiu. Acompanhada à
-        # parte porque pode escorregar por agenda do cliente; a diretoria
-        # classifica interno/externo em `tipo_atraso_entrega`.
-        if (
-            escopo.data_entrega_planejada
-            and not escopo.data_entrega_real
-            and escopo.data_entrega_planejada < referencia
-        ):
-            dias = dias_uteis_de_atraso(
-                escopo.data_entrega_planejada, referencia, nao_letivos
-            )
-            externo = escopo.tipo_atraso_entrega == "externo"
-            resultado.motivos.append(
-                MotivoAtraso(
-                    tipo="entrega_externa" if externo else "entrega_interna",
-                    descricao=(
-                        f"entrega de {nome} atrasada há {dias} dias úteis"
-                        + (" (agenda do cliente)" if externo else "")
-                    ),
-                    dias=dias,
-                    projeto_escopo_id=escopo.id,
-                    escopo_nome=nome,
-                    data_referencia=escopo.data_entrega_planejada,
-                )
-            )
+        # ⚠ **Aqui havia um "Pilar 2": o atraso da ENTREGA ao cliente.**
+        #
+        # Removido a pedido da diretoria (2026-08-12). Ele gerava os motivos
+        # `entrega_interna`/`entrega_externa` a partir de
+        # `data_entrega_planejada` vencida, e o efeito era um insight que media
+        # a agenda do cliente e não o trabalho do time: um escopo com banca
+        # feita no prazo aparecia com "8 dias de atraso" porque a apresentação
+        # ao cliente ainda não tinha sido marcada, e o número crescia sozinho.
+        #
+        # O que ficou é o pilar que o §7.4 sempre chamou de pilar: **a banca**.
+        # `projeto_escopo.tipo_atraso_entrega` e a rota que o classifica
+        # continuam existindo — o dado não foi apagado, só deixou de virar
+        # alerta.
 
     return resultado

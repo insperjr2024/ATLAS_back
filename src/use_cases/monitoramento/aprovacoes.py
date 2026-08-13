@@ -73,16 +73,20 @@ class ListarAprovacoesPendentesUseCase:
 
         dias = self._dias_de_ajuste(escopos, por_id, nomes_escopo, nomes_usuario)
         atrasos = self._atrasos_sem_justificativa(projetos, escopos, nomes_escopo, hoje)
-        entregas = self._entregas_sem_classificacao(escopos, por_id, nomes_escopo)
 
+        # ⚠ Havia aqui uma terceira fila, `entregas_sem_classificacao`: as
+        # entregas atrasadas ainda não marcadas como atraso interno ou por
+        # agenda do cliente. Removida em 2026-08-12, junto com o que lhe dava
+        # sentido — o atraso de ENTREGA saiu dos insights, e com ele a métrica
+        # que separava os dois tipos. A fila continuava cobrando da diretoria
+        # uma classificação que não mudava mais número nenhum.
         return {
             "dias_de_ajuste": dias,
             "atrasos_sem_justificativa": atrasos,
-            "entregas_sem_classificacao": entregas,
             # O total é servido pronto porque o badge da aba precisa dele antes
             # de qualquer render — somar no front daria a mesma conta em dois
-            # lugares, e é a que sai errada quando nasce uma quarta fila.
-            "total": len(dias) + len(atrasos) + len(entregas),
+            # lugares, e é a que sai errada quando nasce uma terceira fila.
+            "total": len(dias) + len(atrasos),
         }
 
     def _dias_de_ajuste(self, escopos, por_id, nomes_escopo, nomes_usuario) -> List[dict]:
@@ -149,27 +153,3 @@ class ListarAprovacoesPendentesUseCase:
         # O mais atrasado primeiro: é o que mais precisa de explicação.
         return sorted(linhas, key=lambda x: -x["dias_totais"])
 
-    def _entregas_sem_classificacao(self, escopos, por_id, nomes_escopo) -> List[dict]:
-        """§7.4: atraso interno e atraso por agenda do cliente contam diferente
-        na métrica da área — e só ela pode dizer qual foi."""
-        linhas = []
-        for escopo in escopos:
-            entregue = escopo.data_entrega_real
-            prometida = escopo.data_entrega_planejada
-            if not entregue or not prometida or entregue <= prometida:
-                continue
-            if escopo.tipo_atraso_entrega:
-                continue
-            projeto = por_id.get(escopo.projeto_id)
-            linhas.append(
-                {
-                    "escopo_id": escopo.id,
-                    "projeto_id": escopo.projeto_id,
-                    "projeto_nome": projeto.nome if projeto else "",
-                    "escopo_nome": nomes_escopo.get(escopo.id, "escopo"),
-                    "data_prometida": prometida,
-                    "data_entrega": entregue,
-                    "dias_de_atraso": (entregue - prometida).days,
-                }
-            )
-        return sorted(linhas, key=lambda x: -x["dias_de_atraso"])

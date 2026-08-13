@@ -20,7 +20,13 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.exceptions import RegraDeNegocioError
 
 
-MOTIVOS_VALIDOS = {"banca", "entrega_interna", "entrega_externa"}
+#: ⭐ `escopo` é o atraso do §10 — dias úteis ALÉM DA JANELA do escopo, a
+#: coluna "Atraso" do card "Escopos vendidos". É o quarto tipo, e não um dos
+#: três de `MotivoAtraso` (`utils/atraso_monitoramento.py`), porque mede outra
+#: coisa: aqueles perguntam "o que venceu e não aconteceu?", este pergunta "o
+#: trabalho passou do tempo que foi vendido?". Um escopo pode estourar a janela
+#: com a banca já realizada e a entrega em dia — e aí nenhum dos três dispara.
+MOTIVOS_VALIDOS = {"banca", "entrega_interna", "entrega_externa", "escopo"}
 
 
 class RegistrarJustificativaAtrasoRequest(BaseModel):

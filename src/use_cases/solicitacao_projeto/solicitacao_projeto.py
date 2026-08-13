@@ -493,6 +493,10 @@ class SolicitacaoProjetoUseCase:
         # para o coordenador do projeto, que desde 2026-08-12 não responde
         # mais: era mandar para o sino de quem não pode fazer nada com aquilo.
         #
+        # O pedido já está gravado acima, e uma falha aqui não pode derrubá-lo:
+        # `registrar` engole a exceção E desfaz a transação abortada, que é o
+        # que faltava quando o pedido nascia órfão no Postgres.
+        #
         # `registrar_varios` direto, e não `notificar`: aquele helper é dos
         # eventos de banca e só sabe carregar `banca_id`.
         decisores = lideranca_do_projeto(self.db, projeto.id)
@@ -503,10 +507,11 @@ class SolicitacaoProjetoUseCase:
             titulo=f"{usuario.nome} quer entrar no projeto {projeto.nome}.",
             corpo=solicitacao.justificativa,
             projeto_id=projeto.id,
-            # A rota é a página de vagas. Apontava para
-            # `/projetos/solicitacoes`, que não existe no roteador do front e
-            # não tem catch-all: quem clicava caía numa tela em branco.
-            rota="/vagas",
+            # ⚠ Rota que EXISTE, e já na aba certa. Apontava para
+            # `/projetos/solicitacoes`, que não é rota nenhuma: casava com
+            # `/projetos/:id` e abria a página de um projeto chamado
+            # "solicitacoes".
+            rota="/vagas?aba=solicitacoes",
             chave_dedup=f"solicitacao_projeto:{solicitacao.id}",
         )
 
@@ -526,7 +531,12 @@ class SolicitacaoProjetoUseCase:
                 ),
                 corpo=solicitacao.justificativa,
                 projeto_id=projeto.id,
-                rota="/vagas",
+                # A aba de leitura do coordenador, não a da gestão: ele
+                # acompanha, não decide.
+                rota="/vagas?aba=coordenados",
+                # Chave distinta da dos decisores: são dois avisos sobre o
+                # mesmo pedido, com textos diferentes, e uma chave só faria o
+                # segundo ser descartado pela dedup.
                 chave_dedup=f"solicitacao_projeto_coordenador:{solicitacao.id}",
             )
 
