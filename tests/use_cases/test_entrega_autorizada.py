@@ -42,7 +42,7 @@ DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
 def entregar_escopo(monkeypatch):
     """`(executar, estado)` — `estado.alteracoes` mostra o que foi registrado."""
 
-    def _montar(entrega_atual=None, *, banca_realizada=True):
+    def _montar(entrega_atual=None, *, banca_realizada=True, resultado="aprovada"):
         estado = SimpleNamespace(alteracoes=[], gravado={})
         escopo = SimpleNamespace(
             id=7,
@@ -67,7 +67,7 @@ def entregar_escopo(monkeypatch):
             def get_by_projeto_escopo(self, _id):
                 if not banca_realizada:
                     return None
-                return SimpleNamespace(id=50, realizado_em=QUI_15_10)
+                return SimpleNamespace(id=50, realizado_em=QUI_15_10, resultado=resultado)
 
         class ProjetoFake:
             def __init__(self, db): pass
@@ -171,6 +171,79 @@ class TestEntregaDoEscopo:
 
         with pytest.raises(RegraDeNegocioError, match="banca"):
             executar()
+
+
+class TestOResultadoDaBancaDestrava:
+    """🔒 §5.5 na íntegra: não basta a banca acontecer, ela precisa APROVAR.
+
+    Esta exigência já existiu, foi removida quando o resultado virou um campo
+    que ninguém tinha como preencher — não havia UI para registrá-lo — e volta
+    agora que o veredito sai do voto dos avaliadores.
+    """
+
+    def test_banca_aprovada_libera(self, entregar_escopo):
+        executar, estado = entregar_escopo(resultado="aprovada")
+
+        executar()
+
+        assert estado.gravado["status"] == "entregue"
+
+    def test_banca_reprovada_trava(self, entregar_escopo):
+        """⭐ O caso que motivou a mudança: reprovar não pode liberar o cliente.
+
+        A saída é marcar uma segunda banca — e a mensagem precisa dizer isso,
+        senão o coordenador fica sem próximo passo.
+        """
+        executar, estado = entregar_escopo(resultado="nao_aprovada")
+
+        with pytest.raises(RegraDeNegocioError, match="nova banca"):
+            executar()
+
+        assert estado.gravado == {}
+
+    def test_sem_resultado_ainda_trava(self, entregar_escopo):
+        """Banca realizada e ninguém votou: pendente não é aprovado.
+
+        Mas a mensagem aponta a saída — a diretoria pode registrar o resultado
+        quando o prazo vence sem voto nenhum.
+        """
+        executar, _ = entregar_escopo(resultado=None)
+
+        with pytest.raises(RegraDeNegocioError, match="ainda não tem resultado"):
+            executar()
+
+    def test_reprovada_nao_registra_alteracao(self, entregar_escopo):
+        """A trava vem ANTES do histórico: uma entrega barrada não pode deixar
+        rastro de que aconteceu."""
+        executar, estado = entregar_escopo(resultado="nao_aprovada")
+
+        with pytest.raises(RegraDeNegocioError, match="nova banca"):
+            executar()
+
+        assert estado.alteracoes == []
+
+    def test_corrigir_entrega_ja_registrada_nao_passa_pela_trava(self, entregar_escopo):
+        """⚠ A trava vale para a PRIMEIRA marcação, não para a correção.
+
+        Sem este recorte, a diretoria não conseguiria acertar a data de um
+        escopo já entregue — 422 sobre fato consumado, inclusive nos escopos
+        entregues antes desta regra existir. Quem governa a correção é o §13
+        (diretoria + justificativa), que já roda antes daqui.
+        """
+        executar, estado = entregar_escopo(QUI_15_10, resultado="nao_aprovada")
+
+        executar(data=QUI_15_10.replace(day=16), quem=DANI, justificativa="Data errada no registro")
+
+        assert estado.gravado["data_entrega_real"] == QUI_15_10.replace(day=16)
+        assert len(estado.alteracoes) == 1
+
+    def test_corrigir_sem_ser_diretor_continua_barrado(self, entregar_escopo):
+        """O §13 não afrouxa junto: o recorte acima tira a trava da banca do
+        caminho, não o gate da diretoria."""
+        executar, _ = entregar_escopo(QUI_15_10, resultado="aprovada")
+
+        with pytest.raises(RegraDeNegocioError):
+            executar(data=QUI_15_10.replace(day=16))
 
 
 class TestEntregaForaDaJanela:

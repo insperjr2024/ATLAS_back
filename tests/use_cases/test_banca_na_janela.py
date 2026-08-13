@@ -60,12 +60,17 @@ def marcar(monkeypatch):
 
     def _montar(alvo=None, *, banca_existente=None, escopos_extras=()):
         alvo = alvo if alvo is not None else escopo()
-        estado = SimpleNamespace(remarcacoes=[], bancas=[], notificou=False)
+        estado = SimpleNamespace(
+            sessoes=[],remarcacoes=[], bancas=[], notificou=False)
         todos = {e.id: e for e in (alvo, *escopos_extras)}
 
         class BancaFake:
             def __init__(self, db): pass
             def get_by_projeto_escopo(self, _id): return banca_existente
+            # Recarrega a linha depois da apuração: é a mesma instância aqui,
+            # mas o use case precisa enxergar o veredito que acabou de nascer
+            # antes de julgar se a 2ª banca pode existir.
+            def get_by_id(self, _id): return banca_existente
             def get_por_data_hora(self, _dh): return []
             def update(self, _id, **campos):
                 for k, v in campos.items():
@@ -106,6 +111,43 @@ def marcar(monkeypatch):
         class CatalogoFake:
             def __init__(self, db): pass
             def get_by_id(self, _id): return None
+
+        class SessaoFake:
+            """As sessões da banca (§9) — cada tentativa.
+
+            Guarda em `estado.sessoes` para os testes afirmarem que a
+            reprovação da sessão anterior foi ARQUIVADA antes de a linha de
+            `banca` ser limpa.
+            """
+
+            def __init__(self, db): pass
+
+            def get_corrente(self, banca_id):
+                abertas = [
+                    s for s in estado.sessoes
+                    if s.banca_id == banca_id and s.encerrada_em is None
+                ]
+                return abertas[-1] if abertas else None
+
+            def proximo_numero(self, banca_id):
+                return len([s for s in estado.sessoes if s.banca_id == banca_id]) + 1
+
+            def create(self, **campos):
+                sessao = SimpleNamespace(
+                    id=len(estado.sessoes) + 1,
+                    realizado_em=None,
+                    resultado=None,
+                    encerrada_em=None,
+                    **campos,
+                )
+                estado.sessoes.append(sessao)
+                return sessao
+
+            def update(self, sessao_id, **campos):
+                alvo = next(s for s in estado.sessoes if s.id == sessao_id)
+                for chave, valor in campos.items():
+                    setattr(alvo, chave, valor)
+                return alvo
 
         class RemarcacaoFake:
             def __init__(self, db): pass
@@ -153,6 +195,7 @@ def marcar(monkeypatch):
             ("BancaEscopoRepository", BancaEscopoFake),
             ("EscopoRepository", CatalogoFake),
             ("BancaRemarcacaoRepository", RemarcacaoFake),
+            ("BancaSessaoRepository", SessaoFake),
             ("ProjetoRemarcacaoBancaRepository", RemarcacaoProjetoFake),
             ("DiaNaoLetivoRepository", DiaNaoLetivoFake),
             ("ProjetoStatusHistoricoRepository", HistoricoFake),
@@ -326,13 +369,17 @@ class TestRemarcacao:
 
 class TestBancaReprovadaRemarcada:
     """⭐ É **uma banca por escopo, sempre a mesma linha** — inclusive depois de
-    reprovada (§9).
+    reprovada (§9). O que muda é que agora existe uma SESSÃO por tentativa.
 
-    Como a linha é reusada, remarcá-la tem de apagar o que descrevia a sessão
+    Como a linha é reusada, remarcá-la tem de limpar o que descrevia a sessão
     ANTERIOR. Sem isso, `calcular_status_banca` (que testa `realizado_em` antes
     da data) continuava dizendo "realizada" para uma banca marcada para o
     futuro, e o escopo seguia com a entrega liberada — dava para entregar ao
     cliente com a nova banca ainda por acontecer.
+
+    ⚠ **Limpar já foi APAGAR.** Antes de `banca_sessao`, o veredito sumia do
+    banco: sobrava a data antiga em `banca_remarcacao` e nada dizendo que a
+    banca tinha sido reprovada. Agora a sessão arquiva antes da limpeza.
     """
 
     def _reprovada(self, quando):
@@ -376,3 +423,177 @@ class TestBancaReprovadaRemarcada:
 
         assert banca.realizado_em == DENTRO
         assert banca.resultado == "nao_aprovada"
+
+    def test_salvar_a_mesma_data_nao_abre_sessao_nova(self, marcar):
+        """⚠ A sessão fantasma.
+
+        Salvar a mesma data numa banca já realizada — o que acontece quando a
+        request edita outro campo — não é uma segunda tentativa. Abrir sessão
+        nova aqui encerraria a sessão viva e deixaria os votos carimbados com
+        `sessao=1` apontando para uma sessão morta: a apuração passaria a ler a
+        sessão nova, vazia, e a banca nunca fecharia.
+        """
+        banca = self._reprovada(DENTRO)
+        executar, estado = marcar(banca_existente=banca)
+        estado.sessoes.append(
+            SimpleNamespace(
+                id=1,
+                banca_id=banca.id,
+                numero=1,
+                data_hora=DENTRO,
+                realizado_em=DENTRO,
+                resultado="nao_aprovada",
+                encerrada_em=None,
+            )
+        )
+
+        executar(data_hora=DENTRO)
+
+        # Uma sessão só, e ainda aberta: nada foi arquivado nem aberto.
+        assert len(estado.sessoes) == 1
+        assert estado.sessoes[0].encerrada_em is None
+
+    def test_a_sessao_anterior_arquiva_o_veredito(self, marcar):
+        """⭐ O que esta fatia inteira existe para consertar.
+
+        A sessão 1 fecha guardando `realizado_em` e `resultado`; só DEPOIS a
+        linha da banca é limpa. Antes, a reprovação era apagada sem cópia — o
+        histórico perdia a tentativa e ninguém conseguia responder "por que
+        este escopo teve duas bancas?".
+        """
+        antiga = datetime(2026, 9, 24, 14, 0)
+        banca = self._reprovada(antiga)
+        executar, estado = marcar(banca_existente=banca)
+        # A sessão que já existia quando a banca aconteceu.
+        estado.sessoes.append(
+            SimpleNamespace(
+                id=1,
+                banca_id=banca.id,
+                numero=1,
+                data_hora=antiga,
+                realizado_em=antiga,
+                resultado="nao_aprovada",
+                encerrada_em=None,
+            )
+        )
+
+        executar(data_hora=DENTRO, justificativa="Reprovada — refazendo")
+
+        anterior, nova = estado.sessoes
+        # A tentativa que falhou ficou inteira, apesar de a linha da banca
+        # ter sido limpa logo depois.
+        assert anterior.realizado_em == antiga
+        assert anterior.resultado == "nao_aprovada"
+        assert anterior.encerrada_em is not None
+        # E a 2ª nasceu aberta, na data nova.
+        assert (nova.numero, nova.data_hora, nova.encerrada_em) == (2, DENTRO, None)
+        assert banca.resultado is None
+
+
+class TestSegundaBancaNaoEhRemarcacao:
+    """⭐ Os gates do adiamento NÃO valem para a 2ª banca.
+
+    O caso que motivou: `dias_uteis_ate_a_banca` devolve **0** para data no
+    passado, e `0 <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS` é sempre verdadeiro.
+    Passar a 2ª banca por `_exigir_remarcacao_permitida` exigiria diretoria em
+    TODAS elas — por um gate que existe para proteger a agenda de avaliadores
+    já escalados, numa banca a que eles já compareceram.
+    """
+
+    def _reprovada_no_passado(self):
+        # Ontem: garante `folga == 0` sem depender de data fixa.
+        ontem = datetime.combine(date.today(), datetime.min.time()) - timedelta(days=1)
+        return SimpleNamespace(
+            id=60,
+            data_hora=ontem,
+            realizado_em=ontem,
+            resultado="nao_aprovada",
+            coordenador_id=ANA.id,
+        )
+
+    def test_coordenador_marca_a_segunda_sem_diretoria(self, marcar):
+        """Se o gate de folga valesse aqui, isto levantaria 'cima da hora'."""
+        hoje = date.today()
+        executar, _ = marcar(
+            escopo(inicio=hoje, vendidos=40),
+            banca_existente=self._reprovada_no_passado(),
+        )
+
+        alvo = datetime.combine(_daqui_a_dias_uteis(hoje, 12), datetime.min.time())
+
+        assert executar(data_hora=alvo, quem=ANA)
+
+    def test_segunda_banca_dispensa_justificativa(self, marcar):
+        """O motivo é a reprovação, que já está registrada na sessão."""
+        hoje = date.today()
+        executar, _ = marcar(
+            escopo(inicio=hoje, vendidos=40),
+            banca_existente=self._reprovada_no_passado(),
+        )
+
+        alvo = datetime.combine(_daqui_a_dias_uteis(hoje, 12), datetime.min.time())
+
+        assert executar(data_hora=alvo, justificativa=None)
+
+    def test_aprovacao_que_nasce_na_apuracao_tambem_barra_a_segunda(self, marcar):
+        """⚠ A janela de ordenação que quase custou a trava da entrega.
+
+        A banca aconteceu e ainda não tinha veredito na linha de `banca` — o
+        veredito só nasce quando a apuração roda. Como a apuração acontecia
+        DEPOIS da guarda, `_exigir_segunda_permitida` lia `resultado=None` e
+        deixava passar: a sessão era arquivada como "aprovada", a 2ª banca
+        nascia, e `_campos_da_remarcacao` apagava o resultado da linha que a
+        trava do §5.5 lê. O escopo ficava aprovado no histórico e travado na
+        tela.
+
+        Aqui a apuração já rodou quando a guarda decide, e a recusa acontece.
+        """
+        banca = self._reprovada_no_passado()
+        banca.resultado = None  # ainda sem veredito quando a request chega
+        executar, estado = marcar(banca_existente=banca)
+        estado.sessoes.append(
+            SimpleNamespace(
+                id=1, banca_id=banca.id, numero=1, data_hora=banca.data_hora,
+                realizado_em=banca.realizado_em, resultado=None, encerrada_em=None,
+            )
+        )
+
+        # A apuração (dublada abaixo) grava "aprovada" ao ser chamada.
+        import src.use_cases.avaliacao.submeter_avaliacao as submeter
+
+        def apurar_falso(db, alvo, prazo_vencido=None):
+            alvo.resultado = "aprovada"
+            return SimpleNamespace(resultado="aprovada", decidida=True)
+
+        original = submeter.apurar_banca
+        submeter.apurar_banca = apurar_falso
+        try:
+            with pytest.raises(RegraDeNegocioError, match="APROVADA"):
+                executar(data_hora=DENTRO)
+        finally:
+            submeter.apurar_banca = original
+
+        # E nada foi arquivado nem aberto: a recusa veio antes.
+        assert len(estado.sessoes) == 1
+        assert estado.sessoes[0].encerrada_em is None
+
+    def test_banca_aprovada_nao_ganha_segunda(self, marcar):
+        """⚠ Antes isto passava e apagava a aprovação em silêncio — o escopo
+        perdia o veredito que liberava a entrega, sem registro nenhum."""
+        hoje = date.today()
+        aprovada = self._reprovada_no_passado()
+        aprovada.resultado = "aprovada"
+        executar, _ = marcar(escopo(inicio=hoje, vendidos=40), banca_existente=aprovada)
+
+        alvo = datetime.combine(_daqui_a_dias_uteis(hoje, 12), datetime.min.time())
+
+        with pytest.raises(RegraDeNegocioError, match="APROVADA"):
+            executar(data_hora=alvo)
+
+    def test_adiamento_continua_com_os_gates(self, marcar):
+        """Proteção contra regressão: banca que ainda NÃO aconteceu segue
+        exigindo justificativa e, em cima da hora, diretoria."""
+        executar, _ = marcar(banca_existente=banca_marcada(datetime(2026, 9, 24, 14, 0)))
+
+        with pytest.raises(RegraDeNegocioError, match="justificativa"):
+            executar(data_hora=DENTRO, justificativa=None)

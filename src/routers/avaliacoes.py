@@ -12,6 +12,10 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.avaliacao.create_avaliacao import CreateAvaliacaoUseCase, CreateAvaliacaoRequest
 from src.use_cases.avaliacao.get_avaliacao import GetAvaliacaoUseCase, ListAvaliacoesUseCase
 from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
+from src.use_cases.avaliacao.submeter_avaliacao import (
+    SubmeterAvaliacaoRequest,
+    SubmeterAvaliacaoUseCase,
+)
 from src.use_cases.avaliacao.update_avaliacao import (
     UpdateAvaliacaoUseCase,
     UpdateAvaliacaoRequest,
@@ -156,6 +160,32 @@ def get_avaliacao(avaliacao_id: int, db: Session = Depends(get_db)):
     return result
 
 
+@router.post("/avaliacoes/{avaliacao_id}/submeter")
+def submeter_avaliacao(
+    avaliacao_id: int,
+    request: SubmeterAvaliacaoRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """⭐ Enviar a avaliação — com o VOTO que decide a banca (§8).
+
+    Rota própria porque submeter é uma AÇÃO com pré-condições (voto presente,
+    banca realizada, prazo aberto, não reenviar), e não a edição de um campo.
+    O `PATCH` ao lado é um passthrough genérico; pendurar a regra nele a
+    deixaria contornável.
+
+    A resposta traz a apuração para a tela dizer na hora se aquele voto fechou
+    a banca ("3 de 4 votaram") em vez de mandar a pessoa recarregar.
+    """
+    try:
+        result = SubmeterAvaliacaoUseCase(db).execute(avaliacao_id, request, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
+    return result
+
+
 @router.patch("/avaliacoes/{avaliacao_id}")
 def update_avaliacao(avaliacao_id: int, request: UpdateAvaliacaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     existente = GetAvaliacaoUseCase(db).execute(avaliacao_id)
@@ -163,6 +193,38 @@ def update_avaliacao(avaliacao_id: int, request: UpdateAvaliacaoRequest, current
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
     if existente["avaliador_id"] != current_user.id and not current_user.posicao == "diretor":
         raise HTTPException(status_code=403, detail="Você só pode editar suas próprias avaliações")
+    # ⚠ A SUBMISSÃO tem porta própria (`POST /avaliacoes/{id}/submeter`), que
+    # exige o voto e dispara a apuração. Deixar esta rota genérica virar o
+    # status seria um caminho paralelo sem nenhuma dessas regras — a avaliação
+    # entraria como submetida sem voto e ficaria fora da conta para sempre.
+    if getattr(request, "status", None) == "submetida":
+        raise HTTPException(
+            status_code=422,
+            detail="Use POST /avaliacoes/{id}/submeter para enviar — é lá que o voto entra",
+        )
+    # 🔒 Voto dado é voto dado: uma avaliação SUBMETIDA não muda mais de banca
+    # nem volta a rascunho.
+    #
+    # ⚠ Os dois vetores que isto fecha, e ambos apareceram no teste ponta a
+    # ponta: trocar o `banca_id` levava o voto para a apuração de OUTRA banca,
+    # de um projeto que o votante nem enxerga; e voltar o status para
+    # `rascunho` retirava o voto da urna depois de contado — a diretoria podia
+    # desfazer o voto alheio, porque esta rota também aceita quem é diretor.
+    #
+    # A trava de verdade está na apuração, que só conta quem tem candidatura.
+    # Esta aqui é a que preserva o REGISTRO: sem ela, o histórico da avaliação
+    # mentiria mesmo com a conta certa.
+    if existente["status"] == "submetida":
+        proibidos = [
+            campo
+            for campo in ("banca_id", "status", "submetida_em")
+            if campo in request.dict(exclude_unset=True)
+        ]
+        if proibidos:
+            raise HTTPException(
+                status_code=422,
+                detail="Esta avaliação já foi enviada e não pode mais ser alterada",
+            )
     result = UpdateAvaliacaoUseCase(db).execute(avaliacao_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")

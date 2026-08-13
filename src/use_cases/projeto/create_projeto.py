@@ -40,6 +40,10 @@ class CreateProjetoRequest(BaseModel):
     #: Teto de consultores. 3 é o padrão combinado com o núcleo.
     max_consultores: int = 3
     equipe: List[MembroEquipeRequest]
+    #: ⭐ A promessa feita ao cliente na venda. Opcional: nem toda venda fecha
+    #: com data combinada, e exigi-la aqui travaria o cadastro por um dado que
+    #: às vezes só existe depois do kickoff. Editável na Visão geral.
+    data_entrega_prevista_cliente: Optional[date] = None
     dia_reuniao_padrao: Optional[int] = None
     #: §5.1: "no registro entram (…) escopos com os dias úteis vendidos de
     #: cada um". Opcional para não quebrar quem cria o projeto e adiciona os
@@ -92,6 +96,7 @@ class CreateProjetoUseCase:
             status="vendido",
             dias_ambientacao=request.dias_ambientacao,
             max_consultores=request.max_consultores,
+            data_entrega_prevista_cliente=request.data_entrega_prevista_cliente,
             dia_reuniao_padrao=request.dia_reuniao_padrao,
             criado_por=criado_por,
         )

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.use_cases.banca.excecao_choque import checar_choque
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -19,6 +20,7 @@ class UpdateBancaRequest(BaseModel):
 
 class UpdateBancaUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
 
@@ -45,6 +47,18 @@ class UpdateBancaUseCase:
                     "PUT /escopos-projeto/{id}/banca, que exige diretoria e "
                     "justificativa (§5.6)"
                 )
+
+        # 🔒 §8 também aqui: a banca LEGADA (sem escopo) escapa do bloco acima e
+        # tinha caminho livre para ser movida para cima de outra banca. A regra
+        # do choque vale para toda porta que grava `data_hora`.
+        if "data_hora" in data and data["data_hora"] != existente.data_hora:
+            checar_choque(
+                self.db,
+                data["data_hora"],
+                banca_repository=self.repository,
+                ignorar_banca_id=banca_id,
+                projeto_escopo_id=escopo_ids[0] if escopo_ids else None,
+            )
 
         banca = self.repository.update(banca_id, **data)
         if not banca:

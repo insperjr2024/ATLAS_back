@@ -105,10 +105,26 @@ def pedir(monkeypatch):
 
         monkeypatch.setattr(solicitar, "CronogramaReajusteRepository", ReajusteFake)
         monkeypatch.setattr(solicitar, "ProjetoEscopoRepository", EscopoProjetoFake)
+        class HistoricoFake:
+            """Projeto que nunca foi pausado — a janela não desloca.
+
+            O prazo de pedido passou a descontar as janelas de pausa (um projeto
+            ⏸ Pausado não pode perder o direito de pedir por dias em que ninguém
+            trabalhou). Estes testes medem o prazo, não a pausa: histórico vazio
+            mantém as datas deles valendo. A pausa tem teste próprio em
+            `tests/utils/test_janela_escopo.py`.
+            """
+
+            def __init__(self, db): pass
+            def get_by_projeto(self, _id): return []
+
         monkeypatch.setattr(solicitar, "EscopoRepository", CatalogoFake)
         monkeypatch.setattr(solicitar, "UsuarioRepository", UsuarioFake)
         monkeypatch.setattr(solicitar, "ProjetoMembroRepository", MembroFake)
         monkeypatch.setattr(solicitar, "DiaNaoLetivoRepository", DiaNaoLetivoFake)
+        monkeypatch.setattr(
+            solicitar, "ProjetoStatusHistoricoRepository", HistoricoFake
+        )
         monkeypatch.setattr(
             solicitar, "notificar_reajuste_solicitado",
             lambda db, dest, *a, **k: estado.notificados.append(dest),

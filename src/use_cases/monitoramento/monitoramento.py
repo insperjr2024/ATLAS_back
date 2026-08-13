@@ -55,7 +55,7 @@ from src.utils.condicoes_alerta import (
     TAREFA_VENCIDA,
     detectar_condicoes,
 )
-from src.utils.contagem_dias import calcular_contagem_projeto
+from src.utils.contagem_dias import calcular_contagem_projeto, marco_das_correcoes
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
 from src.utils.janela_escopo import calcular_janela, dias_de_atraso, dias_parados
 from src.utils.tarefa_status import (
@@ -385,11 +385,18 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                     referencia=hoje,
                 )
                 banca = ctx["bancas_por_escopo"].get(escopo.id)
+                # ⚠ Mesma régua de `calcular_contagem_escopo`: o atraso para no
+                # marco das correções (banca realizada OU, na falta dela, a
+                # entrega registrada), não só na banca. Olhar só a banca fazia o
+                # atraso do escopo já ENTREGUE crescer sozinho aqui, divergindo
+                # do número que a tela do projeto mostra para o mesmo escopo.
                 atraso = max(
                     atraso,
                     dias_de_atraso(
                         janela,
-                        getattr(banca, "realizado_em", None),
+                        marco_das_correcoes(
+                            getattr(banca, "realizado_em", None), escopo.data_entrega_real
+                        ),
                         nao_letivos,
                         referencia=hoje,
                     ),

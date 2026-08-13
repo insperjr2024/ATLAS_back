@@ -15,6 +15,11 @@ class GetAvaliacaoUseCase:
             "banca_id": avaliacao.banca_id,
             "avaliador_id": avaliacao.avaliador_id,
             "formulario_id": avaliacao.formulario_id,
+            # A tentativa a que este voto pertence (§9) e o voto em si — sem os
+            # dois, a tela não consegue separar quem já avaliou a 2ª banca de
+            # quem só avaliou a 1ª.
+            "sessao": avaliacao.sessao,
+            "voto_aprovacao": avaliacao.voto_aprovacao,
             "status": avaliacao.status,
             "comentario_feedback": avaliacao.comentario_feedback,
             "submetida_em": avaliacao.submetida_em,
@@ -38,6 +43,8 @@ class ListAvaliacoesUseCase:
                 "banca_id": a.banca_id,
                 "avaliador_id": a.avaliador_id,
                 "formulario_id": a.formulario_id,
+                "sessao": a.sessao,
+                "voto_aprovacao": a.voto_aprovacao,
                 "status": a.status,
                 "comentario_feedback": a.comentario_feedback,
                 "submetida_em": a.submetida_em,

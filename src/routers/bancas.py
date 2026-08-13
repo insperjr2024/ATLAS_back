@@ -20,9 +20,14 @@ from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.use_cases.banca.excecao_choque import (
+    DecidirExcecaoChoqueRequest,
+    DecidirExcecaoChoqueUseCase,
+    ListarExcecoesChoquePendentesUseCase,
+    SolicitarExcecaoChoqueRequest,
+    SolicitarExcecaoChoqueUseCase,
+)
 from src.use_cases.banca.marcar_banca_escopo import (
-    LiberarExcecaoChoqueRequest,
-    LiberarExcecaoChoqueUseCase,
     MarcarBancaEscopoRequest,
     MarcarBancaEscopoUseCase,
     RegistrarRealizacaoBancaUseCase,
@@ -213,9 +218,20 @@ def registrar_descricao_coordenador(
 
 
 @router.patch("/bancas/{banca_id}/resultado")
-def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
-    """🔒 É o resultado que libera a entrega ao cliente (§5.5, §8)."""
-    _exigir_acesso_a_banca(banca_id, current_user, db)
+def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+    """🔒 Override da diretoria sobre o resultado da banca (§5.5, §8).
+
+    ⭐ O caminho normal é o VOTO: a maioria dos avaliadores presentes decide, e
+    a apuração grava sozinha (`src/utils/apuracao_banca.py`). Esta rota é a
+    saída de emergência para o que o voto não resolve — a banca em que ninguém
+    votou e o prazo venceu, que ficaria travada para sempre e trancaria a
+    entrega ao cliente junto.
+
+    ⚠ Por isso `require_diretor`, e não `require_pode_definir_cronograma`: quem
+    marca a banca não pode decidir o resultado dela por cima dos avaliadores. A
+    checagem de acesso ao projeto sai junto — a diretoria enxerga todos, e
+    exigir vínculo impediria justamente quem precisa destravar.
+    """
     try:
         result = RegistrarResultadoBancaUseCase(db).execute(banca_id, request)
     except RegraDeNegocioError as e:
@@ -225,16 +241,64 @@ def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, curre
     return result
 
 
-@router.patch("/bancas/{banca_id}/excecao-choque")
-def liberar_excecao_choque(banca_id: int, request: LiberarExcecaoChoqueRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
-    """§8: a exceção de choque de horário só é liberada pela diretoria."""
+@router.post("/bancas/excecoes-choque")
+def solicitar_excecao_choque(
+    request: SolicitarExcecaoChoqueRequest,
+    current_user=Depends(require_pode_definir_cronograma),
+    db: Session = Depends(get_db),
+):
+    """⭐ Pedir para marcar a banca num horário já ocupado (§8).
+
+    Quem MARCA a banca pede — por isso `require_pode_definir_cronograma`, o
+    mesmo cargo que a marcação exige. Quem decide é a diretoria, na rota abaixo.
+    """
     try:
-        result = LiberarExcecaoChoqueUseCase(db).execute(banca_id, request, liberado_por=current_user.id)
+        result = SolicitarExcecaoChoqueUseCase(db).execute(request, solicitado_por=current_user.id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:
-        raise HTTPException(status_code=404, detail="Banca não encontrada")
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
     return result
+
+
+@router.get("/bancas/excecoes-choque/pendentes")
+def listar_excecoes_choque_pendentes(_=Depends(require_diretor), db: Session = Depends(get_db)):
+    """A fila da aba Aprovações."""
+    return ListarExcecoesChoquePendentesUseCase(db).execute()
+
+
+@router.patch("/bancas/excecoes-choque/{pedido_id}")
+def decidir_excecao_choque(
+    pedido_id: int,
+    request: DecidirExcecaoChoqueRequest,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """§8: a exceção de choque é decisão da diretoria — aqui ela é tomada."""
+    try:
+        result = DecidirExcecaoChoqueUseCase(db).execute(
+            pedido_id, request, respondido_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return result
+
+
+# ⚠ **Rota removida: `PATCH /bancas/{banca_id}/excecao-choque`.**
+#
+# Ela gravava `excecao_choque_por` na banca que JÁ ocupava o horário, e
+# `_checar_choque` pulava toda banca com essa flag — ou seja, uma liberação
+# pontual transformava aquele horário em passe livre para QUALQUER banca
+# futura. Era o buraco que o redesenho do §8 veio fechar, e mantê-la viva
+# significava manter uma porta para reabri-lo.
+#
+# Nunca teve chamador na interface. O caminho agora é o par (escopo, horário):
+# `POST /bancas/excecoes-choque` pede, `PATCH /bancas/excecoes-choque/{id}`
+# decide. A flag antiga continua sendo respeitada na leitura para não invalidar
+# as exceções já concedidas no banco — o que deixou de existir é como criar
+# novas.
 
 
 @router.put("/escopos-projeto/{escopo_id}/banca")

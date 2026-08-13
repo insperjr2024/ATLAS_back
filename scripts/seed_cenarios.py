@@ -18,12 +18,20 @@ quer numa base de teste — o estado é sempre o mesmo ponto de partida.
 """
 
 from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from src.database.database import SessionLocal
 from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_frente_model import BancaFrenteModel
 from src.models.banca_model import BancaModel
+from src.models.banca_sessao_model import BancaSessaoModel
+from src.models.avaliacao_model import AvaliacaoModel
+from src.models.avaliacao_nota_model import AvaliacaoNotaModel
+from src.models.pergunta_model import PerguntaModel
+from src.models.banca_excecao_choque_model import BancaExcecaoChoqueModel
 from src.models.candidatura_model import CandidaturaModel
+from src.models.formulario_model import FormularioModel
+from src.models.banca_remarcacao_model import BancaRemarcacaoModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel
 from src.models.cronograma_reajuste_solicitacao_model import (
     CronogramaReajusteSolicitacaoModel,
@@ -41,12 +49,32 @@ from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.usuario_model import UsuarioModel
 from src.use_cases.tarefa.colunas import criar_colunas_padrao
-from src.utils.dias_uteis import somar_dias_uteis
+from src.utils.dias_uteis import proximo_dia_util, somar_dias_uteis
 from src.utils.senha import hash_senha
 
 #: A data de referência do cenário. Tudo é posicionado em relação a ela, para
 #: os alertas ("venceu há N dias") caírem onde se espera ao abrir a tela hoje.
 HOJE = date(2026, 8, 12)
+
+#: ⚠ **A plataforma grava HORÁRIO EM UTC.** O front converte a hora escolhida
+#: na tela com `new Date(...).toISOString()` antes de mandar, e é esse instante
+#: que chega ao banco: uma banca marcada às 16:00 no Brasil fica `19:00` na
+#: coluna. Verificado no caminho real (`PUT /escopos-projeto/{id}/banca`).
+#:
+#: O seed precisa gravar do mesmo jeito. Gravando hora local crua, toda banca
+#: semeada aparecia TRÊS HORAS mais cedo na tela — 14:00 virava 11:00 — e os
+#: cenários mentiam sobre o que a plataforma produz.
+FUSO_LOCAL = ZoneInfo("America/Sao_Paulo")
+
+
+def instante(dia, hora, minuto=0):
+    """A hora que se quer VER na tela, convertida para o UTC que o banco guarda.
+
+    `instante(HOJE, 14)` é "14h no Brasil" — e devolve o naive UTC equivalente,
+    que é exatamente o que o front produz ao mandar a mesma escolha.
+    """
+    local = datetime.combine(dia, time(hora, minuto), tzinfo=FUSO_LOCAL)
+    return local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
 SENHA = "atlas123"
 
@@ -63,6 +91,13 @@ TABELAS_A_LIMPAR = [
     "avaliacao_nota",
     "avaliacao",
     "candidatura",
+    # ⚠ Antes de `banca` E de `projeto_escopo`: o pedido de exceção aponta para
+    # os dois, e só a FK para `banca` é SET NULL — a de `projeto_escopo` é
+    # restritiva e faria o delete estourar no meio da limpeza.
+    "banca_excecao_choque_solicitacao",
+    # Antes de `banca`. A FK é CASCADE, mas a limpeza é por DELETE explícito e
+    # a contagem impressa no fim só existe para quem está na lista.
+    "banca_sessao",
     "equipe_projeto",
     "banca_frente",
     "banca_escopo",
@@ -132,6 +167,18 @@ class Mundo:
 
     def frente_id(self, nome):
         return self.frentes[nome].id
+
+    def util(self, dia):
+        """O próprio dia, se for útil; senão o próximo útil.
+
+        ⚠ Os cenários posicionam datas com `HOJE - timedelta(days=N)`, que cai
+        em sábado ou domingo com frequência. Uma reunião inicial no fim de
+        semana não é só feia: ela é o "dia 1" da janela do escopo, e
+        `somar_dias_uteis` começa a contar do próximo dia útil — o dia 1 some e
+        toda a janela do cenário fica deslocada em relação ao que ele quer
+        demonstrar.
+        """
+        return proximo_dia_util(dia, self.nao_letivos)
 
     def dia_util(self, inicio, quantidade):
         """`inicio` + N dias úteis, pelo calendário acadêmico carregado."""
@@ -242,6 +289,7 @@ class Construtor:
         cliente="Cliente Exemplo",
         dia_reuniao=2,
         criado_em=None,
+        entrega_prevista_cliente=None,
     ):
         p = ProjetoModel(
             nome=nome,
@@ -249,9 +297,20 @@ class Construtor:
             status=status,
             dias_ambientacao=dias_ambientacao,
             data_kickoff=kickoff,
+            # ⭐ A PROMESSA feita ao cliente, ao lado do fato. É a diferença
+            # entre as duas que responde "entregamos no prazo?" no nível do
+            # projeto — e é ela que o cronograma marca. Deixá-la nula em todos
+            # os cenários fazia o marcador nunca aparecer na tela.
+            data_entrega_prevista_cliente=(
+                entrega_prevista_cliente
+                if entrega_prevista_cliente is not None
+                # Default derivado do kickoff: uma promessa plausível para os
+                # cenários que não têm opinião sobre ela.
+                else (self.mundo.dia_util(kickoff, 30) if kickoff else None)
+            ),
             dia_reuniao_padrao=dia_reuniao,
             criado_por=self.mundo.usuarios["Dani Alves"].id,
-            criado_em=datetime.combine(criado_em or (kickoff or HOJE), time(9, 0)),
+            criado_em=instante(criado_em or (kickoff or HOJE), 9, 0),
         )
         self.db.add(p)
         self.db.flush()
@@ -301,7 +360,7 @@ class Construtor:
         if alvo not in caminho:
             alvo = "em_andamento"
         anterior = None
-        quando = datetime.combine(projeto.data_kickoff or HOJE, time(9, 0))
+        quando = instante(projeto.data_kickoff or HOJE, 9, 0)
         for etapa in caminho[: caminho.index(alvo) + 1]:
             self.db.add(
                 ProjetoStatusHistoricoModel(
@@ -346,6 +405,11 @@ class Construtor:
         if catalogo:
             linha = self.db.query(EscopoModel).filter_by(nome=catalogo).first()
             escopo_id = linha.id if linha else None
+
+        # Sempre em dia útil: é a reunião inicial que abre a janela (§5.4), e
+        # ela precisa existir no calendário para o "dia 1" da contagem existir.
+        if inicio:
+            inicio = self.mundo.util(inicio)
 
         e = ProjetoEscopoModel(
             projeto_id=projeto.id,
@@ -400,7 +464,25 @@ class Construtor:
         coordenador,
         avaliadores=None,
         confirmados=True,
+        resultado=None,
+        votos=None,
     ):
+        """A banca do escopo, com a SESSÃO 1 e, se houver, os votos.
+
+        ⭐ **A sessão nasce junto, sempre** — é o que `MarcarBancaEscopoUseCase`
+        faz ao criar a banca. Sem ela, o histórico do projeto e a apuração
+        veriam uma banca sem nenhuma tentativa registrada, e a segunda banca não
+        teria de onde partir.
+
+        `votos` é uma lista de `True`/`False` casada por posição com os
+        avaliadores escalados — `[True, True, False]` são dois a favor e um
+        contra. Menos votos que avaliadores é de propósito nos cenários de
+        quórum parcial; `None` é "ninguém votou".
+
+        ⚠ `resultado` é passado à mão, e não derivado dos votos, porque os dois
+        precisam poder DIVERGIR: o cenário do override da diretoria é
+        justamente uma banca com resultado e sem voto nenhum.
+        """
         equipe = {
             m.usuario_id
             for m in self.db.query(ProjetoMembroModel).filter_by(projeto_id=projeto.id)
@@ -411,6 +493,7 @@ class Construtor:
             coordenador_id=self.mundo.usuarios[coordenador].id,
             data_hora=quando,
             realizado_em=realizada_em,
+            resultado=resultado,
         )
         self.db.add(b)
         self.db.flush()
@@ -432,12 +515,182 @@ class Construtor:
                 CandidaturaModel(
                     banca_id=b.id,
                     usuario_id=usuario.id,
-                    criado_em=datetime.combine(HOJE - timedelta(days=7), time(10, 0)),
+                    criado_em=instante(HOJE - timedelta(days=7), 10, 0),
                     confirmado=bool(realizada_em) and confirmados,
                 )
             )
+
+        self.db.add(
+            BancaSessaoModel(
+                banca_id=b.id,
+                numero=1,
+                data_hora=quando,
+                realizado_em=realizada_em,
+                resultado=resultado,
+                # Encerra só quando há veredito: sessão realizada e ainda sem
+                # resultado continua sendo a CORRENTE, e é ela que a apuração
+                # procura quando um voto atrasado chega.
+                encerrada_em=(
+                    instante(HOJE, 9, 0) if resultado else None
+                ),
+            )
+        )
         self.db.flush()
+
+        if votos:
+            self.votos(b, escalados, votos, sessao=1)
         return b
+
+    def votos(self, banca, escalados, votos, *, sessao=1):
+        """Avaliações submetidas, com o voto que decide a banca (§8).
+
+        Cada voto é uma linha de `avaliacao` com `voto_aprovacao` e o carimbo da
+        sessão — é assim que a apuração separa a 1ª banca da 2ª.
+        """
+        formulario = self.db.query(FormularioModel).filter_by(ativo=True).first()
+        if not formulario:
+            formulario = self.db.query(FormularioModel).first()
+        if not formulario:
+            return
+        # As perguntas que valem para o escopo desta banca: as do catálogo dele
+        # mais as GERAIS (escopo_id nulo), que valem para qualquer banca.
+        perguntas = [
+            q
+            for q in self.db.query(PerguntaModel)
+            .filter_by(formulario_id=formulario.id)
+            .order_by(PerguntaModel.ordem)
+            .all()
+            if q.escopo_id is None or q.escopo_id == banca.escopo_id
+        ]
+
+        quando = (banca.realizado_em or instante(HOJE, 10, 0)) + timedelta(hours=2)
+        for usuario, voto in zip(escalados, votos):
+            self.db.add(
+                AvaliacaoModel(
+                    banca_id=banca.id,
+                    avaliador_id=usuario.id,
+                    formulario_id=formulario.id,
+                    sessao=sessao,
+                    status="submetida",
+                    submetida_em=quando,
+                    voto_aprovacao=voto,
+                    nome_avaliador=usuario.nome,
+                    tipo_avaliador="consultor" if usuario.posicao == "consultor" else "lideranca",
+                    projeto_avaliado=banca.nome_projeto,
+                )
+            )
+            self.db.flush()
+            self._notas(self.db.query(AvaliacaoModel).order_by(AvaliacaoModel.id.desc()).first(),
+                        perguntas, voto)
+        self.db.flush()
+
+    def _notas(self, avaliacao, perguntas, voto):
+        """As notas por critério, coerentes com o voto.
+
+        ⭐ Sem elas a avaliação fica só com o veredito, e a tela que abre "o que
+        esta pessoa respondeu" não tem o que mostrar — o recurso existiria sem
+        dado para exercitá-lo.
+
+        Quem aprovou dá notas altas, quem reprovou dá baixas: notas aleatórias
+        contradiriam o voto e fariam o cenário mentir sobre a relação entre as
+        duas dimensões (a nota mede QUÃO BEM, o voto decide se vai ao cliente).
+        """
+        altas = [5, 4, 5, 4, 4]
+        baixas = [2, 3, 2, 2, 3]
+        escala = altas if voto else baixas
+        for i, pergunta in enumerate(perguntas):
+            self.db.add(
+                AvaliacaoNotaModel(
+                    avaliacao_id=avaliacao.id,
+                    pergunta_id=pergunta.id,
+                    nota=escala[i % len(escala)],
+                )
+            )
+
+    def segunda_banca(self, banca, *, quando, realizada_em=None, resultado=None, votos=None):
+        """⭐ A 2ª banca do escopo — a primeira reprovou (§9).
+
+        ⚠ **Não é uma banca nova.** Continua a MESMA linha de `banca` (é uma por
+        escopo, o UNIQUE permanece); o que muda é a sessão. A sessão anterior
+        fecha guardando `realizado_em` e `resultado='nao_aprovada'`, e a linha
+        da banca é reapontada para a data nova com os campos limpos — que é
+        exatamente o que `_sincronizar_sessao` + `_campos_da_remarcacao` fazem.
+
+        Sem este arquivamento, a reprovação sumiria e ninguém conseguiria
+        responder "por que este escopo teve duas bancas?".
+        """
+        corrente = (
+            self.db.query(BancaSessaoModel)
+            .filter_by(banca_id=banca.id, encerrada_em=None)
+            .order_by(BancaSessaoModel.numero.desc())
+            .first()
+        )
+        proximo = 2
+        if corrente:
+            corrente.encerrada_em = instante(HOJE - timedelta(days=1), 9, 0)
+            proximo = corrente.numero + 1
+
+        banca.data_hora = quando
+        banca.realizado_em = realizada_em
+        banca.resultado = resultado
+
+        self.db.add(
+            BancaSessaoModel(
+                banca_id=banca.id,
+                numero=proximo,
+                data_hora=quando,
+                realizado_em=realizada_em,
+                resultado=resultado,
+                encerrada_em=(
+                    instante(HOJE, 9, 0) if resultado else None
+                ),
+            )
+        )
+        self.db.add(
+            BancaRemarcacaoModel(
+                banca_id=banca.id,
+                data_anterior=corrente.data_hora if corrente else quando,
+                data_nova=quando,
+                justificativa="Segunda banca — a anterior foi reprovada",
+                remarcado_por=banca.coordenador_id,
+            )
+        )
+        self.db.flush()
+
+        if votos:
+            escalados = [
+                self.db.get(UsuarioModel, cand.usuario_id)
+                for cand in self.db.query(CandidaturaModel).filter_by(banca_id=banca.id)
+            ]
+            self.votos(banca, escalados, votos, sessao=proximo)
+        return banca
+
+    def excecao_de_choque(
+        self, escopo, banca_conflitante, *, quando, justificativa, status="pendente", resposta=None
+    ):
+        """§8: o pedido para marcar banca num horário já ocupado."""
+        self.db.add(
+            BancaExcecaoChoqueModel(
+                projeto_escopo_id=escopo.id,
+                banca_id=None,
+                data_hora_pretendida=quando,
+                banca_conflitante_id=banca_conflitante.id,
+                justificativa=justificativa,
+                status=status,
+                solicitado_por=self.mundo.usuarios["Ana Souza"].id,
+                respondido_por=(
+                    self.mundo.usuarios["Dani Alves"].id if status != "pendente" else None
+                ),
+                resposta=resposta,
+                criado_em=instante(HOJE - timedelta(days=2), 14, 0),
+                respondido_em=(
+                    instante(HOJE - timedelta(days=1), 10, 0)
+                    if status != "pendente"
+                    else None
+                ),
+            )
+        )
+        self.db.flush()
 
     def etapas(self, escopo, blocos):
         """Pinta o cronograma. `blocos` = [(nome, cor, inicio, fim)]."""
@@ -499,9 +752,9 @@ class Construtor:
                     self.mundo.usuarios["Dani Alves"].id if status != "pendente" else None
                 ),
                 resposta_justificativa=resposta,
-                criado_em=datetime.combine(quando or (HOJE - timedelta(days=3)), time(11, 0)),
+                criado_em=instante(quando or (HOJE - timedelta(days=3)), 11, 0),
                 respondido_em=(
-                    datetime.combine(HOJE - timedelta(days=2), time(15, 0))
+                    instante(HOJE - timedelta(days=2), 15, 0)
                     if status != "pendente"
                     else None
                 ),
@@ -516,7 +769,7 @@ class Construtor:
                 tipo=tipo,
                 texto=texto,
                 registrado_por=self.mundo.usuarios["Ana Souza"].id,
-                registrado_em=datetime.combine(HOJE - timedelta(days=1), time(16, 0)),
+                registrado_em=instante(HOJE - timedelta(days=1), 16, 0),
             )
         )
 
@@ -575,7 +828,7 @@ def povoar(db, mundo):
         inicio=inicio,
         entrega_planejada=d(inicio, 18),
     )
-    c.banca(p, [e], quando=datetime.combine(no_prazo(inicio, 15), time(10, 0)),
+    c.banca(p, [e], quando=instante(no_prazo(inicio, 15), 10, 0),
             frentes=[BUSINESS], coordenador="Ana Souza")
     c.etapas(e, [("Diagnóstico", "#3B82F6", inicio, HOJE - timedelta(days=2))])
     c.reuniao(p, HOJE - timedelta(days=1))
@@ -601,7 +854,7 @@ def povoar(db, mundo):
     )
     e = c.escopo(p, catalogo="AI e Automações", frente=TECH, vendidos=12,
                  inicio=inicio, entrega_planejada=d(inicio, 16))
-    c.banca(p, [e], quando=datetime.combine(HOJE - timedelta(days=6), time(14, 0)),
+    c.banca(p, [e], quando=instante(HOJE - timedelta(days=6), 14, 0),
             frentes=[TECH], coordenador="Coordenador Tech")
     registrar(p.nome, "aba Atrasos: banca vencida sem justificativa; fila de Aprovações")
 
@@ -617,7 +870,7 @@ def povoar(db, mundo):
     )
     e = c.escopo(p, catalogo="Plano Operacional", frente=BUSINESS, vendidos=12,
                  inicio=inicio, entrega_planejada=d(inicio, 16))
-    c.banca(p, [e], quando=datetime.combine(HOJE - timedelta(days=9), time(9, 0)),
+    c.banca(p, [e], quando=instante(HOJE - timedelta(days=9), 9, 0),
             frentes=[BUSINESS], coordenador="Ana Souza")
     c.justificativa_de_atraso(p, e, "Avaliadores não fecharam agenda; remarcada com a diretoria.",
                               tipo="banca")
@@ -637,10 +890,13 @@ def povoar(db, mundo):
                  inicio=inicio, entrega_planejada=d(inicio, 15))
     # Banca 3 dias úteis DEPOIS do fim da janela: é o atraso do §10.
     banca_em = alem(inicio, 10, 3)
-    c.banca(p, [e], quando=datetime.combine(banca_em, time(10, 0)),
-            realizada_em=datetime.combine(banca_em, time(11, 30)),
-            frentes=[TECH], coordenador="Coordenador Tech")
-    registrar(p.nome, "'Escopos que passaram da janela' — ainda sem justificativa")
+    c.banca(p, [e], quando=instante(banca_em, 10, 0),
+            realizada_em=instante(banca_em, 11, 30),
+            frentes=[TECH], coordenador="Coordenador Tech",
+            # Unanimidade: entrega liberada, o atraso é só da janela.
+            resultado="aprovada", votos=[True, True])
+    registrar(p.nome, "'Escopos que passaram da janela' — ainda sem justificativa; "
+                      "banca aprovada por unanimidade libera a entrega")
 
     # ── 7. Estourou a janela, COM justificativa do coordenador ────────────
     inicio = HOJE - timedelta(days=26)
@@ -655,9 +911,10 @@ def povoar(db, mundo):
     e = c.escopo(p, catalogo="Plano Estratégico de Marketing", frente=BUSINESS, vendidos=9,
                  inicio=inicio, entrega_planejada=d(inicio, 14))
     banca_em = alem(inicio, 9, 3)
-    c.banca(p, [e], quando=datetime.combine(banca_em, time(10, 0)),
-            realizada_em=datetime.combine(banca_em, time(11, 0)),
-            frentes=[BUSINESS], coordenador="Ana Souza")
+    c.banca(p, [e], quando=instante(banca_em, 10, 0),
+            realizada_em=instante(banca_em, 11, 0),
+            frentes=[BUSINESS], coordenador="Ana Souza",
+            resultado="aprovada", votos=[True, True, True])
     c.justificativa_de_atraso(p, e, "O cliente parou de responder por duas semanas e o "
                                     "levantamento travou; retomamos com o escopo já apertado.")
     registrar(p.nome, "mesma seção, com o porquê escrito — compara com o 06")
@@ -675,9 +932,10 @@ def povoar(db, mundo):
     e = c.escopo(p, catalogo="Revisão Contratual", frente=DIREITO, vendidos=10,
                  inicio=inicio, entrega_planejada=d(inicio, 14),
                  entrega_real=d(inicio, 13))
-    c.banca(p, [e], quando=datetime.combine(no_prazo(inicio, 10), time(10, 0)),
-            realizada_em=datetime.combine(no_prazo(inicio, 10), time(11, 0)),
-            frentes=[DIREITO], coordenador="Ana Souza")
+    c.banca(p, [e], quando=instante(no_prazo(inicio, 10), 10, 0),
+            realizada_em=instante(no_prazo(inicio, 10), 11, 0),
+            frentes=[DIREITO], coordenador="Ana Souza",
+            resultado="aprovada", votos=[True, True, True])
     registrar(p.nome, "projeto fechado sem nenhum alerta — o contraste dos demais")
 
     # ── 9. Entregue com atraso ────────────────────────────────────────────
@@ -693,9 +951,10 @@ def povoar(db, mundo):
     e = c.escopo(p, catalogo="Desenvolvimento Web (Front/Back)", frente=TECH, vendidos=12,
                  inicio=inicio, entrega_planejada=d(inicio, 15),
                  entrega_real=d(inicio, 22))
-    c.banca(p, [e], quando=datetime.combine(no_prazo(inicio, 12), time(14, 0)),
-            realizada_em=datetime.combine(no_prazo(inicio, 12), time(15, 30)),
-            frentes=[TECH], coordenador="Coordenador Tech")
+    c.banca(p, [e], quando=instante(no_prazo(inicio, 12), 14, 0),
+            realizada_em=instante(no_prazo(inicio, 12), 15, 30),
+            frentes=[TECH], coordenador="Coordenador Tech",
+            resultado="aprovada", votos=[True, True, True])
     registrar(p.nome, "entrega depois da prevista — Histórico registra o 'de → para'")
 
     # ── 10/11/12. Os três estados do pedido de dias ───────────────────────
@@ -717,7 +976,7 @@ def povoar(db, mundo):
                      ajustados=dias_ajustados, inicio=inicio,
                      entrega_planejada=d(inicio, 14 + dias_ajustados))
         c.banca(p, [e],
-                quando=datetime.combine(no_prazo(inicio, 8 + dias_ajustados), time(10, 0)),
+                quando=instante(no_prazo(inicio, 8 + dias_ajustados), 10, 0),
                 frentes=[BUSINESS], coordenador="Ana Souza")
         c.pedido_de_dias(e, dias=5, motivo="Os 8 dias vendidos não cobrem a coleta de campo.",
                          status=estado, resposta=resposta)
@@ -745,12 +1004,14 @@ def povoar(db, mundo):
     )
     e1 = c.escopo(p, catalogo="Plano Financeiro", frente=BUSINESS, vendidos=10, ordem=0,
                   inicio=inicio1, entrega_planejada=entrega1, entrega_real=entrega1)
-    c.banca(p, [e1], quando=datetime.combine(no_prazo(inicio1, 10), time(10, 0)),
-            realizada_em=datetime.combine(no_prazo(inicio1, 10), time(11, 0)),
-            frentes=[BUSINESS], coordenador="Ana Souza")
+    # Maioria, não unanimidade: um avaliador votou contra e a banca passou.
+    c.banca(p, [e1], quando=instante(no_prazo(inicio1, 10), 10, 0),
+            realizada_em=instante(no_prazo(inicio1, 10), 11, 0),
+            frentes=[BUSINESS], coordenador="Ana Souza",
+            resultado="aprovada", votos=[True, True, False])
     e2 = c.escopo(p, catalogo="Desenvolvimento Tech", frente=TECH, vendidos=12, ordem=1,
                   inicio=inicio2, entrega_planejada=d(inicio2, 16))
-    c.banca(p, [e2], quando=datetime.combine(no_prazo(inicio2, 12), time(14, 0)),
+    c.banca(p, [e2], quando=instante(no_prazo(inicio2, 12), 14, 0),
             frentes=[TECH], coordenador="Ana Souza")
     registrar(p.nome, "card 'Tempo parado entre escopos': vão fechado, medido até a reunião")
 
@@ -767,9 +1028,10 @@ def povoar(db, mundo):
     e1 = c.escopo(p, catalogo="Simulação e Otimização de Processos", frente=PROCESSOS,
                   vendidos=10, ordem=0, inicio=inicio1,
                   entrega_planejada=d(inicio1, 14), entrega_real=d(inicio1, 14))
-    c.banca(p, [e1], quando=datetime.combine(no_prazo(inicio1, 10), time(10, 0)),
-            realizada_em=datetime.combine(no_prazo(inicio1, 10), time(11, 0)),
-            frentes=[PROCESSOS], coordenador="Coordenador Tech")
+    c.banca(p, [e1], quando=instante(no_prazo(inicio1, 10), 10, 0),
+            realizada_em=instante(no_prazo(inicio1, 10), 11, 0),
+            frentes=[PROCESSOS], coordenador="Coordenador Tech",
+            resultado="aprovada", votos=[True, True, True])
     c.escopo(p, catalogo="Simulação e Otimização de Processos", frente=PROCESSOS,
              vendidos=8, ordem=1)  # sem reunião inicial: o vão está correndo
     registrar(p.nome, "mesmo card, vão ABERTO — ninguém começou o próximo escopo")
@@ -788,7 +1050,7 @@ def povoar(db, mundo):
                   ordem=0, inicio=inicio, entrega_planejada=d(inicio, 18))
     e2 = c.escopo(p, catalogo="Desenvolvimento Web (Mock-Up)", frente=TECH, vendidos=12,
                   ordem=1, inicio=inicio, entrega_planejada=d(inicio, 18))
-    c.banca(p, [e1, e2], quando=datetime.combine(no_prazo(inicio, 12), time(15, 0)),
+    c.banca(p, [e1, e2], quando=instante(no_prazo(inicio, 12), 15, 0),
             frentes=[BUSINESS, TECH], coordenador="Ana Souza")
     registrar(p.nome, "composição por frente (piso 3+2) e 'esta banca também avalia X'")
 
@@ -818,7 +1080,7 @@ def povoar(db, mundo):
     )
     e = c.escopo(p, nome_customizado="Mapeamento de Processos Sob Medida", frente=PROCESSOS,
                  vendidos=14, inicio=inicio, entrega_planejada=d(inicio, 18))
-    c.banca(p, [e], quando=datetime.combine(no_prazo(inicio, 14), time(10, 0)),
+    c.banca(p, [e], quando=instante(no_prazo(inicio, 14), 10, 0),
             frentes=[PROCESSOS], coordenador="Ana Souza")
     c.tarefas(p, [
         ("Entrevistar a operação", "Sofia Mendes", HOJE - timedelta(days=5), "em_andamento"),
@@ -838,7 +1100,7 @@ def povoar(db, mundo):
     )
     e = c.escopo(p, catalogo="Elaboração Contratual", frente=DIREITO, vendidos=12,
                  inicio=inicio, entrega_planejada=d(inicio, 16))
-    c.banca(p, [e], quando=datetime.combine(no_prazo(inicio, 12), time(10, 0)),
+    c.banca(p, [e], quando=instante(no_prazo(inicio, 12), 10, 0),
             frentes=[DIREITO], coordenador="Coordenador Tech")
     registrar(p.nome, "aba Execução: quadro vazio e nenhuma reunião registrada")
 
@@ -854,7 +1116,7 @@ def povoar(db, mundo):
     )
     e = c.escopo(p, catalogo="Plano Operacional", frente=BUSINESS, vendidos=12,
                  inicio=inicio, entrega_planejada=d(inicio, 16))
-    c.banca(p, [e], quando=datetime.combine(no_prazo(inicio, 12), time(10, 0)),
+    c.banca(p, [e], quando=instante(no_prazo(inicio, 12), 10, 0),
             frentes=[BUSINESS], coordenador="Ana Souza", avaliadores=[])
     registrar(p.nome, "0 de 3 alocados: 'Disponíveis para alocação' e o push automático")
 
@@ -871,14 +1133,197 @@ def povoar(db, mundo):
     e = c.escopo(p, catalogo="Desenvolvimento Tech", frente=TECH, vendidos=12,
                  inicio=inicio, entrega_planejada=d(inicio, 20))
     banca_em = no_prazo(inicio, 12)
-    c.banca(p, [e], quando=datetime.combine(banca_em, time(10, 0)),
-            realizada_em=datetime.combine(banca_em, time(11, 30)),
+    c.banca(p, [e], quando=instante(banca_em, 10, 0),
+            realizada_em=instante(banca_em, 11, 30),
             frentes=[TECH], coordenador="Coordenador Tech")
     c.etapas(e, [
         ("Construção", "#3B82F6", inicio, banca_em - timedelta(days=1)),
         ("Correções da banca", "#F59E0B", banca_em + timedelta(days=1), HOJE - timedelta(days=1)),
     ])
-    registrar(p.nome, "coluna Correções (§11): dias pintados depois da banca não consomem janela")
+    registrar(p.nome, "coluna Correções (§11): dias pintados depois da banca não consomem janela; "
+                      "banca sem voto nenhum e prazo vencido → override da diretoria")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Daqui para baixo: os cenários da REFORMA DAS BANCAS — sessões, voto,
+    # trava da entrega pelo resultado e exceção de choque.
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── 21. Reprovada, 2ª banca MARCADA e ainda por acontecer ─────────────
+    #
+    # ⭐ O cenário central da reforma. A 1ª banca reprovou; a sessão 1 guarda a
+    # reprovação e a sessão 2 está aberta, esperando a data nova. A entrega
+    # continua travada — e a mensagem tem de dizer "marque uma nova banca".
+    inicio = HOJE - timedelta(days=30)
+    p = c.projeto(
+        "21 · Reprovada, 2ª banca marcada",
+        status="validacao_bancas",
+        coordenador="Ana Souza",
+        consultores=["Nina Rocha", "Théo Braga"],
+        frentes=[BUSINESS],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="Plano Operacional", frente=BUSINESS, vendidos=12,
+                 inicio=inicio, entrega_planejada=d(inicio, 18))
+    primeira = no_prazo(inicio, 12)
+    b = c.banca(p, [e], quando=instante(primeira, 10, 0),
+                realizada_em=instante(primeira, 11, 30),
+                frentes=[BUSINESS], coordenador="Ana Souza",
+                resultado="nao_aprovada", votos=[False, False, True])
+    c.segunda_banca(b, quando=instante(HOJE + timedelta(days=4), 14, 0))
+    c.etapas(e, [("Construção", "#3B82F6", inicio, primeira - timedelta(days=1))])
+    registrar(p.nome, "sessões: histórico mostra a 1ª REPROVADA e a 2ª marcada; "
+                      "entrega travada com 'é preciso marcar uma nova banca'")
+
+    # ── 22. Reprovada por EMPATE ──────────────────────────────────────────
+    #
+    # ⚠ A borda que é uma DECISÃO, não um acidente: 1×1 não é "meio aprovado".
+    # O resultado é um gate que abre a entrega ao cliente, e o default seguro
+    # de um gate é fechado.
+    inicio = HOJE - timedelta(days=26)
+    p = c.projeto(
+        "22 · Reprovada por empate",
+        status="validacao_bancas",
+        coordenador="Coordenador Tech",
+        consultores=["Léo Pinto"],
+        frentes=[TECH],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="AI e Automações", frente=TECH, vendidos=10,
+                 inicio=inicio, entrega_planejada=d(inicio, 15))
+    banca_em = no_prazo(inicio, 10)
+    c.banca(p, [e], quando=instante(banca_em, 9, 0),
+            realizada_em=instante(banca_em, 10, 30),
+            frentes=[TECH], coordenador="Coordenador Tech",
+            resultado="nao_aprovada", votos=[True, False])
+    registrar(p.nome, "empate (1×1) reprova; a entrega segue travada")
+
+    # ── 23. 2ª banca já realizada e APROVADA ──────────────────────────────
+    #
+    # O desfecho do 21: duas sessões, a 1ª arquivada com a reprovação e a 2ª
+    # aprovada. O escopo pôde ser entregue. É a prova de que a segunda chance
+    # existe e de que a reprovação não se perde no caminho.
+    inicio = HOJE - timedelta(days=45)
+    p = c.projeto(
+        "23 · Reprovou, refez e aprovou",
+        status="finalizado",
+        coordenador="Ana Souza",
+        consultores=["Íris Melo"],
+        frentes=[DIREITO],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="Revisão Contratual", frente=DIREITO, vendidos=10,
+                 inicio=inicio, entrega_planejada=d(inicio, 15),
+                 entrega_real=d(inicio, 20))
+    primeira = no_prazo(inicio, 10)
+    b = c.banca(p, [e], quando=instante(primeira, 10, 0),
+                realizada_em=instante(primeira, 11, 0),
+                frentes=[DIREITO], coordenador="Ana Souza",
+                resultado="nao_aprovada", votos=[False, False, True])
+    segunda = d(primeira, 6)
+    c.segunda_banca(b, quando=instante(segunda, 10, 0),
+                    realizada_em=instante(segunda, 11, 0),
+                    resultado="aprovada", votos=[True, True, True])
+    registrar(p.nome, "duas sessões no histórico: 1ª reprovada, 2ª aprovada — "
+                      "e a entrega liberada só depois da segunda")
+
+    # ── 24/25. Choque de horário: pedido PENDENTE e exceção APROVADA ──────
+    #
+    # ⚠ Os dois projetos abaixo marcam banca no MESMO horário de propósito —
+    # é o que faz o calendário de bancas acender o aviso de choque e o que dá
+    # sentido ao pedido de exceção. Um pedido fica pendente na fila da
+    # diretoria; o outro já foi liberado.
+    #
+    # ⚠ O horário precisa caber na JANELA dos três escopos envolvidos. O gate
+    # da janela (§9) roda ANTES da checagem de choque: com a data fora dela, a
+    # recusa que volta é "fora da janela" e o cenário do choque nunca é
+    # exercido — foi exatamente o que aconteceu na primeira montagem.
+    # Por isso os três começam juntos e com janela folgada.
+    inicio_do_choque = HOJE - timedelta(days=5)
+    horario_disputado = instante(d(HOJE, 3), 15, 0)
+
+    inicio = inicio_do_choque
+    p_ocupa = c.projeto(
+        "24 · Ocupa o horário disputado",
+        status="em_andamento",
+        coordenador="Coordenador Tech",
+        consultores=["Vera Luz"],
+        frentes=[TECH],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e_ocupa = c.escopo(p_ocupa, catalogo="Desenvolvimento Web (Mock-Up)", frente=TECH,
+                       vendidos=20, inicio=inicio, entrega_planejada=d(inicio, 24))
+    b_ocupa = c.banca(p_ocupa, [e_ocupa], quando=horario_disputado,
+                      frentes=[TECH], coordenador="Coordenador Tech")
+    registrar(p_ocupa.nome, "a banca que já está no horário — o outro lado do choque")
+
+    inicio = inicio_do_choque
+    p = c.projeto(
+        "25 · Pediu exceção de choque",
+        status="em_andamento",
+        coordenador="Ana Souza",
+        consultores=["Hugo Sá"],
+        frentes=[DIREITO],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="Planejamento Consultivo Tributário", frente=DIREITO,
+                 vendidos=20, inicio=inicio, entrega_planejada=d(inicio, 24))
+    c.excecao_de_choque(e, b_ocupa, quando=horario_disputado,
+                        justificativa="É a única data em que o cliente e os dois sócios "
+                                      "conseguem estar presentes.")
+    registrar(p.nome, "fila 'Exceções de choque' na aba Aprovações — pedido PENDENTE")
+
+    inicio = inicio_do_choque
+    p = c.projeto(
+        "26 · Exceção de choque já liberada",
+        status="em_andamento",
+        coordenador="Ana Souza",
+        consultores=["Ravi Nunes"],
+        frentes=[PROCESSOS],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="Simulação e Otimização de Processos", frente=PROCESSOS,
+                 vendidos=20, inicio=inicio, entrega_planejada=d(inicio, 24))
+    c.excecao_de_choque(e, b_ocupa, quando=horario_disputado,
+                        justificativa="Bancas em salas diferentes, sem avaliador em comum.",
+                        status="aprovada",
+                        resposta="Liberado: salas e avaliadores distintos, sem prejuízo.")
+    # ⭐ E a banca DE FATO marcada no horário disputado — é a exceção aprovada
+    # sendo exercida. Sem esta linha o cenário ficaria pela metade: o aviso de
+    # choque do calendário de bancas só acende com DUAS bancas no mesmo
+    # horário, e teria ficado invisível justamente no cenário criado para ele.
+    c.banca(p, [e], quando=horario_disputado,
+            frentes=[PROCESSOS], coordenador="Ana Souza")
+    registrar(p.nome, "exceção APROVADA e exercida: duas bancas no mesmo horário — "
+                      "o calendário de bancas acende o aviso de choque")
+
+    # ── 27. Banca de ontem, votação em ANDAMENTO ──────────────────────────
+    #
+    # ⭐ O único estado "aguardando" honesto: a banca aconteceu ontem, o prazo
+    # de 2 dias está aberto e 2 de 3 já votaram. A apuração NÃO decide aqui de
+    # propósito — 2×0 com um voto por vir pode virar 2×2, e decidir agora seria
+    # decidir com meia urna.
+    #
+    # ⚠ Precisa ser recente. Nos cenários de banca antiga o prazo já venceu, e
+    # aí o job diário fecha com quem votou — o "aguardando" não sobreviveria à
+    # primeira execução das 6h45.
+    inicio = HOJE - timedelta(days=14)
+    p = c.projeto(
+        "27 · Votação da banca em andamento",
+        status="validacao_bancas",
+        coordenador="Ana Souza",
+        consultores=["Nina Rocha"],
+        frentes=[BUSINESS],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="Análise Mercadológica", frente=BUSINESS, vendidos=14,
+                 inicio=inicio, entrega_planejada=d(inicio, 18))
+    ontem = HOJE - timedelta(days=1)
+    c.banca(p, [e], quando=instante(ontem, 10, 0),
+            realizada_em=instante(ontem, 11, 30),
+            frentes=[BUSINESS], coordenador="Ana Souza",
+            votos=[True, True])
+    registrar(p.nome, "2 de 3 votaram e o prazo está aberto: entrega travada com "
+                      "'aguardando o voto dos avaliadores'; o 3º ainda é cobrado")
 
     db.commit()
     return resumo

@@ -225,8 +225,16 @@ def calcular_contagem_escopo(
         data_inicio=data_inicio,
         fim_da_janela=fim,
         fim_janela_prevista=janela.fim,
+        # ⚠ A MESMA régua de `consumidos`, e não só a banca.
+        #
+        # `consumidos` para em `inicio_das_correcoes` — que é a banca realizada
+        # OU, na falta dela, a entrega registrada. O atraso olhava só a banca:
+        # num escopo entregue sem banca realizada, o consumo congelava e o
+        # atraso seguia crescendo um dia por dia. Os dois números saíam do mesmo
+        # payload medindo o mesmo estouro e discordavam, e era o atraso que
+        # aparecia na aba de Atrasos.
         atraso=dias_de_atraso(
-            janela, banca_realizado_em, dias_nao_letivos, referencia, janelas_pausa
+            janela, inicio_das_correcoes, dias_nao_letivos, referencia, janelas_pausa
         ),
         correcoes=dias_de_correcao(
             etapas, marco_das_correcoes(banca_realizado_em, data_entrega_real), dias_nao_letivos

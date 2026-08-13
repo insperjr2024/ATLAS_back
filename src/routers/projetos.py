@@ -36,6 +36,7 @@ from src.use_cases.projeto_escopo.update_escopo_projeto import (
     UpdateEscopoProjetoUseCase,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.banca.get_banca_detalhes import ListBancasDoProjetoUseCase
 from src.use_cases.projeto.arquivar_projeto import ArquivarProjetoUseCase, DesarquivarProjetoUseCase
 from src.use_cases.projeto.create_projeto import CreateProjetoUseCase, CreateProjetoRequest
 from src.use_cases.projeto.delete_projeto import DeleteProjetoPermanenteUseCase
@@ -62,6 +63,8 @@ from src.use_cases.projeto.update_configuracoes import (
     UpdateDiaReuniaoPadraoUseCase,
     UpdateDiasAmbientacaoRequest,
     UpdateDiasAmbientacaoUseCase,
+    UpdateEntregaPrevistaClienteRequest,
+    UpdateEntregaPrevistaClienteUseCase,
 )
 from src.use_cases.projeto.excluir_justificativa_atraso import ExcluirJustificativaAtrasoUseCase
 from src.use_cases.projeto.excluir_remarcacao_banca import ExcluirRemarcacaoBancaUseCase
@@ -146,6 +149,41 @@ def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_u
 def update_dias_ambientacao(projeto_id: int, request: UpdateDiasAmbientacaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateDiasAmbientacaoUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.get("/projetos/{projeto_id}/bancas")
+def list_bancas_do_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """A aba **Banca** do projeto: cada banca com tentativas, votos e notas.
+
+    Mesmo recorte do resto da página do projeto (§3) — quem não enxerga o
+    projeto recebe 404, e não uma lista vazia que sugeriria "não há bancas".
+    """
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    return ListBancasDoProjetoUseCase(db).execute(projeto_id)
+
+
+@router.patch("/projetos/{projeto_id}/entrega-prevista-cliente")
+def update_entrega_prevista_cliente(
+    projeto_id: int,
+    request: UpdateEntregaPrevistaClienteRequest,
+    current_user=Depends(require_pode_marcar_kickoff),
+    db: Session = Depends(get_db),
+):
+    """A promessa feita ao cliente na venda — editável, ao contrário da
+    entrega ao cliente ao lado dela, que é derivada dos escopos.
+
+    ⚠ A permissão é `pode_marcar_kickoff`, que o §3 define como "marcar
+    kickoff **e data de entrega**" — esta rota é literalmente o segundo caso.
+    Reusar `require_pode_editar_equipe` barrava o coordenador do próprio
+    projeto (quem combina a data com o cliente) e ainda devolvia "Você não tem
+    permissão para editar a equipe do projeto": uma recusa que fala de outra
+    coisa e não diz o que fazer.
+    """
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateEntregaPrevistaClienteUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result

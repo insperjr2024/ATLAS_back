@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_remarcacao_repository import BancaRemarcacaoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.banca_sessao_repository import BancaSessaoRepository
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.entrega_alteracao_repository import EntregaAlteracaoRepository
@@ -92,6 +93,10 @@ def serializar_projeto_completo(
             (e["data_entrega_real"] for e in (escopos or []) if e.get("data_entrega_real")),
             default=None,
         ),
+        # ⭐ A PROMESSA, ao lado do fato. As duas convivem de propósito: é a
+        # diferença entre elas que responde "entregamos ao cliente no prazo?"
+        # no nível do projeto — algo que até aqui só existia por escopo.
+        "data_entrega_prevista_cliente": projeto.data_entrega_prevista_cliente,
         "dia_reuniao_padrao": projeto.dia_reuniao_padrao,
         "criado_por": projeto.criado_por,
         "equipe": [
@@ -214,6 +219,7 @@ class GetHistoricoProjetoUseCase:
         self.repository = ProjetoStatusHistoricoRepository(db)
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.banca_repository = BancaRepository(db)
+        self.sessao_repository = BancaSessaoRepository(db)
         self.remarcacao_repository = BancaRemarcacaoRepository(db)
         self.remarcacao_projeto_repository = ProjetoRemarcacaoBancaRepository(db)
         self.reajuste_repository = CronogramaReajusteRepository(db)
@@ -231,6 +237,7 @@ class GetHistoricoProjetoUseCase:
         nomes = {e.id: nome_do_escopo(e, catalogo) for e in escopos}
 
         linhas += self._remarcacoes(projeto_id, escopos, nomes)
+        linhas += self._sessoes_de_banca(escopos, nomes)
         linhas += self._decisoes_de_ajuste(escopos, nomes)
         linhas += self._alteracoes_de_entrega(projeto_id, nomes)
         linhas += self._justificativas_de_atraso(projeto_id, nomes)
@@ -291,6 +298,85 @@ class GetHistoricoProjetoUseCase:
             }
             for h in self.repository.get_by_projeto(projeto_id)
         ]
+
+    def _sessoes_de_banca(self, escopos, nomes):
+        """⭐ Que a banca aconteceu, e no que ela deu (§8, §9).
+
+        A fonte que faltava. O histórico já contava que a banca foi remarcada,
+        mas não que ela **ocorreu** nem qual foi o veredito — justamente o
+        evento que destrava a entrega ao cliente (§5.5). Quem abria a aba via a
+        discussão sobre datas e nada sobre o resultado.
+
+        ⚠ **Uma linha por SESSÃO, não por banca.** É o que torna a segunda
+        tentativa visível: antes, remarcar uma banca reprovada apagava
+        `realizado_em` e `resultado` da linha única, e a reprovação sumia sem
+        deixar rastro. Cada tentativa arquivada vira uma linha própria, com o
+        número na frente — "2ª banca" só faz sentido se a 1ª ainda estiver lá.
+
+        Sessão ainda não realizada não entra: um agendamento futuro não é
+        acontecimento, e o cronograma já mostra a data.
+        """
+        bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])
+        if not bancas:
+            return []
+
+        # ⚠ **Uma banca pode cobrir VÁRIOS escopos** (a banca sinérgica do §8).
+        # `mapa_por_escopo` é `{escopo: banca}`, então montar `{banca: escopo}`
+        # direto guarda só o ÚLTIMO — e o histórico dizia "Banca realizada —
+        # Desenvolvimento Web", omitindo o segundo escopo que a mesma banca
+        # avaliou. Quem lesse a timeline concluiria que o outro escopo nunca
+        # passou por banca.
+        escopos_por_banca: dict = {}
+        for eid, b in bancas.items():
+            escopos_por_banca.setdefault(b.id, []).append(eid)
+
+        def nomear(banca_id: int) -> str:
+            cobertos = [nomes.get(eid) for eid in escopos_por_banca.get(banca_id, [])]
+            cobertos = [n for n in cobertos if n]
+            if not cobertos:
+                return "escopo"
+            # Ordenado para a linha não mudar de texto entre dois carregamentos.
+            return " + ".join(sorted(cobertos))
+
+        nome_por_banca = {bid: nomear(bid) for bid in escopos_por_banca}
+        # O primeiro escopo continua sendo a âncora do link na tela — a linha
+        # leva a um escopo só, mesmo nomeando os dois.
+        escopo_por_banca = {bid: eids[0] for bid, eids in escopos_por_banca.items()}
+
+        rotulo_resultado = {
+            "aprovada": "aprovada",
+            "nao_aprovada": "não aprovada",
+        }
+
+        linhas = []
+        sessoes = self.sessao_repository.get_by_bancas([b.id for b in bancas.values()])
+        for banca_id, lista in sessoes.items():
+            for s in lista:
+                if not s.realizado_em:
+                    continue
+                escopo = nome_por_banca.get(banca_id) or "escopo"
+                # "Banca" na primeira, "2ª banca" da segunda em diante: numerar
+                # a primeira sugeriria que houve outra antes dela.
+                titulo_banca = "Banca" if s.numero <= 1 else f"{s.numero}ª banca"
+                veredito = rotulo_resultado.get(s.resultado or "")
+                linhas.append(
+                    {
+                        "id": f"banca-sessao:{s.id}",
+                        "tipo": "banca_realizada",
+                        "em": s.realizado_em,
+                        "por": None,
+                        "titulo": f"{titulo_banca} realizada — {escopo}",
+                        "detalhe": (
+                            f"Resultado: {veredito}."
+                            if veredito
+                            else "Ainda sem resultado — aguardando o voto dos avaliadores."
+                        ),
+                        "projeto_escopo_id": escopo_por_banca.get(banca_id),
+                        "alterado_em": s.realizado_em,
+                        "alterado_por": None,
+                    }
+                )
+        return linhas
 
     def _remarcacoes(self, projeto_id: int, escopos, nomes):
         """§9: a data antiga de cada banca remarcada, com a justificativa.
