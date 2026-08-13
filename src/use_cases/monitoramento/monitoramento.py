@@ -24,6 +24,7 @@ from src.middlewares.authorization import aplicar_recorte_visao
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.banca_sessao_repository import BancaSessaoRepository
 from src.repositories.situacao_carga_repository import (
     SituacaoCargaRepository,
     faixa_mais_alta,
@@ -110,6 +111,7 @@ class _BaseMonitoramento:
         self.db = db
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.banca_repository = BancaRepository(db)
+        self.sessao_repository = BancaSessaoRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
         self.tarefa_repository = TarefaRepository(db)
         self.reuniao_repository = ReuniaoSemanalRepository(db)
@@ -192,7 +194,15 @@ class _BaseMonitoramento:
             "escopos_por_projeto": _agrupar(escopos, "projeto_id"),
             # Escopo → banca. Uma banca que cobre vários escopos aparece em
             # todas as chaves dela: o atraso é cobrado por escopo.
-            "bancas_por_escopo": self.banca_repository.mapa_por_escopo([e.id for e in escopos]),
+            "bancas_por_escopo": (bancas_por_escopo := self.banca_repository.mapa_por_escopo(
+                [e.id for e in escopos]
+            )),
+            # ⭐ As tentativas de cada banca. O atraso e a contagem param na
+            # PRIMEIRA realização (§11) — sem isto, um escopo com 2ª banca
+            # marcada volta a "em contagem" e o retrabalho vira atraso.
+            "sessoes_por_banca": self.sessao_repository.get_by_bancas(
+                [b.id for b in bancas_por_escopo.values()]
+            ),
             "nomes_escopo": {
                 e.id: e.nome_customizado or catalogo.get(e.escopo_id, "escopo") for e in escopos
             },
@@ -681,6 +691,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             projetos,
             escopos_por_projeto=ctx["escopos_por_projeto"],
             bancas_por_escopo=ctx["bancas_por_escopo"],
+            sessoes_por_banca=ctx["sessoes_por_banca"],
             nomes_escopo=ctx["nomes_escopo"],
             tarefas_por_projeto=_agrupar(
                 self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"

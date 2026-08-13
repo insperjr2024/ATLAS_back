@@ -33,6 +33,7 @@ from src.utils.janela_escopo import (
     dias_de_atraso,
     dias_de_correcao,
     marco_das_correcoes,
+    primeira_realizacao,
 )
 
 # Janela de pausa, SEMIABERTA: [inicio, fim).
@@ -242,6 +243,17 @@ def calcular_contagem_escopo(
     )
 
 
+def _sessoes_da_banca(banca, sessoes_por_banca) -> list:
+    """As tentativas daquela banca, ou vazio quando o chamador não as carregou.
+
+    Vazio é seguro: `primeira_realizacao` cai em `banca.realizado_em`, que é o
+    comportamento correto para banca de uma tentativa só — a maioria.
+    """
+    if banca is None:
+        return []
+    return (sessoes_por_banca or {}).get(banca.id, [])
+
+
 def calcular_contagem_projeto(
     escopos: Iterable,
     historico: Iterable,
@@ -249,6 +261,7 @@ def calcular_contagem_projeto(
     referencia: Optional[date] = None,
     etapas_por_escopo: Optional[Dict[int, list]] = None,
     bancas_por_escopo: Optional[Dict[int, object]] = None,
+    sessoes_por_banca: Optional[Dict[int, list]] = None,
 ) -> Dict[int, ContagemEscopo]:
     """A contagem de todos os escopos de um projeto, por `projeto_escopo.id`.
 
@@ -264,6 +277,7 @@ def calcular_contagem_projeto(
     janelas = derivar_janelas_pausa(historico, referencia)
     etapas_por_escopo = etapas_por_escopo or {}
     bancas_por_escopo = bancas_por_escopo or {}
+    sessoes_por_banca = sessoes_por_banca or {}
 
     return {
         escopo.id: calcular_contagem_escopo(
@@ -275,7 +289,13 @@ def calcular_contagem_projeto(
             janelas_pausa=janelas,
             referencia=referencia,
             etapas=etapas_por_escopo.get(escopo.id, ()),
-            banca_realizado_em=getattr(bancas_por_escopo.get(escopo.id), "realizado_em", None),
+            # ⭐ A PRIMEIRA tentativa, não a corrente: remarcar uma banca
+            # reprovada zera `banca.realizado_em`, e ler só essa coluna faria o
+            # retrabalho pós-banca voltar a consumir trabalho vendido.
+            banca_realizado_em=primeira_realizacao(
+                bancas_por_escopo.get(escopo.id),
+                _sessoes_da_banca(bancas_por_escopo.get(escopo.id), sessoes_por_banca),
+            ),
         )
         for escopo in escopos
     }

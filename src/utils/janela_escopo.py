@@ -249,6 +249,33 @@ def dias_de_atraso(
     return max(0, bruto - len(parados))
 
 
+def primeira_realizacao(banca, sessoes=()) -> Union[date, datetime, None]:
+    """⭐ A PRIMEIRA vez que a banca aconteceu — em qualquer tentativa (§9).
+
+    ⚠ **Não é `banca.realizado_em`.** Aquela coluna descreve a tentativa
+    CORRENTE, e remarcar uma banca reprovada a zera (`_campos_da_remarcacao`).
+    Quem lê só ela conclui que a banca nunca aconteceu, e aí:
+
+    - o escopo volta a "em contagem" e os dias do RETRABALHO passam a consumir
+      trabalho vendido, um por dia, sem ninguém trabalhar no que foi vendido;
+    - o atraso cresce junto, cobrando do time dias que são correção da banca;
+    - a coluna Correções zera, e o retrabalho entre as duas bancas fica sem
+      lugar nenhum na tela.
+
+    O mesmo vale, mais discretamente, quando as duas tentativas já
+    aconteceram: usar a data da 2ª faz os dias ENTRE elas contarem como
+    trabalho vendido, quando são exatamente o retrabalho que a 1ª apontou.
+
+    A régua certa é a primeira: dali em diante o que se pinta é correção,
+    independentemente de quantas bancas vieram depois.
+    """
+    realizadas = [s.realizado_em for s in sessoes if getattr(s, "realizado_em", None)]
+    if realizadas:
+        return min(realizadas)
+    # Banca anterior a `banca_sessao`, ou sem sessão registrada.
+    return getattr(banca, "realizado_em", None)
+
+
 def marco_das_correcoes(
     banca_realizado_em: Union[date, datetime, None],
     data_entrega_real: Optional[date],

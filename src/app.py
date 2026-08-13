@@ -35,6 +35,7 @@ from src.use_cases.avaliacao.submeter_avaliacao import apurar_banca
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.use_cases.notificacao.eventos import notificar_pdi_prazo_proximo, notificar_pdi_prazo_vencido
+from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.notificar import notificar
 
@@ -68,6 +69,28 @@ def rodar_encerramento_de_ambientacao() -> None:
         virados = EncerrarAmbientacaoUseCase(db).execute()
         if virados:
             logger.info("Ambientação encerrada automaticamente nos projetos: %s", virados)
+    finally:
+        db.close()
+
+
+def rodar_avanco_de_status() -> None:
+    """🤖 §4: o status do projeto acompanha os fatos, sem ninguém clicar.
+
+    Duas transições têm gatilho inequívoco — a primeira banca realizada leva a
+    Validação em bancas, e todos os escopos entregues levam a Período de
+    ajustes. As demais continuam manuais porque não há o que observar: Envio de
+    TEP é um documento fora da plataforma, e finalizar é decisão da diretoria.
+
+    Roda de madrugada, junto do encerramento de ambientação, pelo mesmo motivo:
+    o projeto tem de amanhecer no status certo. O gatilho imediato existe nos
+    atos que o disparam (registrar banca, marcar entrega) — este job é a rede
+    para o que foi gravado por outro caminho.
+    """
+    db = SessionLocal()
+    try:
+        avancados = AvancarStatusAutomaticoUseCase(db).execute()
+        if avancados:
+            logger.info("Status avançado automaticamente nos projetos: %s", avancados)
     finally:
         db.close()
 
@@ -257,6 +280,14 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
     scheduler.add_job(
+        rodar_avanco_de_status,
+        # 00:10, logo depois do encerramento de ambientação (00:05): um projeto
+        # que acabou de virar para Em andamento já é avaliado na mesma noite.
+        CronTrigger(hour=0, minute=10),
+        id="avanco_de_status",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         rodar_lembrete_prazo_avaliacao,
         CronTrigger(hour=6, minute=15),
         id="lembrete_prazo_avaliacao",
@@ -280,6 +311,9 @@ async def lifespan(app: FastAPI):
     # sem isto, um app que subiu depois de dias parado serviria projetos em
     # Ambientação vencida até a próxima meia-noite.
     rodar_encerramento_de_ambientacao()
+    # Na mesma ordem do agendamento: ambientação primeiro, e o avanço logo
+    # depois já enxerga quem acabou de virar para Em andamento.
+    rodar_avanco_de_status()
     yield
     scheduler.shutdown()
 

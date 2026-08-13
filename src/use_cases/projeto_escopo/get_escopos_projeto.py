@@ -116,6 +116,9 @@ class ListEscoposProjetoUseCase:
             referencia=referencia,
             etapas_por_escopo=etapas_por_escopo,
             bancas_por_escopo=bancas,
+            # As tentativas: é a PRIMEIRA realização que congela a contagem e
+            # abre as correções (§11), não a tentativa corrente.
+            sessoes_por_banca=sessoes_por_banca,
         )
         janelas = {
             e.id: calcular_janela(

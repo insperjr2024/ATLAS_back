@@ -8,6 +8,7 @@ banca pelo cronograma escreve em `banca`, exatamente a mesma linha que
 sincronização: é a mesma linha lida duas vezes.
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
@@ -42,6 +43,8 @@ from src.utils.janela_escopo import (
     dias_uteis_ate_a_banca,
 )
 from src.utils.notificar import notificar
+
+logger = logging.getLogger(__name__)
 
 
 class MarcarBancaEscopoRequest(BaseModel):
@@ -574,6 +577,9 @@ class RegistrarRealizacaoBancaUseCase:
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
+        # Para achar o projeto da banca e avançar o status dele (§4).
+        self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
         # ⚠ Sem `composicao_checker`: a main removeu a exigência de piso POR
         # frente e de liderança de cada uma (2026-08-12, decisão do núcleo —
         # ver o docstring de `_exigir_composicao`). Restaurá-lo aqui traria de
@@ -597,6 +603,11 @@ class RegistrarRealizacaoBancaUseCase:
 
         realizado_em = request.realizado_em or banca.data_hora
         banca = self.repository.update(banca_id, realizado_em=realizado_em)
+
+        # 🤖 §4: a banca acontecendo É a validação começando. Avança o status
+        # do projeto na hora, em vez de esperar a passada da madrugada — quem
+        # acabou de registrar está olhando a tela.
+        self._avancar_status_do_projeto(banca_id)
 
         # A sessão corrente é a que ACONTECEU. Sem espelhar aqui, a próxima
         # remarcação arquivaria uma sessão sem data de realização e o histórico
@@ -628,6 +639,31 @@ class RegistrarRealizacaoBancaUseCase:
             "realizado_em": banca.realizado_em,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
         }
+
+    def _avancar_status_do_projeto(self, banca_id: int) -> None:
+        """🤖 Leva o projeto a Validação em bancas, se ainda não estiver lá.
+
+        ⚠ Import local: `avancar_status` lê bancas por escopo, e no topo isto
+        seria circular. Silencioso de propósito — registrar a banca não pode
+        falhar porque o status não pôde avançar; o job da madrugada pega o que
+        escapar aqui.
+        """
+        from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
+
+        escopo_ids = self.banca_escopo_repository.get_escopo_ids(banca_id)
+        projetos = set()
+        for escopo_id in escopo_ids:
+            escopo = self.escopo_repository.get_by_id(escopo_id)
+            if escopo:
+                projetos.add(escopo.projeto_id)
+        try:
+            avancar = AvancarStatusAutomaticoUseCase(self.db)
+            for projeto_id in projetos:
+                avancar.executar_para(projeto_id)
+        except Exception:  # noqa: BLE001
+            # A REALIZAÇÃO é o fato; o status é derivado dela. Não-bloqueio com
+            # traceback no log, e o job da madrugada refaz a conta.
+            logger.exception("Banca %s registrada, mas o status não avançou", banca_id)
 
     def _exigir_composicao(self, banca, request, eh_diretor: bool) -> None:
         """A banca não fecha com menos gente que o combinado (§8).
