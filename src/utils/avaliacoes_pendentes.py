@@ -13,10 +13,24 @@ PRAZO_AVALIACAO_DIAS = 2
 def calcular_avaliacoes_pendentes(
     candidaturas: List[CandidaturaModel],
     avaliacoes: List[AvaliacaoModel],
-    bancas: List[BancaModel]
+    bancas: List[BancaModel],
+    sessao_por_banca: Dict[int, int] = None,
 ) -> List[Dict]:
+    """Quem ainda deve avaliar, e até quando.
+
+    ⭐ **A pendência é por SESSÃO** (§9). `avaliacao.banca_id` é o mesmo na 1ª e
+    na 2ª tentativa: sem o número da sessão na chave, quem avaliou a banca que
+    reprovou apareceria como "já enviou" na segunda, e nunca seria cobrado a
+    avaliá-la. `sessao_por_banca` mapeia banca → sessão corrente; ausente, tudo
+    cai em 1, que é o estado de quem nunca remarcou.
+    """
     bancas_por_id = {b.id: b for b in bancas}
-    submetidas = {(a.banca_id, a.avaliador_id) for a in avaliacoes if a.status == "submetida"}
+    sessao_por_banca = sessao_por_banca or {}
+    submetidas = {
+        (a.banca_id, a.avaliador_id, getattr(a, "sessao", 1) or 1)
+        for a in avaliacoes
+        if a.status == "submetida"
+    }
 
     resultado = []
     for c in candidaturas:
@@ -27,7 +41,8 @@ def calcular_avaliacoes_pendentes(
         # depende de `realizado_em`, não mais do relógio.
         if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em)):
             continue
-        if (banca.id, c.usuario_id) in submetidas:
+        sessao = sessao_por_banca.get(banca.id, 1)
+        if (banca.id, c.usuario_id, sessao) in submetidas:
             continue
         prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
         resultado.append({

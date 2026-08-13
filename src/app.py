@@ -24,13 +24,16 @@ from src.routers import (
     solicitacoes_projeto,
     usuarios,
 )
+from src.repositories.banca_repository import BancaRepository
 from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
 from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
 from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRepository
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
+from src.use_cases.avaliacao.submeter_avaliacao import apurar_banca
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.use_cases.notificacao.eventos import notificar_pdi_prazo_proximo, notificar_pdi_prazo_vencido
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.notificar import notificar
@@ -116,6 +119,54 @@ def rodar_lembrete_prazo_avaliacao() -> None:
                 "Prazo de avaliação: %d lembrete(s), %d aviso(s) à diretoria",
                 lembretes,
                 avisos_diretoria,
+            )
+    finally:
+        db.close()
+
+
+def rodar_apuracao_de_bancas() -> None:
+    """⭐ Fecha o veredito das bancas cujo prazo de avaliação venceu (§8).
+
+    A apuração normalmente acontece sozinha, no ato do último voto. Este job
+    existe para o caso que nunca fecharia por conta própria: **alguém não
+    votou**. Sem ele, uma banca com 2 votos de 3 esperaria para sempre, e a
+    entrega ao cliente — que o resultado destrava (§5.5) — ficaria refém de
+    quem não abriu o formulário.
+
+    Vencido o prazo, quem não votou abriu mão e a maioria dos presentes decide.
+    Banca com ZERO voto continua sem veredito de propósito: silêncio não é
+    resultado. Essas caem na fila "Bancas sem resultado" do Monitoramento, onde
+    a diretoria decide pelo override.
+
+    Roda às 6h45 — depois do lembrete das 6h15, para que o último empurrão
+    ainda tenha valido no dia anterior.
+    """
+    db = SessionLocal()
+    try:
+        bancas = [
+            b
+            for b in BancaRepository(db).get_all()
+            if b.realizado_em is not None
+            and b.resultado is None
+            and datetime.now() > b.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+        ]
+        decididas = 0
+        for banca in bancas:
+            apuracao = apurar_banca(db, banca, prazo_vencido=True)
+            if apuracao.decidida:
+                decididas += 1
+                logger.info(
+                    "Banca %s apurada: %s (%d a favor, %d contra)",
+                    banca.id,
+                    apuracao.resultado,
+                    apuracao.aprovacoes,
+                    apuracao.reprovacoes,
+                )
+        if bancas:
+            logger.info(
+                "Apuração de bancas: %d decidida(s) de %d com prazo vencido",
+                decididas,
+                len(bancas),
             )
     finally:
         db.close()
@@ -215,6 +266,13 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_prazo_pdi,
         CronTrigger(hour=6, minute=30),
         id="lembrete_prazo_pdi",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_apuracao_de_bancas,
+        # Depois do lembrete das 6h15: o último empurrão ainda valeu ontem.
+        CronTrigger(hour=6, minute=45),
+        id="apuracao_de_bancas",
         replace_existing=True,
     )
     scheduler.start()

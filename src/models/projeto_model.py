@@ -42,7 +42,28 @@ class ProjetoModel(Base):
     #: papel, não por vaga.
     max_consultores = Column(Integer, nullable=False, default=3, server_default="3")
     data_kickoff = Column(Date, nullable=True)
+    #: ⚠ **Não é lida em lugar nenhum desde a reformulação do cronograma.**
+    #: "Entrega ao cliente" virou DERIVADA — é a do último escopo entregue
+    #: (ver `serializar_projeto_completo`). A coluna fica porque apagá-la
+    #: exigiria migration destrutiva num campo que ainda pode ter dado
+    #: histórico; nada escreve nela.
     data_entrega_cliente = Column(Date, nullable=True)
+    #: ⭐ A PROMESSA feita ao cliente na venda — a data combinada, definida já
+    #: na criação do projeto.
+    #:
+    #: ⚠ **Outra coisa que `data_entrega_cliente`**, e é justamente por isso
+    #: que é uma coluna nova em vez de reaproveitar aquela. São duas perguntas
+    #: diferentes sobre a mesma promessa:
+    #:
+    #: - esta é o que foi PROMETIDO, e não muda quando o trabalho anda;
+    #: - a derivada é o que ACONTECEU (a entrega do último escopo).
+    #:
+    #: Guardá-las no mesmo campo foi o bug que fez a coluna acima ser
+    #: aposentada: a promessa era sobrescrita pela realidade no primeiro
+    #: reagendamento, e ninguém mais sabia se a data na tela era combinado ou
+    #: fato consumado. Separadas, dá para responder "entregamos no prazo?" no
+    #: nível do PROJETO — hoje isso só existe por escopo.
+    data_entrega_prevista_cliente = Column(Date, nullable=True)
     dia_reuniao_padrao = Column(Integer, nullable=True)  # 1=seg ... 7=dom
     # Nullable: se a pessoa que criou for excluída de vez (usuário desligado,
     # ver DeleteUsuarioPermanenteUseCase), o projeto sobrevive — só "quem

@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from src.repositories.banca_repository import BancaRepository
+from src.use_cases.banca.excecao_choque import checar_choque
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
@@ -23,6 +24,7 @@ class CreateBancaRequest(BaseModel):
 
 class CreateBancaUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = BancaRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
@@ -40,6 +42,18 @@ class CreateBancaUseCase:
 
         if request.piso_minimo_override is not None and not eh_diretor:
             raise RegraDeNegocioError("Só a diretoria pode definir o piso mínimo de uma banca")
+
+        # 🔒 §8: duas bancas no mesmo horário não passam — nem por esta porta.
+        #
+        # ⚠ Esta rota é a do módulo legado e ficou de fora da regra por
+        # esquecimento, não por decisão: dava para criar uma banca em cima de
+        # outra sem nenhuma recusa, enquanto o cronograma barrava a mesma coisa.
+        #
+        # Sem escopo vendido não há exceção possível (o pedido é do par
+        # escopo+horário), então aqui o choque sempre bloqueia. É o
+        # conservador certo: a banca legada não tem projeto de onde derivar
+        # quem pediria a liberação.
+        checar_choque(self.db, request.data_hora, banca_repository=self.repository)
 
         banca = self.repository.create(
             nome_projeto=request.nome_projeto,

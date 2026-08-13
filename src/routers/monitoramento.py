@@ -86,14 +86,16 @@ def atrasos(
 
 
 @router.get("/aprovacoes")
-def aprovacoes(_=Depends(require_diretor), db: Session = Depends(get_db)):
+def aprovacoes(current_user=Depends(require_diretor), db: Session = Depends(get_db)):
     """⭐ Tudo que espera uma decisão da diretoria, num lugar só.
 
     Sem `frente_id`: a fila é dela, e ela enxerga a área inteira (§3). Filtrar
     por frente aqui só criaria a chance de um pedido ficar escondido atrás de
     um filtro que alguém esqueceu ligado.
     """
-    return ListarAprovacoesPendentesUseCase(db).execute()
+    # `current_user` entra por causa das solicitações de entrada: quem pode
+    # responder cada uma depende de quem está olhando (§3).
+    return ListarAprovacoesPendentesUseCase(db).execute(current_user)
 
 
 @router.get("/tarefas")

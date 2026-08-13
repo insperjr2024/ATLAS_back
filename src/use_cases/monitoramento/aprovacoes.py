@@ -13,14 +13,25 @@ e nenhuma delas entra aqui: são coisas que ela FAZ quando quer, não coisas que
 esperam por ela. O critério desta fila é ter alguém do outro lado bloqueado
 enquanto ela não responde.
 
-São três, e cada uma tem um bloqueio concreto atrás:
+São QUATRO, e cada uma tem um bloqueio concreto atrás:
 
 1. **Pedidos de dias de ajuste** (§8) — o coordenador não consegue pintar
    além da janela enquanto não houver resposta.
 2. **Atrasos sem justificativa** (§7.4) — o projeto fica vermelho no
    monitoramento sem que ninguém saiba o porquê.
-3. **Entregas atrasadas sem classificação** (§7.4) — sem dizer se o atraso foi
-   interno ou do cliente, a métrica de atraso da área mistura os dois.
+3. **Solicitações de entrada em projeto** — alguém pediu para entrar e está
+   parado esperando; o projeto segue com a vaga aberta.
+4. **Bancas realizadas sem resultado** (§5.5) — a banca aconteceu e ninguém
+   registrou o veredito.
+
+⚠ Havia uma quinta, "entregas sem classificação", removida em 2026-08-12 junto
+com o atraso de entrega nos insights: sem a métrica que separava interno de
+agenda do cliente, a classificação deixou de mudar qualquer número.
+
+⚠ **A fila mostra as quatro SEMPRE**, mesmo vazias — quem abre precisa saber o
+que esta tela cobre, e uma tela que só aparece quando há problema não ensina
+ninguém a confiar nela. Quem decide isso é o front; o backend sempre devolve
+as quatro chaves.
 """
 
 from datetime import date
@@ -38,6 +49,7 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 )
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.banca.excecao_choque import ListarExcecoesChoquePendentesUseCase
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.atraso_monitoramento import calcular_atraso_projeto
 
@@ -55,7 +67,7 @@ class ListarAprovacoesPendentesUseCase:
         self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
         self.usuario_repository = UsuarioRepository(db)
 
-    def execute(self, referencia: Optional[date] = None) -> dict:
+    def execute(self, current_user=None, referencia: Optional[date] = None) -> dict:
         hoje = referencia or date.today()
 
         # Arquivado e finalizado saem da fila: decidir sobre projeto encerrado
@@ -73,8 +85,14 @@ class ListarAprovacoesPendentesUseCase:
 
         dias = self._dias_de_ajuste(escopos, por_id, nomes_escopo, nomes_usuario)
         atrasos = self._atrasos_sem_justificativa(projetos, escopos, nomes_escopo, hoje)
+        entradas = self._solicitacoes_de_entrada(current_user)
+        sem_resultado = self._bancas_sem_resultado(escopos, por_id, nomes_escopo)
+        # ⭐ §8: quem quer marcar banca num horário já ocupado pede aqui, e a
+        # diretoria decide. Antes o bloqueio existia sem via de exceção — a
+        # regra era anunciada e não havia como cumpri-la.
+        choques = ListarExcecoesChoquePendentesUseCase(self.db).execute()
 
-        # ⚠ Havia aqui uma terceira fila, `entregas_sem_classificacao`: as
+        # ⚠ Havia aqui uma quinta fila, `entregas_sem_classificacao`: as
         # entregas atrasadas ainda não marcadas como atraso interno ou por
         # agenda do cliente. Removida em 2026-08-12, junto com o que lhe dava
         # sentido — o atraso de ENTREGA saiu dos insights, e com ele a métrica
@@ -83,11 +101,80 @@ class ListarAprovacoesPendentesUseCase:
         return {
             "dias_de_ajuste": dias,
             "atrasos_sem_justificativa": atrasos,
+            "solicitacoes_de_entrada": entradas,
+            "bancas_sem_resultado": sem_resultado,
+            "excecoes_de_choque": choques,
             # O total é servido pronto porque o badge da aba precisa dele antes
             # de qualquer render — somar no front daria a mesma conta em dois
-            # lugares, e é a que sai errada quando nasce uma terceira fila.
-            "total": len(dias) + len(atrasos),
+            # lugares, e é a que sai errada quando nasce uma fila nova.
+            "total": len(dias) + len(atrasos) + len(entradas) + len(sem_resultado) + len(choques),
         }
+
+    def _solicitacoes_de_entrada(self, current_user) -> List[dict]:
+        """Quem pediu para entrar num projeto e ainda espera resposta.
+
+        ⭐ Passa no critério da fila com folga: tem uma PESSOA parada do outro
+        lado, e o projeto segue com a vaga aberta. Vivia só na tela "Vagas em
+        projetos" — quem não passasse por lá não sabia que alguém esperava.
+
+        Delega para `listar_para_decisao`, que é o mesmo caminho da tela de
+        Vagas: o recorte de quem pode responder é regra de negócio e não pode
+        ter duas implementações. Filtra só os pendentes — os já respondidos
+        seguem visíveis lá, como histórico.
+
+        ⚠ Chamava `listar_do_coordenador`, que a main renomeou e dividiu em
+        dois quando a decisão sobre pedidos de vaga saiu do coordenador e foi
+        para gerência e diretoria (2026-08-12): `listar_projetos_coordenados` é
+        a visão SÓ-LEITURA do coordenador, e `listar_para_decisao` é a de quem
+        pode responder. Esta aba é a fila de quem DECIDE, então é a segunda —
+        usar a primeira encheria a fila da diretoria com pedidos que ela vê mas
+        não pode responder.
+        """
+        if current_user is None:
+            return []
+
+        from src.use_cases.solicitacao_projeto.solicitacao_projeto import (
+            SolicitacaoProjetoUseCase,
+        )
+
+        pedidos = SolicitacaoProjetoUseCase(self.db).listar_para_decisao(current_user)
+        return [p for p in pedidos if p["status"] == "pendente"]
+
+    def _bancas_sem_resultado(self, escopos, por_id, nomes_escopo) -> List[dict]:
+        """§5.5: a banca aconteceu e ninguém registrou o veredito.
+
+        ⭐ **Esta fila virou o bloqueio mais duro do sistema.** Enquanto não há
+        veredito, a entrega ao cliente NÃO libera (`RegistrarEntregaEscopoUseCase`):
+        o escopo fica parado esperando alguém agir. O caminho normal é o voto
+        dos avaliadores, que apura sozinho; o que cai aqui é o que o voto não
+        resolveu — ninguém votou e o prazo venceu — e só a diretoria destrava,
+        registrando o resultado à mão.
+
+        Só bancas de escopo (as legadas, sem vínculo, não têm projeto para
+        cobrar) e só de projeto vivo — o recorte de `execute`.
+        """
+        por_escopo = {}
+        for escopo in escopos:
+            banca = self.banca_repository.get_by_projeto_escopo(escopo.id)
+            if not banca or not banca.realizado_em or banca.resultado:
+                continue
+            # Uma banca pode cobrir vários escopos: uma linha por banca.
+            por_escopo.setdefault(banca.id, (banca, escopo))
+
+        linhas = []
+        for banca, escopo in por_escopo.values():
+            projeto = por_id.get(escopo.projeto_id)
+            linhas.append(
+                {
+                    "banca_id": banca.id,
+                    "projeto_id": escopo.projeto_id,
+                    "projeto_nome": projeto.nome if projeto else "",
+                    "escopo_nome": nomes_escopo.get(escopo.id, "escopo"),
+                    "realizado_em": banca.realizado_em,
+                }
+            )
+        # A mais antiga primeiro: é a que está esperando há mais tempo.
+        return sorted(linhas, key=lambda x: x["realizado_em"])
 
     def _dias_de_ajuste(self, escopos, por_id, nomes_escopo, nomes_usuario) -> List[dict]:
         """§8: o coordenador pediu, a janela não cresce até ela responder."""

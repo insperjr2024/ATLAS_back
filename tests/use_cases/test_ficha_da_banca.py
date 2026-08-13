@@ -99,7 +99,11 @@ def mundo(monkeypatch):
         class CandidaturaFake:
             def __init__(self, db): pass
             def get_by_banca(self, banca_id):
-                return [SimpleNamespace(usuario_id=u) for u in candidaturas]
+                # `confirmado` = esteve presente na banca; a ficha o expõe
+                # para a aba distinguir escalado de compareceu.
+                return [
+                    SimpleNamespace(usuario_id=u, confirmado=False) for u in candidaturas
+                ]
 
         class EquipeProjetoFake:
             def __init__(self, db): pass
@@ -116,6 +120,27 @@ def mundo(monkeypatch):
             def get_by_id(self, usuario_id):
                 return USUARIOS.get(usuario_id)
 
+        # A ficha passou a trazer as TENTATIVAS, os votos e a nota (§8, §9).
+        # Estes testes medem os NOMES resolvidos, não a apuração — que tem
+        # cobertura própria em `test_apuracao_banca.py` e `test_urna_da_banca.py`.
+        # Vazio aqui mantém cada teste medindo uma coisa só.
+        class SessaoFake:
+            def __init__(self, db): pass
+            def get_by_banca(self, _id): return []
+            def get_corrente(self, _id): return None
+
+        class AvaliacaoFake:
+            def __init__(self, db): pass
+            def get_by_banca(self, _id, sessao=None): return []
+
+        class NotaFake:
+            def __init__(self, db): pass
+            def get_by_banca(self, _id): return []
+
+        class PerguntaFake:
+            def __init__(self, db): pass
+            def get_all(self): return []
+
         for nome, dublê in (
             ("BancaRepository", BancaFake),
             ("BancaEscopoRepository", BancaEscopoFake),
@@ -127,6 +152,10 @@ def mundo(monkeypatch):
             ("EquipeProjetoRepository", EquipeProjetoFake),
             ("ProjetoMembroRepository", ProjetoMembroFake),
             ("UsuarioRepository", UsuarioFake),
+            ("BancaSessaoRepository", SessaoFake),
+            ("AvaliacaoRepository", AvaliacaoFake),
+            ("AvaliacaoNotaRepository", NotaFake),
+            ("PerguntaRepository", PerguntaFake),
         ):
             monkeypatch.setattr(get_banca_detalhes, nome, dublê)
 
@@ -146,7 +175,11 @@ def test_resolve_os_nomes_da_ficha(mundo):
     assert ficha["coordenador"] == "Coordenador Tech"
     assert ficha["escopos"] == ["Elaboração Contratual"]
     assert ficha["frentes"] == ["Tech"]
-    assert ficha["avaliadores"] == ["Bia Martins"]
+    # ⭐ Avaliador virou OBJETO: a aba Banca precisa do id para saber "sou eu?"
+    # e do estado do voto para oferecer (ou não) o formulário.
+    assert [a["nome"] for a in ficha["avaliadores"]] == ["Bia Martins"]
+    assert ficha["avaliadores"][0]["usuario_id"] == 92
+    assert ficha["avaliadores"][0]["ja_votou"] is False
     # Para a tela poder voltar ao projeto de onde a banca é.
     assert ficha["projeto_id"] == 43
 

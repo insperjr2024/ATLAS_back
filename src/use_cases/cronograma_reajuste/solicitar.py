@@ -24,11 +24,15 @@ from sqlalchemy.orm import Session
 
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
+from src.repositories.projeto_status_historico_repository import (
+    ProjetoStatusHistoricoRepository,
+)
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.eventos import notificar_reajuste_solicitado
+from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.janela_escopo import PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, calcular_janela
 
@@ -75,6 +79,7 @@ class SolicitarReajusteUseCase:
         self.usuario_repository = UsuarioRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
+        self.historico_repository = ProjetoStatusHistoricoRepository(db)
 
     def execute(
         self, projeto_escopo_id: int, request: SolicitarReajusteRequest, current_user
@@ -155,10 +160,24 @@ class SolicitarReajusteUseCase:
 
     def _janela(self, escopo, referencia: Optional[object] = None):
         dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        # ⚠ **A pausa desloca o prazo do pedido, não só o fim da janela.**
+        #
+        # O prazo é de 3 dias úteis a partir da reunião inicial. Sem as janelas
+        # de pausa, esses dias corriam com o projeto ⏸ Pausado — e o
+        # coordenador perdia o direito de pedir dias de ajuste por causa de uma
+        # pausa que a diretoria mesma decretou.
+        #
+        # Além disso, `calcular_contagem_escopo` já desconta a pausa: a mesma
+        # resposta trazia duas janelas do mesmo escopo calculadas com
+        # calendários diferentes. Mesmo padrão de `marcar_banca_escopo._janela`.
+        janelas_pausa = derivar_janelas_pausa(
+            self.historico_repository.get_by_projeto(escopo.projeto_id)
+        )
         return calcular_janela(
             escopo.data_inicio,
             escopo.dias_uteis_vendidos,
             escopo.dias_uteis_ajustados,
             dias_nao_letivos,
             referencia=referencia,
+            janelas_pausa=janelas_pausa,
         )

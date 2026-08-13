@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
+from src.repositories.banca_sessao_repository import BancaSessaoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.cronograma_repository import CronogramaEtapaRepository
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
@@ -71,6 +72,7 @@ class ListEscoposProjetoUseCase:
         self.catalogo_repository = EscopoRepository(db)
         self.banca_repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.sessao_repository = BancaSessaoRepository(db)
         self.reajuste_repository = CronogramaReajusteRepository(db)
         self.etapa_repository = CronogramaEtapaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
@@ -91,6 +93,13 @@ class ListEscoposProjetoUseCase:
         # linha ("esta banca também avalia X"), então os ids vêm junto.
         escopos_da_banca = self.banca_escopo_repository.get_escopo_ids_por_banca(
             {b.id for b in bancas.values()}
+        )
+        # ⭐ As TENTATIVAS de cada banca (§9). O cronograma precisa delas para
+        # pintar a 1ª e a 2ª banca em dias diferentes: a linha de `banca` só
+        # guarda a tentativa CORRENTE, então uma banca reprovada e remarcada
+        # some do dia em que de fato aconteceu.
+        sessoes_por_banca = self.sessao_repository.get_by_bancas(
+            [b.id for b in bancas.values()]
         )
 
         # As etapas entram na conta por causa das correalho pós-entrega (§11):
@@ -143,6 +152,7 @@ class ListEscoposProjetoUseCase:
                 catalogo,
                 bancas.get(e.id),
                 escopos_da_banca,
+                sessoes_por_banca,
                 pendentes.get(e.id),
                 nomes_usuario,
                 janelas.get(e.id),
@@ -158,6 +168,7 @@ def serializar_escopo(
     catalogo_por_id,
     banca=None,
     escopos_da_banca=None,
+    sessoes_por_banca=None,
     reajuste_pendente=None,
     nomes_usuario=None,
     janela=None,
@@ -213,7 +224,7 @@ def serializar_escopo(
         "prazo_pedido_ajuste": janela.prazo_pedido_ajuste if janela else None,
         "pedido_ajuste_aberto": janela.pedido_ajuste_aberto if janela else False,
         # 🔒 A trava do §5.5 na forma que a tela precisa: o cadeado abre
-        # quando a banca do escopo é REALIZADA.
+        # quando a banca do escopo é APROVADA pelos avaliadores.
         "banca": (
             {
                 "id": banca.id,
@@ -223,11 +234,35 @@ def serializar_escopo(
                 "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
                 # Todos os escopos que esta banca cobre, este incluído.
                 "escopo_ids": (escopos_da_banca or {}).get(banca.id, [escopo.id]),
+                # ⭐ Cada TENTATIVA, da primeira à atual (§9).
+                #
+                # `banca.data_hora` é só a tentativa CORRENTE. Sem esta lista, a
+                # banca que foi reprovada e remarcada desaparecia do dia em que
+                # aconteceu — o cronograma mostrava só a data nova, como se a
+                # primeira nunca tivesse existido.
+                "sessoes": [
+                    {
+                        "id": s.id,
+                        "numero": s.numero,
+                        "data_hora": s.data_hora,
+                        "realizado_em": s.realizado_em,
+                        "resultado": s.resultado,
+                        # `encerrada_em` preenchido = tentativa arquivada; a
+                        # corrente é a única sem ele.
+                        "encerrada_em": s.encerrada_em,
+                    }
+                    for s in sorted(
+                        (sessoes_por_banca or {}).get(banca.id, []),
+                        key=lambda x: x.numero,
+                    )
+                ],
             }
             if banca
             else None
         ),
-        "entrega_liberada": bool(banca and banca.realizado_em),
+        # ⚠ Espelha `update_escopo_projeto`: se divergirem, a tela mostra o
+        # cadeado aberto e o clique volta 422 — o pior dos dois mundos.
+        "entrega_liberada": bool(banca and banca.realizado_em and banca.resultado == "aprovada"),
         "reajuste_pendente": (
             {
                 "id": reajuste_pendente.id,
