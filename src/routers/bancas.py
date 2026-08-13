@@ -61,6 +61,7 @@ from src.use_cases.equipe_projeto.update_equipe_projeto import (
     UpdateEquipeProjetoRequest,
     DeleteEquipeProjetoUseCase,
 )
+from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError
 
 router = APIRouter(tags=["bancas"], dependencies=[Depends(get_current_user)])
@@ -194,7 +195,7 @@ def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_u
             banca_id, request, eh_diretor=current_user.posicao == "diretor"
         )
     except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise erro_de_regra(e)
     if not result:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     return result
