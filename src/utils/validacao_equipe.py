@@ -19,6 +19,17 @@ Nada aqui olha os OUTROS projetos da pessoa de propósito: coordenador e
 consultor podem estar alocados em quantos projetos forem necessários — a
 validação é sempre dentro do projeto que está sendo salvo. A escala de
 `situacao_carga` é recomendação da diretoria, não teto.
+
+**A equipe pode estar vazia** (2026-08-13). Antes exigia-se 1 coordenador e
+pelo menos 1 consultor já no cadastro, e isso invertia a ordem real das
+coisas: o projeto é vendido antes de o time existir, e quem cadastrava era
+obrigado a inventar nomes só para o formulário passar — nomes que depois
+ficavam no histórico de `projeto_membro` como se aquelas pessoas tivessem
+mesmo participado (§10 não deixa reescrever isso). O time é montado depois,
+em Vagas ou na Visão geral, e a mesma regra vale lá: dá para salvar só o
+coordenador, só consultores, ou ninguém. O que continua barrado é o que é
+erro de verdade — DOIS coordenadores, posição que não cabe no papel, e
+a mesma pessoa ocupando os dois papéis no mesmo projeto.
 """
 
 from src.utils.exceptions import RegraDeNegocioError
@@ -40,16 +51,16 @@ def validar_equipe(equipe, usuario_repository):
     """Valida a equipe inteira antes de gravar qualquer linha.
 
     Roda por completo em `create_projeto` e `update_equipe_projeto` para os
-    dois caminhos dizerem exatamente a mesma coisa.
+    dois caminhos dizerem exatamente a mesma coisa. Equipe vazia passa — ver
+    a docstring do módulo.
     """
     coordenadores = [m for m in equipe if m.papel == "coordenador"]
-    if len(coordenadores) != 1:
-        raise RegraDeNegocioError("O projeto precisa de exatamente 1 coordenador")
+    if len(coordenadores) > 1:
+        raise RegraDeNegocioError("O projeto pode ter no máximo 1 coordenador")
 
     # Depois da checagem por membro (papel/posição de CADA um) — checagem
-    # agregada primeiro escondia o motivo de verdade quando a equipe de
-    # teste também não tinha consultor: toda entrada inválida virava "falta
-    # consultor" em vez do erro específico daquele membro.
+    # agregada primeiro escondia o motivo de verdade: toda entrada inválida
+    # virava o erro agregado em vez do erro específico daquele membro.
     for membro in equipe:
         if membro.papel not in ("coordenador", "consultor"):
             raise RegraDeNegocioError(f"Papel inválido: {membro.papel}")
@@ -70,6 +81,16 @@ def validar_equipe(equipe, usuario_repository):
                 f"e não pode entrar como consultor do projeto."
             )
 
-    consultores = [m for m in equipe if m.papel == "consultor"]
-    if len(consultores) == 0:
-        raise RegraDeNegocioError("O projeto precisa de pelo menos 1 consultor")
+    # A mesma pessoa nos dois papéis. Só o front barrava isso; com a equipe
+    # podendo ser montada aos poucos, em telas diferentes, a chance de o
+    # coordenador voltar como consultor numa segunda passada cresceu — e o
+    # resultado seriam duas linhas ativas de `projeto_membro` para a mesma
+    # pessoa, que a contagem de consultores alocados leria como duas.
+    ids_consultores = {m.usuario_id for m in equipe if m.papel == "consultor"}
+    for coordenador in coordenadores:
+        if coordenador.usuario_id in ids_consultores:
+            usuario = usuario_repository.get_by_id(coordenador.usuario_id)
+            nome = usuario.nome if usuario else coordenador.usuario_id
+            raise RegraDeNegocioError(
+                f"{nome} não pode ser coordenador e consultor do mesmo projeto."
+            )

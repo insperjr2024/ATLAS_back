@@ -39,23 +39,36 @@ REPO = UsuarioRepositoryFake(
 )
 
 
-class TestQuantidadeDeCoordenadores:
-    def test_equipe_sem_coordenador_e_recusada(self):
-        equipe = [MembroFake(CONSULTOR.id, "consultor")]
-        with pytest.raises(RegraDeNegocioError, match="exatamente 1 coordenador"):
-            validar_equipe(equipe, REPO)
+class TestEquipeIncompleta:
+    """2026-08-13: o projeto é vendido antes de o time existir, então o
+    cadastro não exige mais coordenador nem consultor. O time é montado
+    depois, em Vagas ou na Visão geral — e lá também dá para salvar pela
+    metade, porque é a mesma função que valida os dois caminhos."""
 
-    def test_equipe_com_dois_coordenadores_e_recusada(self):
+    def test_equipe_vazia_e_aceita(self):
+        validar_equipe([], REPO)
+
+    def test_equipe_so_com_consultor_e_aceita(self):
+        validar_equipe([MembroFake(CONSULTOR.id, "consultor")], REPO)
+
+    def test_equipe_so_com_coordenador_e_aceita(self):
+        validar_equipe([MembroFake(COORD.id, "coordenador")], REPO)
+
+    def test_equipe_com_dois_coordenadores_continua_recusada(self):
         equipe = [
             MembroFake(COORD.id, "coordenador"),
             MembroFake(OUTRO_COORD.id, "coordenador"),
         ]
-        with pytest.raises(RegraDeNegocioError, match="exatamente 1 coordenador"):
+        with pytest.raises(RegraDeNegocioError, match="no máximo 1 coordenador"):
             validar_equipe(equipe, REPO)
 
-    def test_projeto_sem_nenhum_consultor_e_recusado(self):
-        with pytest.raises(RegraDeNegocioError, match="pelo menos 1 consultor"):
-            validar_equipe([MembroFake(COORD.id, "coordenador")], REPO)
+    def test_mesma_pessoa_nos_dois_papeis_e_recusada(self):
+        equipe = [
+            MembroFake(COORD.id, "coordenador"),
+            MembroFake(COORD.id, "consultor"),
+        ]
+        with pytest.raises(RegraDeNegocioError, match="coordenador e consultor"):
+            validar_equipe(equipe, REPO)
 
 
 class TestPosicaoExigidaPorPapel:
