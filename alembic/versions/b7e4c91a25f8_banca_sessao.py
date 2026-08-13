@@ -49,14 +49,32 @@ def upgrade() -> None:
     op.create_index(op.f("ix_banca_sessao_id"), "banca_sessao", ["id"])
     op.create_index(op.f("ix_banca_sessao_banca_id"), "banca_sessao", ["banca_id"])
 
+    # ⚠ **`banca.resultado` e `banca_sessao.resultado` são enums DIFERENTES** —
+    # `resultado_banca` e `resultado_banca_sessao`, com os mesmos valores mas
+    # nomes distintos.
+    #
+    # Em MySQL isso não importa: o enum é propriedade da coluna e a cópia é de
+    # texto para texto. Em Postgres o enum é um TIPO, e copiar de um tipo para
+    # outro sem cast falha com "column resultado is of type
+    # resultado_banca_sessao but expression is of type resultado_banca" —
+    # derrubando o `upgrade` inteiro no meio.
+    #
+    # A ponte é o texto, e ela só existe no dialeto do Postgres. Mesmo padrão
+    # condicional que `a71c4e93b8d2` usa para o `ALTER TYPE`.
+    resultado = (
+        "resultado::text::resultado_banca_sessao"
+        if op.get_bind().dialect.name == "postgresql"
+        else "resultado"
+    )
+
     # ⭐ O backfill. `encerrada_em` sai preenchido só onde já há veredito — a
     # sessão de uma banca com resultado não está mais em aberto.
     op.execute(
-        """
+        f"""
         INSERT INTO banca_sessao
             (banca_id, numero, data_hora, realizado_em, resultado, encerrada_em, criado_em)
         SELECT
-            id, 1, data_hora, realizado_em, resultado,
+            id, 1, data_hora, realizado_em, {resultado},
             CASE WHEN resultado IS NOT NULL THEN realizado_em ELSE NULL END,
             now()
         FROM banca
