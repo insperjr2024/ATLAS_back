@@ -691,7 +691,6 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             projetos,
             escopos_por_projeto=ctx["escopos_por_projeto"],
             bancas_por_escopo=ctx["bancas_por_escopo"],
-            sessoes_por_banca=ctx["sessoes_por_banca"],
             nomes_escopo=ctx["nomes_escopo"],
             tarefas_por_projeto=_agrupar(
                 self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
