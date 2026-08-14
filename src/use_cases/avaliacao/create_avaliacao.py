@@ -61,6 +61,29 @@ class CreateAvaliacaoUseCase:
         corrente = self.sessao_repository.get_corrente(request.banca_id)
         sessao = corrente.numero if corrente else 1
 
+        # 🔒 Um voto por pessoa por sessão, e voto dado não se retoma.
+        #
+        # ⚠ A tela já esconde o caminho (a banca sai de "Com avaliação
+        # pendente") e a apuração já não conta em dobro — `votos_por_avaliador`
+        # reduz a uma avaliação por pessoa. Mas ela reduz pelo envio MAIS
+        # RECENTE, e era exatamente aí que o buraco ficava: bastava abrir o
+        # formulário de novo pela API para enviar um segundo voto e virar o
+        # próprio resultado, depois de já ter visto o placar. Como o resultado
+        # é o portão da entrega ao cliente (§5.5), trocar o voto em silêncio
+        # vale tanto quanto votar duas vezes.
+        #
+        # 📐 Barra só o que JÁ FOI SUBMETIDO. Rascunho duplicado continua
+        # podendo nascer — o front cria a avaliação ao abrir o formulário, e
+        # quem abre duas vezes não está tentando burlar nada.
+        ja_votou = any(
+            a.avaliador_id == avaliador_id and a.status == "submetida"
+            for a in self.repository.get_by_banca(request.banca_id, sessao)
+        )
+        if ja_votou:
+            raise RegraDeNegocioError(
+                "Você já enviou sua avaliação desta banca — o voto não pode ser refeito"
+            )
+
         avaliacao = self.repository.create(
             banca_id=request.banca_id,
             avaliador_id=avaliador_id,

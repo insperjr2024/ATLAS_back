@@ -4,13 +4,17 @@ from typing import Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.solicitacao_troca_repository import SolicitacaoTrocaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.solicitacao_troca.get_solicitacao_troca import serializar_solicitacao_troca
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
+from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar import notificar
 
@@ -29,6 +33,9 @@ class CreateSolicitacaoTrocaUseCase:
         self.candidatura_repository = CandidaturaRepository(db)
         self.banca_repository = BancaRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
         self.usuario_repository = UsuarioRepository(db)
         self.repository = SolicitacaoTrocaRepository(db)
 
@@ -71,10 +78,26 @@ class CreateSolicitacaoTrocaUseCase:
     def _excluidos(self, banca) -> set:
         """Quem NÃO pode confirmar esta troca (§8): já candidato desta banca,
         coordenador ou equipe do próprio projeto. Mesma regra usada pro pool
-        aberto e pra validar um convite específico."""
+        aberto e pra validar um convite específico.
+
+        ⚠ Isto lia SÓ `equipe_projeto`, a tabela legada — e banca marcada pelo
+        cronograma não escreve nela. Na prática a metade "ou é do grupo do
+        projeto" da mensagem de recusa era mentira: dava para convidar um
+        consultor da própria equipe, ele aceitava, e virava avaliador do
+        projeto dele. Era um contorno para a regra que `create_candidatura`
+        cobra no caminho normal — que já usa `membros_da_banca` justamente
+        porque tropeçou nisto antes.
+        """
         excluidos = {c.usuario_id for c in self.candidatura_repository.get_by_banca(banca.id)}
-        excluidos.add(banca.coordenador_id)
-        excluidos.update(e.usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id))
+        excluidos.update(
+            membros_da_banca(
+                banca,
+                self.banca_escopo_repository,
+                self.escopo_repository,
+                self.membro_repository,
+                self.equipe_projeto_repository,
+            )
+        )
         return excluidos
 
     def _validar_convidado(self, banca, usuario_id: int, convidado_id: int) -> None:

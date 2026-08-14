@@ -11,6 +11,7 @@ repo não usam `unittest.mock.patch` — escrevem dublês à mão (ver
 """
 
 import smtplib
+import socket
 from email.message import EmailMessage
 from typing import Optional
 
@@ -41,11 +42,24 @@ class EmailSender:
         mensagem.set_content(corpo_texto)
         mensagem.add_alternative(corpo_html, subtype="html")
 
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as smtp:
-            smtp.starttls()
-            if settings.SMTP_USER:
-                smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            smtp.send_message(mensagem)
+        # No Render, resolver smtp.gmail.com devolve endereço IPv6 primeiro,
+        # e a rede de saída de lá não tem rota IPv6: a conexão morre com
+        # "Network is unreachable" antes de chegar a tentar IPv4 na porta
+        # 587. Força a resolução a devolver só IPv4, só durante esta chamada.
+        getaddrinfo_original = socket.getaddrinfo
+
+        def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+            return getaddrinfo_original(host, port, socket.AF_INET, type, proto, flags)
+
+        socket.getaddrinfo = getaddrinfo_ipv4
+        try:
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as smtp:
+                smtp.starttls()
+                if settings.SMTP_USER:
+                    smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                smtp.send_message(mensagem)
+        finally:
+            socket.getaddrinfo = getaddrinfo_original
 
 
 def montar_email_senha_provisoria(nome: str, senha: str, link_login: str) -> tuple[str, str, str]:
