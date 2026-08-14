@@ -124,6 +124,7 @@ class GradeHorariaUseCase:
                 "total_livres": 0,
                 "teto": TETO_LIVRES_EM_COMUM,
                 "percentual": 0,
+                "nota": None,
                 "teor": "nenhuma",
                 "teor_texto": "Escolha ao menos um consultor.",
                 "sem_grade": [],
@@ -153,17 +154,28 @@ class GradeHorariaUseCase:
         # o número mais alto possível vindo de zero informação. Um aviso ao
         # lado não conserta isso: quem bate o olho lê o número, não a nota de
         # rodapé. Então não há teor nenhum a mostrar.
-        if len(sem_grade) == len(ids):
+        #
+        # A NOTA (0 a 10) segue a mesma régua: 10 é o teto de 20 horários
+        # livres em comum (`TETO_LIVRES_EM_COMUM`), 0 é nenhum horário livre
+        # — só quando as grades foram DE VERDADE comparadas. Sem grade
+        # nenhuma preenchida não é "nota 0", é "não dá para calcular", por
+        # isso `nota` fica `None` no mesmo caso em que o teor vira
+        # "desconhecida": um 0 aqui pareceria "time sem hora nenhuma em
+        # comum", quando na real é "ninguém disse quando está livre".
+        sem_dados = len(sem_grade) == len(ids)
+        if sem_dados:
             teor, teor_texto = (
                 "desconhecida",
                 "Ninguém do time preencheu a grade, não dá para comparar horários.",
             )
+        nota = None if sem_dados else round(min(10, len(livres) / TETO_LIVRES_EM_COMUM * 10), 1)
         return {
             "semestre_id": semestre_id,
             "livres_em_comum": livres,
             "total_livres": len(livres),
             "teto": TETO_LIVRES_EM_COMUM,
             "percentual": min(100, round(len(livres) / TETO_LIVRES_EM_COMUM * 100)),
+            "nota": nota,
             "teor": teor,
             "teor_texto": teor_texto,
             "sem_grade": sem_grade,
