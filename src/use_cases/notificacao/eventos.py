@@ -114,6 +114,28 @@ def notificar_banca_remarcada(
     )
 
 
+def notificar_justificativa_pedida(db: Session, projeto, usuario_id: int, sobre: str, pedido_id: int) -> None:
+    """§7.4: "a diretoria pergunta ao coordenador" — agora dentro da plataforma.
+
+    ⭐ Vai para o COORDENADOR, e só para ele: é quem sabe por que o escopo
+    atrasou. Mandar para a equipe inteira transformaria uma pergunta dirigida
+    num aviso de que o projeto está vermelho, que a equipe já vê sozinha.
+
+    A chave leva o `pedido_id`: se a diretoria perguntar de novo sobre OUTRO
+    motivo do mesmo projeto, é outra pergunta e merece outro aviso.
+    """
+    registrar(
+        db,
+        usuario_id=usuario_id,
+        tipo="justificativa_pedida",
+        titulo=f"Explique o atraso de {projeto.nome}",
+        corpo=sobre,
+        projeto_id=projeto.id,
+        rota=f"/projetos/{projeto.id}",
+        chave_dedup=f"justificativa_pedida:pedido={pedido_id}",
+    )
+
+
 def notificar_entrega_alterada(
     db: Session, projeto, de, para, nome_escopo: Optional[str] = None, escopo_id: Optional[int] = None
 ) -> None:

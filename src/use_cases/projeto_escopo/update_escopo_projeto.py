@@ -6,7 +6,7 @@ IMPEDIR esse pulo". O front esconde o botão; quem barra é este use case.
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from src.repositories.banca_repository import BancaRepository
 from src.repositories.entrega_alteracao_repository import EntregaAlteracaoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.notificacao.eventos import notificar_entrega, notificar_entrega_alterada
@@ -189,8 +190,16 @@ class RegistrarEntregaEscopoUseCase:
                     "banca antes de entregar ao cliente"
                 )
 
+        # ⚠ **A data NÃO muda o status.** Quem move o escopo para "Entregue" é a
+        # confirmação explícita (`ConfirmarEntregaEscopoUseCase`) — do
+        # coordenador do projeto ou da diretoria.
+        #
+        # Antes os dois andavam juntos, e um clique no calendário passava por
+        # declaração de que o trabalho foi ao cliente. A data é editável, pode
+        # ser antecipada, corrigida ou lançada por engano; a confirmação é uma
+        # afirmação de quem responde pelo projeto.
         atualizado = self.repository.update(
-            escopo_id, data_entrega_real=request.data_entrega_real, status="entregue"
+            escopo_id, data_entrega_real=request.data_entrega_real
         )
 
         if data_antiga != atualizado.data_entrega_real:
@@ -260,7 +269,9 @@ class RegistrarEntregaEscopoUseCase:
         return {
             "id": atualizado.id,
             "data_entrega_real": atualizado.data_entrega_real,
-            "status": atualizado.status,
+            # ⚠ Sem `status`: marcar a data não o move mais. Quem responde
+            # "entregue" é `POST /escopos-projeto/{id}/confirmar-entrega`.
+            "aguardando_confirmacao": atualizado.status != "entregue",
         }
 
     def _exigir_alteracao_permitida(
@@ -330,3 +341,161 @@ class DeleteEscopoProjetoUseCase:
         for reuniao in reuniao_repository.get_by_escopo(escopo_id):
             reuniao_repository.update(reuniao.id, projeto_escopo_id=None)
         return self.repository.delete(escopo_id)
+
+
+class ConfirmarEntregaEscopoRequest(BaseModel):
+    """O dia da entrega, para quando ele ainda não estiver marcado.
+
+    Opcional de propósito: quem já marcou a data no Cronograma confirma sem
+    corpo nenhum.
+    """
+
+    data_entrega_real: Optional[date] = None
+
+
+class ConfirmarEntregaEscopoUseCase:
+    """⭐ O ato que move o escopo para **Entregue** (§5.5).
+
+    ⚠ **Por que isto é um passo à parte da data.** Os dois já foram a mesma
+    escrita: gravar `data_entrega_real` no cronograma virava o status na mesma
+    linha. Só que a data é um campo de calendário — editável, corrigível,
+    clicável por engano — e o status na tabela de escopos é lido como uma
+    afirmação: *este trabalho foi ao cliente*. Um clique num dia passava por
+    declaração.
+
+    Agora a data continua livre (é planejamento e registro), e o status espera
+    alguém dizer "sim, entregamos".
+
+    ⭐ **Quem pode confirmar**: o **coordenador daquele projeto** ou a
+    **diretoria**. Não é `pode_definir_cronograma`: marcar datas é operação de
+    cronograma, confirmar a entrega é responder pelo que foi entregue. Um
+    coordenador de OUTRO projeto não confirma este — a checagem é de vínculo,
+    não de cargo.
+
+    A trava do §5.5 vale aqui inteira: sem banca aprovada não há confirmação. É
+    o mesmo caminho de três degraus de `RegistrarEntregaEscopoUseCase`, e é
+    aqui que ele passa a morder de verdade — a data podia ser marcada antes da
+    aprovação em bases antigas, mas o status não anda sem ela.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.repository = ProjetoEscopoRepository(db)
+        self.banca_repository = BancaRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
+
+    def execute(
+        self,
+        escopo_id: int,
+        current_user,
+        eh_diretor: bool = False,
+        request: Optional["ConfirmarEntregaEscopoRequest"] = None,
+    ):
+        escopo = self.repository.get_by_id(escopo_id)
+        if not escopo:
+            return None
+
+        if escopo.status == "entregue":
+            raise RegraDeNegocioError("A entrega deste escopo já foi confirmada")
+        if escopo.status == "cancelado":
+            raise RegraDeNegocioError("Este escopo foi cancelado")
+
+        self._exigir_quem_pode(escopo, current_user, eh_diretor)
+        self._exigir_banca_aprovada(escopo_id)
+
+        escopo = self._garantir_data(escopo, request, current_user, eh_diretor)
+
+        atualizado = self.repository.update(
+            escopo_id,
+            status="entregue",
+            entrega_confirmada_em=datetime.now(),
+            entrega_confirmada_por=getattr(current_user, "id", None),
+        )
+
+        # 🤖 §4: com todos os escopos entregues, o projeto passa a Período de
+        # ajustes. O gatilho agora é a CONFIRMAÇÃO, não a data — é ela que diz
+        # que o escopo acabou.
+        from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
+
+        try:
+            AvancarStatusAutomaticoUseCase(self.db).executar_para(atualizado.projeto_id)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Entrega confirmada, mas o status do projeto %s não avançou",
+                atualizado.projeto_id,
+            )
+
+        return {
+            "id": atualizado.id,
+            "status": atualizado.status,
+            "entrega_confirmada_em": atualizado.entrega_confirmada_em,
+        }
+
+    def _garantir_data(self, escopo, request, current_user, eh_diretor: bool):
+        """⚠ Confirma-se uma entrega que TEM data — senão o escopo apareceria
+        entregue sem dizer quando.
+
+        ⭐ Mas a data pode chegar JUNTO com a confirmação. Exigi-la marcada de
+        antes obrigava a ir ao Cronograma, voltar à Visão geral e clicar de
+        novo — dois gestos em duas telas para um fato só, e o botão nem
+        aparecia enquanto isso. Quando ela já existe, o dia informado é
+        ignorado: mudar entrega registrada é do §13, que tem porta própria.
+        """
+        if escopo.data_entrega_real:
+            return escopo
+
+        dia = getattr(request, "data_entrega_real", None)
+        if dia is None:
+            raise RegraDeNegocioError(
+                "Informe o dia da entrega para confirmá-la"
+            )
+
+        # Reaproveita a marcação em vez de gravar direto: é ela que escreve o
+        # Histórico do projeto e notifica a equipe. Sem isso, uma entrega
+        # confirmada por aqui não deixaria rastro nenhum de quando foi marcada.
+        RegistrarEntregaEscopoUseCase(self.db).execute(
+            escopo.id,
+            RegistrarEntregaEscopoRequest(data_entrega_real=dia),
+            eh_diretor=eh_diretor,
+            current_user=current_user,
+        )
+        return self.repository.get_by_id(escopo.id)
+
+    def _exigir_quem_pode(self, escopo, current_user, eh_diretor: bool) -> None:
+        if eh_diretor:
+            return
+        membros = self.membro_repository.get_by_projeto(escopo.projeto_id, apenas_atuais=True)
+        usuario_id = getattr(current_user, "id", None)
+        eh_coordenador = any(
+            m.usuario_id == usuario_id and m.papel == "coordenador" for m in membros
+        )
+        if not eh_coordenador:
+            raise RegraDeNegocioError(
+                "Só o coordenador do projeto ou a diretoria confirmam a entrega"
+            )
+
+    def _exigir_banca_aprovada(self, escopo_id: int) -> None:
+        """🔒 §5.5 — os mesmos degraus da marcação, com mensagem própria em cada.
+
+        Repetidos aqui, e não delegados: esta é a porta que de fato muda o
+        estado do escopo, e uma trava que mora só na outra porta é uma trava com
+        dois caminhos.
+        """
+        banca = self.banca_repository.get_by_projeto_escopo(escopo_id)
+        if not banca:
+            raise RegraDeNegocioError(
+                "Este escopo ainda não tem banca marcada — a entrega só é "
+                "confirmada depois de a banca aprovar"
+            )
+        if not banca.realizado_em:
+            raise RegraDeNegocioError("A banca deste escopo ainda não foi realizada")
+        if banca.resultado is None:
+            raise RegraDeNegocioError(
+                "A banca deste escopo ainda não tem resultado — a confirmação "
+                "libera quando os avaliadores votarem"
+            )
+        if banca.resultado != "aprovada":
+            raise RegraDeNegocioError(
+                "A banca deste escopo não foi aprovada — é preciso marcar uma "
+                "nova banca antes de confirmar a entrega"
+            )

@@ -266,6 +266,11 @@ def serializar_escopo(
         # ⚠ Espelha `update_escopo_projeto`: se divergirem, a tela mostra o
         # cadeado aberto e o clique volta 422 — o pior dos dois mundos.
         "entrega_liberada": bool(banca and banca.realizado_em and banca.resultado == "aprovada"),
+        # ⭐ O carimbo da confirmação (§5.5) — é ela, não a data, que move o
+        # status para "entregue". A tela usa isto para saber se ainda falta o
+        # ato: data marcada + banca aprovada + sem confirmação = botão aparece.
+        "entrega_confirmada_em": escopo.entrega_confirmada_em,
+        "entrega_confirmada_por": (nomes_usuario or {}).get(escopo.entrega_confirmada_por),
         "reajuste_pendente": (
             {
                 "id": reajuste_pendente.id,

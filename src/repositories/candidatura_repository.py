@@ -32,6 +32,21 @@ class CandidaturaRepository:
     def get_by_banca(self, banca_id: int) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).filter(CandidaturaModel.banca_id == banca_id).all()
 
+    def get_by_bancas(self, banca_ids: List[int]) -> List[CandidaturaModel]:
+        """As candidaturas de VÁRIAS bancas, numa consulta só.
+
+        Existe para a fila de Aprovações: ela precisa do eleitorado de cada
+        banca sem resultado para dizer "1 de 2 votaram", e chamar
+        `get_by_banca` num laço é uma consulta por banca.
+        """
+        if not banca_ids:
+            return []
+        return (
+            self.db.query(CandidaturaModel)
+            .filter(CandidaturaModel.banca_id.in_(banca_ids))
+            .all()
+        )
+
     def get_by_usuario(self, usuario_id: int) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).filter(CandidaturaModel.usuario_id == usuario_id).all()
 

@@ -29,7 +29,7 @@ from datetime import date, datetime
 from typing import Dict, Iterable, List, Optional
 
 from src.utils.banca_status import ATRASADA, calcular_status_banca
-from src.utils.dias_uteis import dias_uteis_de_atraso
+from src.utils.janela_escopo import atraso_sem_pausa
 
 
 @dataclass
@@ -75,50 +75,125 @@ def calcular_atraso_projeto(
     nomes_escopo: Dict[int, str],
     referencia: Optional[date] = None,
     dias_nao_letivos: Optional[Iterable[date]] = None,
+    janelas_pausa: Iterable[tuple] = (),
 ) -> AtrasoProjeto:
+    """§7.4: quais bancas deste projeto já deviam ter acontecido e não aconteceram.
+
+    ⭐ **Quatro recortes, e cada um responde a uma pergunta que a diretoria não
+    tem como cobrar.** Um escopo só gera atraso de banca quando:
+
+    1. não está **cancelado** — não existe mais trabalho a cobrar;
+    2. não está **entregue** — o escopo acabou; uma banca não registrada de um
+       escopo já entregue é pendência de cadastro, não atraso de execução, e
+       antes disto crescia um dia útil por dia para sempre;
+    3. **teve reunião inicial** (§20.4) — sem ela a janela nem abriu, e a data
+       da banca é um rascunho: cobrar dela é cobrar de um escopo que não
+       começou;
+    4. a data da banca **já passou** — `<`, não `<=`.
+
+    ⚠ **O 4 é o que tirava o placar da gestão do ar.** A referência era
+    `datetime.max.time()` (23:59 de hoje), então uma banca marcada para hoje às
+    16h já contava como atrasada às 8h da manhã, com "0 dias" — e o MESMO
+    projeto aparecia em "bancas próximas" da Visão geral. A mesma banca era
+    agenda da semana e motivo de atraso. O dia da banca é dela; o atraso começa
+    no dia seguinte.
+
+    ⭐ **A pausa é descontada.** `janelas_pausa` chega opcional para não quebrar
+    quem já chamava, mas quem monitora deve passar: ⏸ Pausado é decisão da
+    própria diretoria, e cobrar atraso pelos dias em que ela mandou parar é
+    cobrar de si mesma. É a mesma régua que `janela_escopo.dias_de_atraso` já
+    aplicava do outro lado — sem ela, as duas metades da tela discordavam sobre
+    o mesmo projeto parado.
+
+    ⚠ **Dias ÚTEIS, e não corridos como o §7.4 escreve.** A diretoria trocou a
+    régua em 2026-08-04: cobrar fim de semana, feriado e semana de provas seria
+    cobrar tempo em que o time não tinha como trabalhar.
+    """
     referencia = referencia or date.today()
     nao_letivos = dias_nao_letivos or []
     resultado = AtrasoProjeto(projeto_id=projeto_id)
-    # A `referencia` precisa atravessar para o cálculo do status, senão ele cai
-    # no relógio real e o "está atrasada?" discorda da data que se pediu — é o
-    # mesmo cuidado que `banca_status.dias_de_atraso` já tomava internamente e
-    # que se perdia aqui, porque esta função chamava o status sem passá-la.
-    fim_do_dia = datetime.combine(referencia, datetime.max.time())
+    # ⚠ Meia-noite de HOJE, não 23:59. É o que faz a banca marcada para hoje
+    # ainda não estar atrasada — ver o item 4 do docstring.
+    inicio_do_dia = datetime.combine(referencia, datetime.min.time())
 
     for escopo in escopos:
         if escopo.status == "cancelado":
             continue
+        # O escopo acabou: o que falta é registro, não trabalho.
+        if escopo.status == "entregue" or getattr(escopo, "data_entrega_real", None):
+            continue
+        # §20.4: sem reunião inicial não há janela, e a data da banca é rascunho.
+        if not getattr(escopo, "data_inicio", None):
+            continue
+
         nome = nomes_escopo.get(escopo.id, "escopo")
-
-        # Pilar 1 — a banca venceu e não aconteceu.
         banca = bancas_por_escopo.get(escopo.id)
-        if banca and banca.data_hora:
-            status = calcular_status_banca(banca.data_hora, banca.realizado_em, fim_do_dia)
-            if status == ATRASADA:
-                dias = dias_uteis_de_atraso(banca.data_hora.date(), referencia, nao_letivos)
-                resultado.motivos.append(
-                    MotivoAtraso(
-                        tipo="banca",
-                        descricao=f"banca de {nome} venceu há {dias} dias úteis sem acontecer",
-                        dias=dias,
-                        projeto_escopo_id=escopo.id,
-                        escopo_nome=nome,
-                        data_referencia=banca.data_hora.date(),
-                    )
-                )
+        if not banca or not banca.data_hora:
+            continue
 
-        # ⚠ **Aqui havia um "Pilar 2": o atraso da ENTREGA ao cliente.**
-        #
-        # Removido a pedido da diretoria (2026-08-12). Ele gerava os motivos
-        # `entrega_interna`/`entrega_externa` a partir de
-        # `data_entrega_planejada` vencida, e o efeito era um insight que media
-        # a agenda do cliente e não o trabalho do time: um escopo com banca
-        # feita no prazo aparecia com "8 dias de atraso" porque a apresentação
-        # ao cliente ainda não tinha sido marcada, e o número crescia sozinho.
-        #
-        # O que ficou é o pilar que o §7.4 sempre chamou de pilar: **a banca**.
-        # `projeto_escopo.tipo_atraso_entrega` e a rota que o classifica
-        # continuam existindo — o dado não foi apagado, só deixou de virar
-        # alerta.
+        status = calcular_status_banca(banca.data_hora, banca.realizado_em, inicio_do_dia)
+        if status != ATRASADA:
+            continue
 
+        dias = atraso_sem_pausa(
+            banca.data_hora.date(), referencia, nao_letivos, janelas_pausa
+        )
+        resultado.motivos.append(
+            MotivoAtraso(
+                tipo="banca",
+                descricao=f"banca de {nome} venceu há {dias} dias úteis sem acontecer",
+                dias=dias,
+                projeto_escopo_id=escopo.id,
+                escopo_nome=nome,
+                data_referencia=banca.data_hora.date(),
+            )
+        )
+
+    # ⚠ **Aqui havia um "Pilar 2": o atraso da ENTREGA ao cliente.**
+    #
+    # Removido a pedido da diretoria (2026-08-12). Ele media a agenda do
+    # cliente e não o trabalho do time: um escopo com banca feita no prazo
+    # aparecia com "8 dias de atraso" porque a apresentação ainda não tinha
+    # sido marcada, e o número crescia sozinho.
+    #
+    # `projeto_escopo.tipo_atraso_entrega` e a rota que o classifica continuam
+    # existindo — o dado não foi apagado, só deixou de virar alerta.
     return resultado
+
+
+def justificativa_cobrindo(motivo, justificativas):
+    """§7.4: qual nota da diretoria já responde por ESTE motivo — ou `None`.
+
+    ⭐ **Função de módulo, e não método, porque tem dois donos.** A aba Atrasos
+    a usa para pintar o selo "justificado"; a fila de Aprovações, para decidir
+    se ainda precisa cobrar. Enquanto morou só na primeira, a segunda usava um
+    atalho — um set de `projeto_id` — e as duas telas discordavam: uma nota de
+    junho sobre um escopo entregue fazia um atraso de agosto sumir da fila,
+    mas continuar vermelho na aba ao lado.
+
+    O aviso é POR MOTIVO (escopo + tipo), não por projeto: o mesmo escopo pode
+    estar atrasado em banca E entrega ao mesmo tempo, e uma nota só cobre as
+    duas se for geral. Ordem de especificidade, da mais ampla à mais estreita:
+      1. nota geral do projeto (sem escopo) — cobre qualquer motivo;
+      2. nota do escopo sem tipo — cobre os motivos DESTE escopo;
+      3. nota do escopo com tipo — cobre só ESTE motivo.
+
+    Uma nota só conta para o atraso ATUAL: se o atraso deste motivo começou
+    depois da nota, ela era de uma rodada anterior (já resolvida).
+
+    Devolve a mais RECENTE que cobre — "o que a diretoria disse por último".
+    """
+
+    def cobre(j) -> bool:
+        if j.projeto_escopo_id is not None and j.projeto_escopo_id != motivo.projeto_escopo_id:
+            return False
+        if j.tipo is not None and j.tipo != motivo.tipo:
+            return False
+        if motivo.data_referencia is None:
+            return True
+        return j.registrado_em.date() >= motivo.data_referencia
+
+    candidatas = [j for j in justificativas if cobre(j)]
+    if not candidatas:
+        return None
+    return max(candidatas, key=lambda j: j.registrado_em)

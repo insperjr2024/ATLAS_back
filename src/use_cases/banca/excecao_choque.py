@@ -184,6 +184,13 @@ class ListarExcecoesChoquePendentesUseCase:
         self.usuario_repository = UsuarioRepository(db)
 
     def execute(self):
+        # O catálogo, uma vez: `nome_do_escopo` precisa dele para resolver o
+        # escopo de catálogo, e "Outro" tem nome customizado (§4).
+        from src.repositories.escopo_repository import EscopoRepository
+        from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
+
+        catalogo = {e.id: e for e in EscopoRepository(self.db).get_all()}
+
         linhas = []
         for pedido in self.repository.get_pendentes():
             escopo = self.escopo_repository.get_by_id(pedido.projeto_escopo_id)
@@ -200,6 +207,10 @@ class ListarExcecoesChoquePendentesUseCase:
                     "projeto_id": projeto.id if projeto else None,
                     "projeto_nome": projeto.nome if projeto else "—",
                     "projeto_escopo_id": pedido.projeto_escopo_id,
+                    # ⚠ Era a única das cinco filas sem o nome do escopo: a
+                    # linha dizia só o projeto, e um projeto sinérgico tem
+                    # banca por escopo — sem ele não dava para saber QUAL.
+                    "escopo_nome": nome_do_escopo(escopo, catalogo) if escopo else None,
                     "data_hora_pretendida": pedido.data_hora_pretendida,
                     # O contexto que faz a decisão ser possível sem sair da
                     # tela: com QUEM está chocando.

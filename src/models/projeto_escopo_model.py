@@ -63,6 +63,18 @@ class ProjetoEscopoModel(Base):
     data_entrega_planejada = Column(Date, nullable=True)
     # Preenchê-la congela a contagem — trava do §5.5 mora no use case de entrega.
     data_entrega_real = Column(Date, nullable=True)
+    #: ⭐ Quando a entrega foi CONFIRMADA — o ato que muda o status para
+    #: "entregue" (§5.5).
+    #:
+    #: ⚠ Não é a mesma coisa que `data_entrega_real`. Aquela é o DIA em que o
+    #: escopo foi ao cliente, marcada no cronograma como qualquer outra data;
+    #: esta é o carimbo de que alguém com responsabilidade sobre o projeto
+    #: olhou e disse "sim, entregamos". Gravar a data deixou de virar o status
+    #: sozinho: a data pode ser corrigida, antecipada ou lançada por engano, e
+    #: a tabela de escopos passava a dizer "Entregue" a partir de um clique no
+    #: calendário que ninguém tratava como uma declaração.
+    entrega_confirmada_em = Column(DateTime, nullable=True)
+    entrega_confirmada_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     tipo_atraso_entrega = Column(
         Enum("interno", "externo", name="tipo_atraso_entrega_escopo"), nullable=True
     )

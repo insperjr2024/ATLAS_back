@@ -124,6 +124,24 @@ def detectar_condicoes(
     return condicoes
 
 
+
+#: Sem dia padrão definido, a cobrança começa na quinta (ISO: 1=segunda).
+DIA_PADRAO_DE_COBRANCA = 4
+
+
+def _passou_o_dia_da_reuniao(projeto, hoje: date) -> bool:
+    """A semana já passou do dia em que este projeto se reúne?
+
+    ⭐ `>` e não `>=`: no PRÓPRIO dia da reunião ela ainda pode acontecer —
+    cobrar às 9h de uma reunião marcada para as 18h é cobrar o futuro.
+
+    `dia_reuniao_padrao` é 1=segunda … 7=domingo, a mesma convenção de
+    `date.isoweekday()`.
+    """
+    dia = getattr(projeto, "dia_reuniao_padrao", None) or DIA_PADRAO_DE_COBRANCA
+    return hoje.isoweekday() > dia
+
+
 def _do_projeto(
     projeto,
     *,
@@ -181,7 +199,16 @@ def _do_projeto(
     # ── Projeto sem reunião na semana (§6.4) ─────────────────────────────
     # Só depois do kickoff: cobrar reunião semanal de um projeto que ainda não
     # começou é ruído, e o alerta de kickoff já está lá.
-    if projeto.data_kickoff and not tem_reuniao:
+    #
+    # ⚠ **E só depois de o dia da reunião passar.** A condição disparava a
+    # partir de segunda 00:00: na manhã de segunda, TODOS os projetos ativos
+    # apareciam sem reunião — inclusive os que se reúnem na quinta. Era o que
+    # enchia "Atenção agora" com 11 linhas idênticas e fazia o card ser lido
+    # como ruído em vez de fila.
+    #
+    # Quem não definiu dia padrão só é cobrado a partir de quinta: dá a semana
+    # quase inteira antes de virar alerta, e ainda sobra sexta para resolver.
+    if projeto.data_kickoff and not tem_reuniao and _passou_o_dia_da_reuniao(projeto, hoje):
         inicio, _fim = janela_semana(hoje)
         ano, semana, _ = inicio.isocalendar()
         condicoes.append(
