@@ -57,6 +57,22 @@ class SubmeterAvaliacaoUseCase:
                 "Você não foi escalado para esta banca e não pode avaliá-la"
             )
 
+        # 🔒 Repetido aqui pela mesma razão da checagem acima: `create_avaliacao`
+        # recusa abrir um formulário novo depois do voto, mas um RASCUNHO criado
+        # ANTES dele já existia e continuaria submissível — enviá-lo trocaria o
+        # voto pelo caminho de trás. É este o ato que conta, então é aqui que a
+        # regra tem de valer.
+        outra_submetida = any(
+            a.id != avaliacao.id
+            and a.avaliador_id == usuario_id
+            and a.status == "submetida"
+            for a in self.repository.get_by_banca(avaliacao.banca_id, sessao=avaliacao.sessao)
+        )
+        if outra_submetida:
+            raise RegraDeNegocioError(
+                "Você já enviou sua avaliação desta banca — o voto não pode ser refeito"
+            )
+
         banca = self.banca_repository.get_by_id(avaliacao.banca_id)
         if not banca or not banca.realizado_em:
             raise RegraDeNegocioError(

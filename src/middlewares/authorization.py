@@ -286,3 +286,50 @@ def exigir_acesso_ao_projeto(projeto_id: int, current_user, db: Session) -> None
     if not pode_ver_projeto(projeto_id, current_user, db):
         # 404 e não 403: quem não enxerga o projeto não deve nem saber que ele existe.
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
+
+
+def eh_avaliador_do_projeto(projeto_id: int, current_user, db: Session) -> bool:
+    """Está escalado para alguma banca deste projeto?
+
+    ⭐ **Um visitante da aba Banca, e nada além dela.** O §3 dá visão de projeto
+    a quem está ALOCADO nele, e o §8 proíbe que membro do projeto avalie a
+    própria banca — os dois conjuntos são disjuntos por construção. O efeito
+    colateral era que o avaliador escalado, a única pessoa que de fato vota,
+    recebia 404 na página onde o voto mora: a tela existia e ninguém que
+    precisava dela conseguia abrir.
+
+    Isto NÃO amplia o recorte. `pode_ver_projeto` continua igual, a listagem de
+    projetos continua igual, e as abas de cronograma, tarefas e histórico
+    continuam fechadas. É uma porta nomeada, usada só onde a banca é o assunto.
+    """
+    from src.models.banca_escopo_model import BancaEscopoModel
+    from src.models.candidatura_model import CandidaturaModel
+    from src.models.projeto_escopo_model import ProjetoEscopoModel
+
+    return (
+        db.query(CandidaturaModel.id)
+        .join(BancaEscopoModel, BancaEscopoModel.banca_id == CandidaturaModel.banca_id)
+        .join(
+            ProjetoEscopoModel,
+            ProjetoEscopoModel.id == BancaEscopoModel.projeto_escopo_id,
+        )
+        .filter(
+            CandidaturaModel.usuario_id == current_user.id,
+            ProjetoEscopoModel.projeto_id == projeto_id,
+        )
+        .first()
+        is not None
+    )
+
+
+def exigir_acesso_a_banca_do_projeto(projeto_id: int, current_user, db: Session) -> bool:
+    """Acesso à aba Banca: quem vê o projeto **ou** quem foi escalado nele.
+
+    Devolve `True` quando a pessoa entrou pela porta de visitante — o chamador
+    usa isso para dizer à tela que só a aba Banca está disponível.
+    """
+    if pode_ver_projeto(projeto_id, current_user, db):
+        return False
+    if eh_avaliador_do_projeto(projeto_id, current_user, db):
+        return True
+    raise HTTPException(status_code=404, detail="Projeto não encontrado")
