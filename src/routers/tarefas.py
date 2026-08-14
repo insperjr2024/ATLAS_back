@@ -254,10 +254,17 @@ def create_reuniao(projeto_id: int, request: ReuniaoRequest, current_user=Depend
 @router.patch("/reunioes/{reuniao_id}")
 def update_reuniao(reuniao_id: int, request: ReuniaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Mover a reunião de dia — registrou quarta, aconteceu quinta — ou
-    corrigir sobre qual escopo ela foi. A `data_inicio` do escopo acompanha."""
+    corrigir sobre qual escopo ela foi. A `data_inicio` do escopo acompanha.
+
+    ⚠ Mover a reunião INICIAL **zera o cronograma do escopo**, e por isso é
+    decisão da diretoria: o `eh_diretor` abaixo é o que separa quem executa de
+    quem precisa pedir.
+    """
     _acesso_pela_reuniao(reuniao_id, current_user, db)
     try:
-        return UpdateReuniaoUseCase(db).execute(reuniao_id, request)
+        return UpdateReuniaoUseCase(db).execute(
+            reuniao_id, request, eh_diretor=current_user.posicao == "diretor"
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
