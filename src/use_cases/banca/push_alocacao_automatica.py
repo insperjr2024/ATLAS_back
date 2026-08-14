@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from src.models.banca_model import BancaModel
 from src.models.usuario_model import UsuarioModel
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -23,9 +24,13 @@ from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.grade_horaria_repository import GradeHorariaRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.utils.equipe_banca import membros_da_banca
+from src.utils.fuso import para_hora_local
 from src.utils.notificar import notificar
 from src.utils.piso_banca import calcular_piso_banca
 
@@ -40,6 +45,9 @@ class PushAlocacaoAutomaticaUseCase:
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
         self.frente_repository = FrenteRepository(db)
         self.usuario_frente_repository = UsuarioFrenteRepository(db)
         self.grade_horaria_repository = GradeHorariaRepository(db)
@@ -202,10 +210,23 @@ class PushAlocacaoAutomaticaUseCase:
         ⭐ É o ÚNICO portão: tanto o laço por frente quanto o fallback geral em
         `_processar_banca` filtram por este conjunto, então somar alguém aqui
         o tira de todos os caminhos de uma vez.
+
+        ⚠ A equipe do projeto vem de `membros_da_banca`, não da legada
+        `equipe_projeto` sozinha. Só o coordenador estava protegido de verdade
+        (é coluna da banca); os CONSULTORES do projeto ficavam elegíveis, e o
+        rodízio podia escalá-los para avaliar o próprio trabalho — o mesmo
+        buraco que a inscrição manual já tinha fechado.
         """
         excluidos = {c.usuario_id for c in candidaturas_atuais}
-        excluidos.add(banca.coordenador_id)
-        excluidos.update(e.usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id))
+        excluidos.update(
+            membros_da_banca(
+                banca,
+                self.banca_escopo_repository,
+                self.escopo_repository,
+                self.membro_repository,
+                self.equipe_projeto_repository,
+            )
+        )
         excluidos.update(self._com_aula_no_horario(banca))
         return excluidos
 
@@ -223,20 +244,29 @@ class PushAlocacaoAutomaticaUseCase:
         ⚠ Compara pelo INÍCIO da banca. A banca não guarda duração, então uma
         que comece 13:00 e avance sobre a aula das 14:15 não é detectada. Para
         pegar isso seria preciso gravar quanto dura cada banca.
+
+        ⚠ **Em hora LOCAL, não no valor cru.** `banca.data_hora` é gravado em
+        UTC (o front manda `toISOString()`); a grade é preenchida em horário de
+        aula. Comparar os dois direto errava por 3 horas e invertia a regra —
+        quem tinha aula na hora da banca era escalado e quem estava livre era
+        barrado. O `weekday()` sofria do mesmo: banca da noite vira o dia
+        seguinte em UTC.
         """
         if not banca.data_hora:
             return set()
 
+        quando = para_hora_local(banca.data_hora)
+
         # `weekday()` já é 0=segunda … 6=domingo, a mesma convenção da grade.
-        dia_semana = banca.data_hora.weekday()
+        dia_semana = quando.weekday()
         if dia_semana > 4:
             return set()
 
-        semestre = self.semestre_repository.get_por_data(banca.data_hora.date())
+        semestre = self.semestre_repository.get_por_data(quando.date())
         if not semestre:
             return set()
 
-        hora = banca.data_hora.time()
+        hora = quando.time()
         return {
             faixa.usuario_id
             for faixa in self.grade_horaria_repository.get_por_semestre(semestre.id)

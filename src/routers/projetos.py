@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
     require_diretor,
     require_gestao,
@@ -107,11 +108,18 @@ def list_projetos(
 
 @router.get("/projetos/{projeto_id}")
 def get_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    """A ficha do projeto.
+
+    ⭐ `apenas_banca` diz à tela que quem abriu é **visitante**: um avaliador
+    escalado numa banca deste projeto, que precisa do cabeçalho para votar mas
+    não enxerga o projeto pelo §3. O shell usa a flag para mostrar só a aba
+    Banca — sem ela, as outras abas apareceriam e devolveriam 404 no clique.
+    """
+    apenas_banca = exigir_acesso_a_banca_do_projeto(projeto_id, current_user, db)
     result = GetProjetoUseCase(db).execute(projeto_id)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
-    return result
+    return {**result, "apenas_banca": apenas_banca}
 
 
 @router.put("/projetos/{projeto_id}/equipe")
@@ -164,10 +172,12 @@ def update_dias_ambientacao(projeto_id: int, request: UpdateDiasAmbientacaoReque
 def list_bancas_do_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     """A aba **Banca** do projeto: cada banca com tentativas, votos e notas.
 
-    Mesmo recorte do resto da página do projeto (§3) — quem não enxerga o
-    projeto recebe 404, e não uma lista vazia que sugeriria "não há bancas".
+    Recorte do §3 mais uma porta nomeada: o avaliador ESCALADO numa banca deste
+    projeto também entra, porque é dele o voto que esta tela coleta. Quem não é
+    nem uma coisa nem outra recebe 404, e não uma lista vazia que sugeriria
+    "não há bancas".
     """
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_a_banca_do_projeto(projeto_id, current_user, db)
     return ListBancasDoProjetoUseCase(db).execute(projeto_id)
 
 

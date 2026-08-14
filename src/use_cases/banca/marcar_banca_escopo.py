@@ -36,6 +36,7 @@ from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.piso_banca import calcular_piso_banca
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import CODIGO_BANCA_ABAIXO_DO_MINIMO, RegraDeNegocioError
+from src.utils.fuso import normalizar_utc
 from src.utils.janela_escopo import (
     FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS,
     calcular_janela,
@@ -87,6 +88,15 @@ class MarcarBancaEscopoUseCase:
         escopo = self.escopo_repository.get_by_id(escopo_id)
         if not escopo:
             return None
+
+        # ⚠ PRIMEIRA coisa: o front manda `toISOString()`, que chega com fuso,
+        # e a coluna guarda sem. Todo o resto deste método decide pela pergunta
+        # "a data mudou?" — e, comparados crus, um datetime aware e um naive
+        # nunca são iguais. Salvar a MESMA data (para trocar só quais escopos a
+        # banca cobre, por exemplo) era lido como remarcação: pedia
+        # justificativa e gravava uma linha de histórico para um adiamento que
+        # não houve.
+        request.data_hora = normalizar_utc(request.data_hora)
 
         projeto = self.projeto_repository.get_by_id(escopo.projeto_id)
         existente = self.repository.get_by_projeto_escopo(escopo_id)

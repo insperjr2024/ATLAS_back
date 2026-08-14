@@ -2,12 +2,16 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.solicitacao_troca_repository import SolicitacaoTrocaRepository
 from src.use_cases.solicitacao_troca.get_solicitacao_troca import serializar_solicitacao_troca
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
+from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar import notificar
 
@@ -19,6 +23,9 @@ class ConfirmarSolicitacaoTrocaUseCase:
         self.banca_repository = BancaRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
 
     def execute(self, solicitacao_id: int, usuario_id: int):
         solicitacao = self.repository.get_by_id(solicitacao_id)
@@ -41,8 +48,18 @@ class ConfirmarSolicitacaoTrocaUseCase:
 
         # Mesma regra de `create_candidatura`: ninguém assume vaga na banca do
         # próprio grupo, e não dá pra confirmar se já é candidato.
-        eh_do_grupo = banca.coordenador_id == usuario_id or any(
-            e.usuario_id == usuario_id for e in self.equipe_projeto_repository.get_by_banca(banca.id)
+        #
+        # ⚠ Pela MESMA fonte que ela usa. Enquanto isto olhava só a legada
+        # `equipe_projeto`, a última porta ficava aberta: mesmo com o convite
+        # barrado na criação, um pedido ABERTO ainda podia ser confirmado por
+        # quem é da equipe do projeto — e banca de cronograma não escreve
+        # naquela tabela.
+        eh_do_grupo = usuario_id in membros_da_banca(
+            banca,
+            self.banca_escopo_repository,
+            self.escopo_repository,
+            self.membro_repository,
+            self.equipe_projeto_repository,
         )
         if eh_do_grupo:
             raise RegraDeNegocioError("Você não pode confirmar a troca de uma banca do seu próprio grupo")

@@ -63,6 +63,34 @@ class FakeEquipeProjetoRepo:
         return []
 
 
+class FakeBancaEscopoRepo:
+    """A banca destes testes não cobre escopo nenhum — o assunto aqui é a
+    composição por FRENTE. Sem escopo, `membros_da_banca` não tem projeto de
+    onde puxar equipe, e o único excluído continua sendo o coordenador."""
+
+    def __init__(self, escopo_ids=()):
+        self._escopo_ids = list(escopo_ids)
+
+    def get_escopo_ids(self, banca_id):
+        return self._escopo_ids
+
+
+class FakeProjetoEscopoRepo:
+    def __init__(self, por_id: dict | None = None):
+        self._por_id = por_id or {}
+
+    def get_by_id(self, escopo_id):
+        return self._por_id.get(escopo_id)
+
+
+class FakeProjetoMembroRepo:
+    def __init__(self, por_projeto: dict | None = None):
+        self._por_projeto = por_projeto or {}
+
+    def get_by_projeto(self, projeto_id, apenas_atuais=False):
+        return self._por_projeto.get(projeto_id, [])
+
+
 class FakeUsuarioFrenteRepo:
     def __init__(self, por_frente: dict):
         self._por_frente = por_frente
@@ -118,6 +146,9 @@ def montar(
     uc.candidatura_repository = candidatura_repo
     uc.configuracao_repository = FakeConfiguracaoRepo(lideranca_minima)
     uc.equipe_projeto_repository = FakeEquipeProjetoRepo()
+    uc.banca_escopo_repository = FakeBancaEscopoRepo()
+    uc.escopo_repository = FakeProjetoEscopoRepo()
+    uc.membro_repository = FakeProjetoMembroRepo()
     uc.usuario_frente_repository = FakeUsuarioFrenteRepo(por_frente)
     uc.usuario_repository = FakeUsuarioRepo(usuarios)
     uc.semestre_repository = FakeSemestreRepo()
