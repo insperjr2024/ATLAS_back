@@ -425,13 +425,35 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                 bancas_por_escopo=ctx["bancas_por_escopo"],
                 sessoes_por_banca=ctx["sessoes_por_banca"],
             )
-            atraso = max(
-                (
-                    c.atraso
-                    for e, c in ((e, contagens.get(e.id)) for e in do_projeto)
-                    if c and e.status != "cancelado"
-                ),
-                default=0,
+            valem = [
+                (e, c)
+                for e, c in ((e, contagens.get(e.id)) for e in do_projeto)
+                if c and e.status != "cancelado"
+            ]
+            atraso = max((c.atraso for _, c in valem), default=0)
+
+            # ⭐ **O DENOMINADOR.** Sem ele, "12 dias além do vendido" não tem
+            # tamanho: 12 sobre uma janela de 60 é um projeto apertado, 12
+            # sobre uma de 10 é um projeto que dobrou. A tela mostrava os dois
+            # como o mesmo "12" e não dava para priorizar entre eles.
+            #
+            # Soma dos escopos, não o pior: aqui a pergunta é quanto o projeto
+            # INTEIRO vendeu. O `dias_de_atraso` ao lado continua sendo o pior
+            # escopo, porque aquela pergunta é outra.
+            vendidos = sum(c.dias_vendidos for _, c in valem)
+
+            # ⭐ **QUAL escopo passou da janela**, não só quantos. "2 de 3" diz
+            # que há problema mas não onde; com o nome, a linha da tabela vira
+            # o endereço da conversa. O pior primeiro — é ele que dá o
+            # `dias_de_atraso` da linha, então os dois falam do mesmo escopo.
+            #
+            # ⚠ "Além do vendido", nunca "atrasado": na aba Atrasos, atrasado é
+            # banca vencida, e um escopo pode estar num estado sem estar no
+            # outro. Misturar os dois já pôs "0 atrasados" e "19 em atraso" na
+            # mesma tela.
+            alem_do_vendido = sorted(
+                ((e, c) for e, c in valem if c.estourou),
+                key=lambda par: -par[1].atraso,
             )
 
             linhas.append(
@@ -439,6 +461,19 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                     "projeto_id": projeto.id,
                     "projeto_nome": projeto.nome,
                     "dias_ajustados": ajustados,
+                    "dias_vendidos": vendidos,
+                    #: O nome do escopo que mais passou da janela. `None`
+                    #: quando nenhum passou.
+                    "escopo_alem_do_vendido": (
+                        ctx["nomes_escopo"].get(alem_do_vendido[0][0].id, "escopo")
+                        if alem_do_vendido
+                        else None
+                    ),
+                    #: Quantos passaram, de quantos há. Um projeto de 4 escopos
+                    #: com 1 além não é o mesmo que um com 4, e o nome do pior
+                    #: sozinho não distingue.
+                    "escopos_alem_do_vendido": len(alem_do_vendido),
+                    "escopos": len(valem),
                     # O PIOR atraso entre os escopos, não a soma: escopos correm
                     # em paralelo, e somá-los inventaria um atraso que o projeto
                     # não teve.
