@@ -16,9 +16,15 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.use_cases.monitoramento.graficos import MontarGraficoUseCase, listar_fontes
 from src.utils.exceptions import RegraDeNegocioError
-from src.middlewares.authorization import require_diretor, require_pode_ver_monitoramento
+from src.middlewares.authorization import (
+    require_diretor,
+    require_gestao,
+    require_pode_ver_monitoramento,
+)
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.monitoramento.aprovacoes import ListarAprovacoesPendentesUseCase
+from src.use_cases.monitoramento.historico_projetos import HistoricoProjetosUseCase
+from src.use_cases.monitoramento.projetos_ativos import ProjetosAtivosUseCase
 from src.use_cases.monitoramento.monitoramento import (
     AlocacaoUseCase,
     AtrasosUseCase,
@@ -147,3 +153,31 @@ def cronogramas(
     db: Session = Depends(get_db),
 ):
     return CronogramasGeraisUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+
+
+@router.get("/projetos-ativos")
+def projetos_ativos(
+    frente_id: Optional[int] = None,
+    current_user=Depends(require_pode_ver_monitoramento),
+    db: Session = Depends(get_db),
+):
+    """A aba Projetos ativos: o retrato dos projetos em curso (não finalizados
+    nem arquivados), com o mesmo recorte de visão do resto do painel."""
+    return ProjetosAtivosUseCase(db).execute(current_user, frente_id)
+
+
+@router.get("/historico-projetos")
+def historico_projetos(
+    frente_id: Optional[int] = None,
+    filtro: str = "todos",
+    current_user=Depends(require_gestao),
+    db: Session = Depends(get_db),
+):
+    """A aba Histórico de projetos: o portfólio ENCERRADO (finalizado ou
+    arquivado), só para diretoria e gerência.
+
+    `require_gestao` trava por posição (diretor + gerente); o use case ainda
+    aplica o recorte de visão (§7.5), então o gerente vê só o histórico das
+    frentes dele. `filtro` ∈ {todos, finalizados, arquivados}.
+    """
+    return HistoricoProjetosUseCase(db).execute(current_user, frente_id, filtro=filtro)
