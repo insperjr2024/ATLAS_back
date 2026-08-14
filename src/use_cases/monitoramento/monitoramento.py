@@ -48,7 +48,7 @@ from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.cronograma.get_cronograma import GetCronogramaUseCase
-from src.utils.atraso_monitoramento import calcular_atraso_projeto
+from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.banca_status import ABERTA, calcular_status_banca
 from src.utils.condicoes_alerta import (
     KICKOFF_PENDENTE,
@@ -56,7 +56,11 @@ from src.utils.condicoes_alerta import (
     TAREFA_VENCIDA,
     detectar_condicoes,
 )
-from src.utils.contagem_dias import calcular_contagem_projeto, marco_das_correcoes
+from src.utils.contagem_dias import (
+    calcular_contagem_projeto,
+    derivar_janelas_pausa,
+    marco_das_correcoes,
+)
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
 from src.utils.janela_escopo import calcular_janela, dias_de_atraso, dias_parados
 from src.utils.tarefa_status import (
@@ -225,6 +229,14 @@ class _BaseMonitoramento:
             if e.data_entrega_planejada
         ]
         nao_letivos = self._dias_nao_letivos(min(candidatos, default=None), referencia)
+
+        # ⚠ As janelas de ⏸ Pausado, por projeto. Faltavam aqui: o pilar da
+        # banca cobrava os dias em que a própria diretoria mandou parar,
+        # enquanto `_escopos_atrasados` — na MESMA tela — já os descontava. As
+        # duas metades discordavam sobre o mesmo projeto parado.
+        historico = _agrupar(
+            self.historico_repository.get_by_projetos([p.id for p in projetos]), "projeto_id"
+        )
         return {
             p.id: calcular_atraso_projeto(
                 p.id,
@@ -233,6 +245,7 @@ class _BaseMonitoramento:
                 ctx["nomes_escopo"],
                 referencia,
                 nao_letivos,
+                janelas_pausa=derivar_janelas_pausa(historico.get(p.id, [])),
             )
             for p in projetos
         }
@@ -343,7 +356,11 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             "entregas": self._entregas(projetos, ctx, semestre, hoje),
             "bancas_proximas": self._bancas_proximas(projetos, ctx, hoje),
             "tempo_parado": self._tempo_parado(projetos, ctx, hoje),
-            "atencao_agora": self._atencao_agora(projetos, ctx, atrasos, hoje),
+            # ⚠ `em_curso`, não `projetos`: a lista recebia a base crua e cobrava
+            # reunião semanal de projeto ⏸ Pausado e finalizado — os mesmos que
+            # esta tela exclui de TODAS as outras métricas. O payload respondia
+            # duas coisas sobre o mesmo projeto.
+            "atencao_agora": self._atencao_agora(em_curso, ctx, atrasos, hoje),
             # §15/§16: os números da janela, por projeto e por frente.
             "janela": self._metricas_de_janela(em_curso, ctx, hoje),
         }
@@ -381,36 +398,41 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         # se importa, mas divide o mesmo calendário.
         nao_letivos = self._calendario_de_janela()
 
+        # ⚠ **Aqui havia uma TERCEIRA implementação da contagem**, montada à
+        # mão com `calcular_janela` + `dias_de_atraso`, e ela divergia da
+        # função canônica em três pontos ao mesmo tempo: não passava
+        # `janelas_pausa` (dia de projeto parado contava como atraso), não
+        # passava as sessões (banca reprovada e remarcada voltava a contar,
+        # crescendo um dia por dia) e não pulava escopo cancelado.
+        #
+        # O efeito era visível: "21 · Reprovada, 2ª banca marcada — 13 em
+        # atraso" nesta tela, e o MESMO projeto ausente da aba Atrasos, que já
+        # usava a função certa. Agora as duas telas chamam
+        # `calcular_contagem_projeto`, como `_escopos_atrasados` já fazia.
+        historico_por_projeto = _agrupar(
+            self.historico_repository.get_by_projetos(ctx["ids"]), "projeto_id"
+        )
+
         linhas = []
         for projeto in projetos:
             do_projeto = ctx["escopos_por_projeto"].get(projeto.id, [])
             ajustados = sum(e.dias_uteis_ajustados for e in do_projeto)
-            atraso = 0
-            for escopo in do_projeto:
-                janela = calcular_janela(
-                    escopo.data_inicio,
-                    escopo.dias_uteis_vendidos,
-                    escopo.dias_uteis_ajustados,
-                    nao_letivos,
-                    referencia=hoje,
-                )
-                banca = ctx["bancas_por_escopo"].get(escopo.id)
-                # ⚠ Mesma régua de `calcular_contagem_escopo`: o atraso para no
-                # marco das correções (banca realizada OU, na falta dela, a
-                # entrega registrada), não só na banca. Olhar só a banca fazia o
-                # atraso do escopo já ENTREGUE crescer sozinho aqui, divergindo
-                # do número que a tela do projeto mostra para o mesmo escopo.
-                atraso = max(
-                    atraso,
-                    dias_de_atraso(
-                        janela,
-                        marco_das_correcoes(
-                            getattr(banca, "realizado_em", None), escopo.data_entrega_real
-                        ),
-                        nao_letivos,
-                        referencia=hoje,
-                    ),
-                )
+            contagens = calcular_contagem_projeto(
+                do_projeto,
+                historico_por_projeto.get(projeto.id, []),
+                nao_letivos,
+                referencia=hoje,
+                bancas_por_escopo=ctx["bancas_por_escopo"],
+                sessoes_por_banca=ctx["sessoes_por_banca"],
+            )
+            atraso = max(
+                (
+                    c.atraso
+                    for e, c in ((e, contagens.get(e.id)) for e in do_projeto)
+                    if c and e.status != "cancelado"
+                ),
+                default=0,
+            )
 
             linhas.append(
                 {
@@ -520,11 +542,15 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         2026-08-06: o card virou só o gráfico e nenhuma das duas tinha mais
         quem as lesse.
         """
+        # ⚠ `<= hoje`: entrega é fato consumado, e a coluna aceita data
+        # futura (é assim que se registra uma entrega combinada). Sem o corte,
+        # o card anunciava "8 escopos entregues na gestão" contando 3 que ainda
+        # vão acontecer — e a última barra da tendência subia sozinha.
         todas = [
             {"data": e.data_entrega_real}
             for escopos in ctx["escopos_por_projeto"].values()
             for e in escopos
-            if e.data_entrega_real
+            if e.data_entrega_real and e.data_entrega_real <= hoje
         ]
         na_gestao = [
             r for r in todas if not semestre or semestre.inicio <= r["data"] <= semestre.fim
@@ -691,6 +717,15 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             projetos,
             escopos_por_projeto=ctx["escopos_por_projeto"],
             bancas_por_escopo=ctx["bancas_por_escopo"],
+            # ⚠ Havia aqui um `sessoes_por_banca=ctx["sessoes_por_banca"]` que
+            # `detectar_condicoes` nunca aceitou — a Visão geral inteira caía
+            # com TypeError 500, e o outro chamador (o sino, em
+            # `listar_notificacoes`) seguia funcionando por não passá-lo.
+            #
+            # As sessões não fazem falta aqui: as condições desta função olham
+            # se a banca TEM data (`banca_nao_marcada`) e se ela é hoje —
+            # perguntas que a tentativa corrente responde. Quem precisa da
+            # PRIMEIRA realização é a contagem de dias, não o alerta.
             nomes_escopo=ctx["nomes_escopo"],
             tarefas_por_projeto=_agrupar(
                 self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
@@ -1228,7 +1263,19 @@ class AtrasosUseCase(_BaseMonitoramento):
         escopo_id: Optional[int] = None,
     ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
+        # ⭐ **Só projeto EM CURSO.** `_projetos_visiveis` só tira arquivado, e a
+        # aba iterava a lista crua — um projeto finalizado com banca antiga
+        # nunca marcada como realizada aparecia na fila de cobrança da
+        # diretoria, entrava no resumo e na conta do coordenador, e não
+        # aparecia em nenhuma das outras três telas, que já recortavam assim.
+        # Era o "aparecem projetos que não deveriam aparecer": o caso mais
+        # visível era um projeto FINALIZADO, com escopo entregue e banca
+        # aprovada, cobrado por 4 dias de atraso.
+        projetos = [
+            p
+            for p in self._projetos_visiveis(current_user, frente_id, escopo_id)
+            if p.status not in ("finalizado", "pausado")
+        ]
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         justificativas_por_projeto = _agrupar(
@@ -1367,6 +1414,16 @@ class AtrasosUseCase(_BaseMonitoramento):
                 nao_letivos,
                 referencia=referencia,
                 bancas_por_escopo=ctx["bancas_por_escopo"],
+                # ⚠ **Faltava, e era o erro mais caro da tela.** Sem as
+                # sessões, `primeira_realizacao` cai no fallback
+                # `banca.realizado_em` — que `_campos_da_remarcacao` ZERA
+                # quando uma banca reprovada é remarcada. Para o Monitoramento
+                # a banca nunca tinha acontecido, a contagem seguia correndo
+                # até hoje, e o retrabalho entre a 1ª e a 2ª banca (§11) virava
+                # atraso. O docstring acima promete que este número é o MESMO
+                # que o coordenador vê na tela do projeto; sem esta linha ele
+                # não era: 1 dia lá, 44 aqui.
+                sessoes_por_banca=ctx["sessoes_por_banca"],
             )
             for escopo in do_projeto:
                 contagem = contagens.get(escopo.id)
@@ -1431,39 +1488,13 @@ class AtrasosUseCase(_BaseMonitoramento):
         }
 
     def _justificativa_cobrindo(self, motivo, justificativas):
-        """§7.4: o projeto continua vermelho mesmo depois de justificado —
-        "o alerta é automático" não muda por causa da nota. O aviso é só pra
-        dizer que a diretoria já perguntou e já registrou o porquê, então não
-        cobra de novo o que já foi respondido.
+        """Delega para `justificativa_cobrindo` (utils/atraso_monitoramento).
 
-        O aviso é POR MOTIVO (escopo + tipo), não por projeto: o mesmo escopo
-        pode estar atrasado em banca E entrega ao mesmo tempo, e uma nota só
-        cobre as duas se for uma nota geral (sem escopo/tipo escolhidos).
-        Ordem de especificidade, da mais ampla pra mais estreita:
-          1. nota geral do projeto (sem escopo) — cobre qualquer motivo;
-          2. nota do escopo sem tipo — cobre os motivos DESTE escopo;
-          3. nota do escopo com tipo — cobre só ESTE motivo.
-
-        Uma nota só conta pro atraso ATUAL: se o atraso deste motivo começou
-        depois da nota, ela era de uma rodada anterior (já resolvida) e não
-        cobre a de agora.
-
-        Devolve a nota mais RECENTE que cobre — se houver mais de uma, é a
-        que reflete melhor "o que a diretoria disse por último" sobre isto.
+        A régua saiu daqui quando a fila de Aprovações precisou da MESMA
+        pergunta e respondeu com um atalho por projeto — duas telas com contas
+        diferentes sobre o mesmo atraso.
         """
-        def cobre(j) -> bool:
-            if j.projeto_escopo_id is not None and j.projeto_escopo_id != motivo.projeto_escopo_id:
-                return False
-            if j.tipo is not None and j.tipo != motivo.tipo:
-                return False
-            if motivo.data_referencia is None:
-                return True
-            return j.registrado_em.date() >= motivo.data_referencia
-
-        candidatas = [j for j in justificativas if cobre(j)]
-        if not candidatas:
-            return None
-        return max(candidatas, key=lambda j: j.registrado_em)
+        return justificativa_cobrindo(motivo, justificativas)
 
 
 class TarefasGeraisUseCase(_BaseMonitoramento):

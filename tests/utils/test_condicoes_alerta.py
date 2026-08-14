@@ -29,8 +29,21 @@ QUA_05 = date(2026, 8, 5)
 SEX_07 = date(2026, 8, 7)
 
 
-def projeto(id=1, nome="Projeto Alfa", kickoff=SEG_03, status="em_andamento"):
-    return SimpleNamespace(id=id, nome=nome, data_kickoff=kickoff, status=status)
+def projeto(id=1, nome="Projeto Alfa", kickoff=SEG_03, status="em_andamento", dia_reuniao=2):
+    """⚠ `dia_reuniao` entrou em 2026-08-13 (terça, por padrão).
+
+    A cobrança de reunião semanal passou a esperar o dia da reunião PASSAR —
+    antes disparava a partir de segunda 00:00, e na manhã de segunda todos os
+    projetos ativos apareciam sem reunião. Os testes desta classe usam quarta
+    como "hoje", então terça é o dia que os mantém cobrando.
+    """
+    return SimpleNamespace(
+        id=id,
+        nome=nome,
+        data_kickoff=kickoff,
+        status=status,
+        dia_reuniao_padrao=dia_reuniao,
+    )
 
 
 def tarefa(id=1, prazo=SEG_03, responsavel_id=5, coluna_id=1, titulo="Benchmark"):
@@ -132,6 +145,42 @@ class TestSemReuniao:
         da_outra = detectar([projeto()], hoje=date(2026, 8, 12))[0].chave_dedup
         assert desta != da_outra
         assert desta.endswith("2026-W32")
+
+
+class TestOdiaDaReuniaoPrecisaPassar:
+    """⭐ Cobrar reunião antes do dia dela é cobrar o futuro.
+
+    ⚠ A condição disparava assim que a semana virava. Numa segunda de manhã o
+    "Atenção agora" abria com uma linha para CADA projeto ativo, todas
+    idênticas — e um card que sempre acusa tudo deixa de ser lido.
+    """
+
+    def test_antes_do_dia_nao_cobra(self):
+        """Reunião na terça, hoje é segunda: ela ainda vai acontecer."""
+        condicoes = detectar([projeto(dia_reuniao=2)], hoje=SEG_03)
+        assert PROJETO_SEM_REUNIAO not in tipos(condicoes)
+
+    def test_no_proprio_dia_nao_cobra(self):
+        """Hoje É terça: a reunião das 18h ainda não perdeu a hora."""
+        condicoes = detectar([projeto(dia_reuniao=2)], hoje=date(2026, 8, 4))
+        assert PROJETO_SEM_REUNIAO not in tipos(condicoes)
+
+    def test_depois_do_dia_cobra(self):
+        condicoes = detectar([projeto(dia_reuniao=2)], hoje=QUA_05)
+        assert PROJETO_SEM_REUNIAO in tipos(condicoes)
+
+    def test_sem_dia_definido_espera_ate_quinta(self):
+        """Quem não definiu dia ganha a semana quase inteira antes do alerta."""
+        assert PROJETO_SEM_REUNIAO not in tipos(detectar([projeto(dia_reuniao=None)], hoje=QUA_05))
+        assert PROJETO_SEM_REUNIAO in tipos(
+            detectar([projeto(dia_reuniao=None)], hoje=date(2026, 8, 7))
+        )
+
+    def test_reuniao_na_sexta_nao_cobra_na_quinta(self):
+        """A régua é do PROJETO, não do calendário: quem se reúne sexta não é
+        cobrado quinta, mesmo com o padrão sendo quinta."""
+        condicoes = detectar([projeto(dia_reuniao=5)], hoje=date(2026, 8, 6))
+        assert PROJETO_SEM_REUNIAO not in tipos(condicoes)
 
 
 class TestBanca:

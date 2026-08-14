@@ -31,6 +31,8 @@ from src.use_cases.projeto_escopo.update_escopo_projeto import (
     ClassificarAtrasoEntregaUseCase,
     DeleteEscopoProjetoUseCase,
     RegistrarEntregaEscopoRequest,
+    ConfirmarEntregaEscopoRequest,
+    ConfirmarEntregaEscopoUseCase,
     RegistrarEntregaEscopoUseCase,
     UpdateEscopoProjetoRequest,
     UpdateEscopoProjetoUseCase,
@@ -40,6 +42,10 @@ from src.use_cases.banca.get_banca_detalhes import ListBancasDoProjetoUseCase
 from src.use_cases.projeto.arquivar_projeto import ArquivarProjetoUseCase, DesarquivarProjetoUseCase
 from src.use_cases.projeto.create_projeto import CreateProjetoUseCase, CreateProjetoRequest
 from src.use_cases.projeto.delete_projeto import DeleteProjetoPermanenteUseCase
+from src.use_cases.projeto.pedir_justificativa import (
+    PedirJustificativaRequest,
+    PedirJustificativaUseCase,
+)
 from src.use_cases.projeto.get_projeto import (
     GetHistoricoProjetoUseCase,
     GetProjetoUseCase,
@@ -271,6 +277,41 @@ def registrar_justificativa_atraso(
         raise HTTPException(status_code=422, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
+
+    # ⭐ A nota fecha o pedido que a provocou. Sem isto, o pedido ficaria aberto
+    # para sempre e a fila da diretoria voltaria a mentir — agora com pedidos
+    # fantasma sobre atrasos já explicados.
+    from src.repositories.projeto_justificativa_atraso_repository import (
+        ProjetoJustificativaAtrasoRepository,
+    )
+    from src.use_cases.projeto.pedir_justificativa import fechar_pedidos_cobertos
+
+    nota = ProjetoJustificativaAtrasoRepository(db).get_by_id(result["id"])
+    if nota:
+        result["pedidos_fechados"] = fechar_pedidos_cobertos(db, projeto_id, nota)
+    return result
+
+
+@router.post("/projetos/{projeto_id}/pedido-justificativa")
+def pedir_justificativa(
+    projeto_id: int,
+    request: PedirJustificativaRequest,
+    current_user=Depends(require_lideranca),
+    db: Session = Depends(get_db),
+):
+    """§7.4: "a diretoria pergunta ao coordenador" — a pergunta, registrada.
+
+    Mesma porta de quem pode escrever a nota (`require_lideranca` + acesso ao
+    projeto): quem tem o direito de responder tem o de perguntar. Na prática
+    quem usa é a diretoria, olhando a fila de Aprovações.
+    """
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = PedirJustificativaUseCase(db).execute(projeto_id, request, current_user)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
 
 
@@ -435,6 +476,38 @@ def delete_escopo(escopo_id: int, current_user=Depends(require_gestao), db: Sess
 # `POST /projetos/{id}/reunioes`, com `projeto_escopo_id` — registrar a reunião
 # no calendário É o que faz a contagem começar. Não há endpoint para digitar
 # `data_inicio` direto.
+
+
+@router.post("/escopos-projeto/{escopo_id}/confirmar-entrega")
+def confirmar_entrega_escopo(
+    escopo_id: int,
+    request: ConfirmarEntregaEscopoRequest = ConfirmarEntregaEscopoRequest(),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """⭐ O ato que move o escopo para **Entregue** (§5.5).
+
+    Sem `require_*` de cargo: quem confirma é o **coordenador daquele projeto**
+    ou a diretoria, e isso é vínculo, não permissão de posição — um coordenador
+    de outro projeto não confirma este. A checagem mora no use case, que tem a
+    equipe à mão.
+    """
+    escopo = ProjetoEscopoRepository(db).get_by_id(escopo_id)
+    if not escopo:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    exigir_acesso_ao_projeto(escopo.projeto_id, current_user, db)
+    try:
+        result = ConfirmarEntregaEscopoUseCase(db).execute(
+            escopo_id,
+            current_user,
+            eh_diretor=current_user.posicao == "diretor",
+            request=request,
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    return result
 
 
 @router.patch("/escopos-projeto/{escopo_id}/entrega")

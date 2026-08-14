@@ -59,6 +59,21 @@ class AvaliacaoRepository:
             query = query.filter(AvaliacaoModel.sessao == sessao)
         return query.all()
 
+    def get_by_bancas(self, banca_ids: List[int]) -> List[AvaliacaoModel]:
+        """As avaliações de VÁRIAS bancas, numa consulta só.
+
+        ⚠ Sem filtro de sessão de propósito: quem chama agrupa por
+        `banca_id` e aplica a régua da sessão que lhe interessa. Aceitar
+        `sessao` aqui daria um número só para bancas em sessões diferentes.
+        """
+        if not banca_ids:
+            return []
+        return (
+            self.db.query(AvaliacaoModel)
+            .filter(AvaliacaoModel.banca_id.in_(banca_ids))
+            .all()
+        )
+
     def update(self, avaliacao_id: int, **kwargs) -> Optional[AvaliacaoModel]:
         avaliacao = self.get_by_id(avaliacao_id)
         if not avaliacao:

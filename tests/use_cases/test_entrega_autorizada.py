@@ -51,6 +51,9 @@ def entregar_escopo(monkeypatch):
             nome_customizado="Elaboração Contratual",
             data_inicio=QUI_03_09,
             data_entrega_real=entrega_atual,
+            # ⭐ Marcar a data deixou de mover o status: quem faz isso é a
+            # CONFIRMAÇÃO da entrega, que tem porta e teste próprios.
+            status="em_andamento",
         )
 
         class EscopoProjetoFake:
@@ -117,7 +120,8 @@ class TestEntregaDoEscopo:
         resposta = executar()
 
         assert resposta["data_entrega_real"] == QUI_15_10
-        assert estado.gravado["status"] == "entregue"
+        # ⚠ A data grava, mas NÃO move o status — isso agora é da confirmação.
+        assert "status" not in estado.gravado
 
     def test_a_primeira_marcacao_entra_no_historico(self, entregar_escopo):
         """Com `data_anterior` nula — é o "de onde veio" da promessa."""
@@ -186,7 +190,8 @@ class TestOResultadoDaBancaDestrava:
 
         executar()
 
-        assert estado.gravado["status"] == "entregue"
+        # ⚠ A data grava, mas NÃO move o status — isso agora é da confirmação.
+        assert "status" not in estado.gravado
 
     def test_banca_reprovada_trava(self, entregar_escopo):
         """⭐ O caso que motivou a mudança: reprovar não pode liberar o cliente.
@@ -263,4 +268,5 @@ class TestEntregaForaDaJanela:
         resposta = executar(data=date(2026, 12, 23))
 
         assert resposta["data_entrega_real"] == date(2026, 12, 23)
-        assert estado.gravado["status"] == "entregue"
+        # ⚠ A data grava, mas NÃO move o status — isso agora é da confirmação.
+        assert "status" not in estado.gravado

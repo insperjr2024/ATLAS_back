@@ -27,10 +27,19 @@ def escopo(
     entrega_planejada=None,
     entrega_real=None,
     tipo_atraso="interno",
+    data_inicio=date(2026, 8, 3),
 ):
+    """⚠ `data_inicio` entrou com valor padrão em 2026-08-13.
+
+    Sem reunião inicial a janela não abriu e a data da banca é rascunho (§20.4)
+    — cobrar dela é cobrar de um escopo que não começou. O dublê antigo não
+    tinha o campo, então modelava um escopo que na prática não existe: com
+    banca marcada e sem ter começado.
+    """
     return SimpleNamespace(
         id=escopo_id,
         status=status,
+        data_inicio=data_inicio,
         data_entrega_planejada=entrega_planejada,
         data_entrega_real=entrega_real,
         tipo_atraso_entrega=tipo_atraso,
@@ -149,3 +158,90 @@ class TestAgregacao:
         r = calcular([escopo()], {1: banca(SEX_11)}, referencia=date(2026, 9, 12))
         assert r.atrasado
         assert r.dias_totais == 0
+
+
+class TestOsQuatroRecortes:
+    """⭐ Quem NÃO deve ser cobrado — o "aparecem projetos que não deveriam".
+
+    Cada um destes gerava motivo de banca que crescia um dia útil por dia, sem
+    limite, e enchia a fila da diretoria com o que ela não tinha como cobrar.
+    """
+
+    def test_escopo_sem_reuniao_inicial_nao_atrasa(self):
+        """§20.4: sem reunião inicial a janela nem abriu."""
+        r = calcular_atraso_projeto(
+            1, [escopo(data_inicio=None)], {1: banca(SEX_11)}, NOMES, referencia=SEX_18
+        )
+
+        assert not r.atrasado
+
+    def test_escopo_entregue_nao_atrasa(self):
+        """O escopo acabou: o que falta é registro, não trabalho."""
+        r = calcular_atraso_projeto(
+            1,
+            [escopo(status="entregue", entrega_real=SEG_14)],
+            {1: banca(SEX_11)},
+            NOMES,
+            referencia=SEX_18,
+        )
+
+        assert not r.atrasado
+
+    def test_escopo_com_entrega_marcada_nao_atrasa(self):
+        """A data da entrega basta, mesmo que o status ainda não tenha virado —
+        são dois passos separados desde a confirmação da entrega."""
+        r = calcular_atraso_projeto(
+            1, [escopo(entrega_real=SEG_14)], {1: banca(SEX_11)}, NOMES, referencia=SEX_18
+        )
+
+        assert not r.atrasado
+
+    def test_banca_de_HOJE_ainda_nao_atrasou(self):
+        """⭐ O dia da banca é dela.
+
+        ⚠ A referência era 23:59 de hoje, então uma banca marcada para hoje às
+        16h já contava como atrasada às 8h da manhã — com "0 dias" — e derrubava
+        o placar da gestão. Pior: a MESMA banca aparecia em "bancas próximas" da
+        Visão geral. Era agenda da semana e motivo de atraso ao mesmo tempo.
+        """
+        r = calcular_atraso_projeto(
+            1, [escopo()], {1: banca(SEX_18, hora=16)}, NOMES, referencia=SEX_18
+        )
+
+        assert not r.atrasado
+
+    def test_banca_de_ontem_atrasou(self):
+        """O contraponto do teste acima: o corte é no dia seguinte, não em dois."""
+        r = calcular_atraso_projeto(
+            1, [escopo()], {1: banca(TER_15)}, NOMES, referencia=SEX_18
+        )
+
+        assert r.atrasado
+        assert r.dias_totais == 3
+
+
+class TestPausaNaoEhAtraso:
+    """⏸ A parada foi decisão de quem cobra o atraso.
+
+    ⚠ A régua da JANELA já descontava a pausa; a da BANCA não conhecia o
+    conceito. As duas metades da mesma tela discordavam sobre o mesmo projeto
+    parado — e a que mais aparecia era a errada.
+    """
+
+    def test_dias_de_pausa_saem_da_conta(self):
+        # Banca venceu na sexta 11; hoje é sexta 18. Sem pausa são 5 dias úteis.
+        sem_pausa = calcular_atraso_projeto(
+            1, [escopo()], {1: banca(SEX_11)}, NOMES, referencia=SEX_18
+        )
+        assert sem_pausa.dias_totais == 5
+
+        # Pausado de segunda 14 a quarta 16 (semiaberto): 2 dias úteis parados.
+        com_pausa = calcular_atraso_projeto(
+            1,
+            [escopo()],
+            {1: banca(SEX_11)},
+            NOMES,
+            referencia=SEX_18,
+            janelas_pausa=[(SEG_14, date(2026, 9, 16))],
+        )
+        assert com_pausa.dias_totais == 3

@@ -23,11 +23,21 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: cliente. Os dois nunca são silenciosos.
     "banca_remarcada",
     "entrega_alterada",
+    #: §7.4: a diretoria PERGUNTOU ao coordenador por que o escopo atrasou. O
+    #: case descreve essa pergunta ("ela pergunta ao coordenador e digita a
+    #: nota"); só a segunda metade existia na plataforma.
+    "justificativa_pedida",
     # 📌 eventos de BANCAS (§8) — entram por `utils/notificar.py`
     "escalacao_banca",
     "troca_banca",
     "avaliacao_pendente",
     "banca_aviso",
+    #: 📌 Pedido de dias de ajuste (§8) — o coordenador pede, a diretoria
+    #: responde. ⚠ Estavam no BANCO e em uso, e faltavam nesta lista: quem
+    #: escrevesse um ALTER de ENUM a partir daqui truncaria as linhas já
+    #: gravadas com eles.
+    "reajuste_solicitado",
+    "reajuste_respondido",
     #: 📌 Avaliação de Desempenho (Prioridade 2) — não é de projeto: o
     #: destinatário é quem tem o que responder, venha do projeto que vier.
     "lote_desempenho_aberto",

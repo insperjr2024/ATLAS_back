@@ -236,18 +236,39 @@ def dias_de_atraso(
             else banca_realizado_em
         )
 
-    bruto = dias_uteis_de_atraso(janela.fim, fim, dias_nao_letivos)
+    return atraso_sem_pausa(janela.fim, fim, dias_nao_letivos, janelas_pausa)
+
+
+
+def atraso_sem_pausa(
+    prazo: date,
+    referencia: date,
+    dias_nao_letivos: Iterable[date],
+    janelas_pausa: Iterable[JanelaPausa] = (),
+) -> int:
+    """Dias úteis entre `prazo` e `referencia`, tirando os de projeto ⏸ Pausado.
+
+    ⭐ **Extraída porque tem dois donos.** A conta vivia dentro de
+    `dias_de_atraso` (a régua da JANELA do escopo) e a régua da BANCA — o pilar
+    do §7.4, em `atraso_monitoramento` — não tinha como aplicá-la. O resultado
+    era a mesma tela discordando de si mesma sobre um projeto parado: o card de
+    escopos descontava a pausa e o de projetos não, e o número maior era o
+    errado.
+
+    Dia de pausa não é atraso pela mesma razão que não consome janela: a parada
+    foi decisão de quem cobra o atraso.
+    """
+    bruto = dias_uteis_de_atraso(prazo, referencia, dias_nao_letivos)
     pausas = list(janelas_pausa)
     if not bruto or not pausas:
         return bruto
 
     parados = [
         dia
-        for dia in listar_dias_uteis(janela.fim + _UM_DIA, fim, dias_nao_letivos)
+        for dia in listar_dias_uteis(prazo + _UM_DIA, referencia, dias_nao_letivos)
         if _em_pausa(dia, pausas)
     ]
     return max(0, bruto - len(parados))
-
 
 def primeira_realizacao(banca, sessoes=()) -> Union[date, datetime, None]:
     """⭐ A PRIMEIRA vez que a banca aconteceu — em qualquer tentativa (§9).
