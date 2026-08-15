@@ -31,11 +31,12 @@ COORD = UsuarioFake(1, "Ana Souza", "coordenador")
 OUTRO_COORD = UsuarioFake(2, "Bruno Dias", "coordenador")
 CONSULTOR = UsuarioFake(3, "Bia Martins", "consultor")
 OUTRO_CONSULTOR = UsuarioFake(4, "Caio Ferreira", "consultor")
+TERCEIRO_CONSULTOR = UsuarioFake(7, "Duda Lima", "consultor")
 GERENTE = UsuarioFake(5, "Gil Nunes", "gerente")
 DIRETOR = UsuarioFake(6, "Dani Alves", "diretor")
 
 REPO = UsuarioRepositoryFake(
-    COORD, OUTRO_COORD, CONSULTOR, OUTRO_CONSULTOR, GERENTE, DIRETOR
+    COORD, OUTRO_COORD, CONSULTOR, OUTRO_CONSULTOR, TERCEIRO_CONSULTOR, GERENTE, DIRETOR
 )
 
 
@@ -127,6 +128,44 @@ class TestAlocacaoEmVariosProjetos:
         ]
         for _ in range(3):
             validar_equipe(equipe, REPO)
+
+
+class TestTetoDeConsultores:
+    """A equipe pode ter no máximo `max_consultores` consultores. Sem
+    `max_consultores`, o chamador optou por não checar (ex.: um caminho que
+    ainda não tem o teto à mão) — ver `validar_equipe`."""
+
+    def test_dentro_do_teto_e_aceito(self):
+        equipe = [
+            MembroFake(CONSULTOR.id, "consultor"),
+            MembroFake(OUTRO_CONSULTOR.id, "consultor"),
+        ]
+        validar_equipe(equipe, REPO, max_consultores=2)
+
+    def test_acima_do_teto_e_recusado(self):
+        equipe = [
+            MembroFake(CONSULTOR.id, "consultor"),
+            MembroFake(OUTRO_CONSULTOR.id, "consultor"),
+            MembroFake(TERCEIRO_CONSULTOR.id, "consultor"),
+        ]
+        with pytest.raises(RegraDeNegocioError, match="teto"):
+            validar_equipe(equipe, REPO, max_consultores=2)
+
+    def test_sem_max_consultores_nao_checa_teto(self):
+        equipe = [
+            MembroFake(CONSULTOR.id, "consultor"),
+            MembroFake(OUTRO_CONSULTOR.id, "consultor"),
+            MembroFake(TERCEIRO_CONSULTOR.id, "consultor"),
+        ]
+        validar_equipe(equipe, REPO)
+
+    def test_coordenador_nao_conta_no_teto_de_consultores(self):
+        equipe = [
+            MembroFake(COORD.id, "coordenador"),
+            MembroFake(CONSULTOR.id, "consultor"),
+            MembroFake(OUTRO_CONSULTOR.id, "consultor"),
+        ]
+        validar_equipe(equipe, REPO, max_consultores=2)
 
 
 class TestEntradasInvalidas:

@@ -86,7 +86,7 @@ class CreateProjetoUseCase:
         for escopo in request.escopos:
             validar_escopo_vendido(escopo, request.frente_ids, self.catalogo_repository)
 
-        validar_equipe(request.equipe, self.usuario_repository)
+        validar_equipe(request.equipe, self.usuario_repository, request.max_consultores)
 
         projeto = self.repository.create(
             nome=request.nome,
