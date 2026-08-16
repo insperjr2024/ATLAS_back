@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from src.database.database import Base
 from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
+from src.models.cronograma_etapa_model import CronogramaEtapaModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.models.tarefa_model import ReuniaoSemanalModel
@@ -43,12 +44,13 @@ TABELAS = [
     ReuniaoSemanalModel.__table__,
     BancaModel.__table__,
     BancaEscopoModel.__table__,
+    CronogramaEtapaModel.__table__,
 ]
 
 
 @pytest.fixture
 def db():
-    """SQLite na memória com as cinco tabelas que a regra toca.
+    """SQLite na memória com as seis tabelas que a regra toca.
 
     As FKs para `usuario` e `escopo` ficam apontando para tabelas ausentes de
     propósito: o SQLite não as cobra com o pragma desligado (o padrão), e criar
@@ -142,26 +144,30 @@ class TestLargadaDaContagem:
         db.refresh(escopo)
         assert escopo.data_inicio is None
 
-    def test_segunda_reuniao_nao_reinicia_a_contagem(self, db):
-        """A largada é a PRIMEIRA reunião — as seguintes não mexem na data."""
+    def test_segunda_reuniao_para_o_mesmo_escopo_e_recusada(self, db):
+        """Só existe UMA reunião por escopo — ela É a inicial. A segunda
+        tentativa é recusada, não vira uma "segunda inicial" nem reinicia a
+        contagem; corrigir a data é mover a que já existe."""
         projeto, escopo = montar(db)
         registrar(db, projeto, QUA_05, escopo.id)
 
-        resposta = registrar(db, projeto, SEG_10, escopo.id)
+        with pytest.raises(RegraDeNegocioError):
+            registrar(db, projeto, SEG_10, escopo.id)
 
-        assert resposta["escopo_iniciado"] is False
         db.refresh(escopo)
         assert escopo.data_inicio == QUA_05
 
-    def test_reuniao_anterior_puxa_o_inicio_para_tras(self, db):
-        """Registrada fora de ordem, a mais antiga é que é a inicial."""
+    def test_segunda_reuniao_fora_de_ordem_tambem_e_recusada(self, db):
+        """Mesmo numa data anterior à primeira, a segunda tentativa é
+        recusada igual — não existe "a mais antiga vence"."""
         projeto, escopo = montar(db)
         registrar(db, projeto, QUI_06, escopo.id)
 
-        registrar(db, projeto, SEG_03, escopo.id)
+        with pytest.raises(RegraDeNegocioError):
+            registrar(db, projeto, SEG_03, escopo.id)
 
         db.refresh(escopo)
-        assert escopo.data_inicio == SEG_03
+        assert escopo.data_inicio == QUI_06
 
     def test_escopo_de_outro_projeto_e_recusado(self, db):
         projeto, _ = montar(db)
@@ -174,12 +180,18 @@ class TestLargadaDaContagem:
 class TestMoverEApagar:
     def test_mover_a_reuniao_inicial_move_o_inicio(self, db):
         """"Registrei quarta, aconteceu quinta" tem que acertar a contagem —
-        é o caso que fazia a data ficar velha quando ela era digitada à parte."""
+        é o caso que fazia a data ficar velha quando ela era digitada à parte.
+
+        Mover a largada zera o cronograma do escopo, então só a diretoria
+        move direto (ver `UpdateReuniaoUseCase`); é como `eh_diretor=True`
+        aqui."""
         projeto, escopo = montar(db)
         reuniao = registrar(db, projeto, QUA_05, escopo.id)
 
         UpdateReuniaoUseCase(db).execute(
-            reuniao["id"], ReuniaoRequest(data_reuniao=QUI_06, projeto_escopo_id=escopo.id)
+            reuniao["id"],
+            ReuniaoRequest(data_reuniao=QUI_06, projeto_escopo_id=escopo.id),
+            eh_diretor=True,
         )
 
         db.refresh(escopo)
@@ -192,12 +204,27 @@ class TestMoverEApagar:
         reuniao = registrar(db, projeto, QUA_05, escopo.id)
 
         resposta = UpdateReuniaoUseCase(db).execute(
-            reuniao["id"], ReuniaoRequest(data_reuniao=QUI_06)
+            reuniao["id"], ReuniaoRequest(data_reuniao=QUI_06), eh_diretor=True
         )
 
         assert resposta["projeto_escopo_id"] == escopo.id
         db.refresh(escopo)
         assert escopo.data_inicio == QUI_06
+
+    def test_mover_a_largada_sem_ser_diretor_e_recusado(self, db):
+        """Quem não é diretor recebe o motivo e o convite a pedir, não um
+        422 cru — mover a largada zera etapas, banca e entrega do escopo."""
+        projeto, escopo = montar(db)
+        reuniao = registrar(db, projeto, QUA_05, escopo.id)
+
+        with pytest.raises(RegraDeNegocioError):
+            UpdateReuniaoUseCase(db).execute(
+                reuniao["id"],
+                ReuniaoRequest(data_reuniao=QUI_06, projeto_escopo_id=escopo.id),
+            )
+
+        db.refresh(escopo)
+        assert escopo.data_inicio == QUA_05
 
     def test_apagar_a_unica_reuniao_desfaz_o_inicio(self, db):
         projeto, escopo = montar(db)
@@ -209,13 +236,17 @@ class TestMoverEApagar:
         assert escopo.data_inicio is None
         assert escopo.status == "nao_iniciado"
 
-    def test_apagar_a_inicial_promove_a_seguinte(self, db):
+    def test_apagar_e_registrar_de_novo_funciona(self, db):
+        """Apagar a única reunião do escopo libera a vaga: como só existe UMA
+        por escopo, é assim que se corrige "marquei errado", sem mexer em
+        data (ver `TestMoverEApagar` para mover)."""
         projeto, escopo = montar(db)
         primeira = registrar(db, projeto, QUA_05, escopo.id)
-        registrar(db, projeto, SEG_10, escopo.id)
 
         DeleteReuniaoUseCase(db).execute(primeira["id"])
+        resposta = registrar(db, projeto, SEG_10, escopo.id)
 
+        assert resposta["escopo_iniciado"] is True
         db.refresh(escopo)
         assert escopo.data_inicio == SEG_10
         assert escopo.status == "em_andamento"
