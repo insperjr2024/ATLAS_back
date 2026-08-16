@@ -385,7 +385,9 @@ class SolicitacaoProjetoUseCase:
             return []
 
         projetos = {p.id: p for p in self.repository.get_all() if p.id in coordenados}
-        nomes = {u.id: u.nome for u in self.usuario_repository.get_all()}
+        usuarios = self.usuario_repository.get_all()
+        nomes = {u.id: u.nome for u in usuarios}
+        fotos = {u.id: u.foto for u in usuarios}
         frentes = self._frentes_por_projeto(coordenados)
         cargas = self.membro_repository.contar_ativos_por_usuario()
 
@@ -393,7 +395,12 @@ class SolicitacaoProjetoUseCase:
         equipe: dict = {}
         for v in vinculos:
             equipe.setdefault(v.projeto_id, []).append(
-                {"usuario_id": v.usuario_id, "nome": nomes.get(v.usuario_id), "papel": v.papel}
+                {
+                    "usuario_id": v.usuario_id,
+                    "nome": nomes.get(v.usuario_id),
+                    "foto": fotos.get(v.usuario_id),
+                    "papel": v.papel,
+                }
             )
 
         pedidos_por_projeto: dict = {}

@@ -24,6 +24,7 @@ class UsuarioFake:
         # Diretor em exercício já fez o primeiro acesso — `serializar_usuario`
         # devolve este campo desde que a senha provisória passou a existir.
         self.senha_provisoria = False
+        self.foto = None
 
 
 class UsuarioRepositoryFake:

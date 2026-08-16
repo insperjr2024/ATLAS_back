@@ -1,4 +1,5 @@
-from sqlalchemy import Boolean, Column, Enum, Integer, String
+from sqlalchemy import Boolean, Column, Enum, Integer, String, Text
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from src.database.database import Base
 
 
@@ -44,3 +45,8 @@ class UsuarioModel(Base):
     # 1º a 8º semestre da graduação — nullable porque diretoria/gerência não
     # necessariamente são alunos de graduação em curso.
     semestre_graduacao = Column(Integer, nullable=True)
+    #: Data URI (`data:image/...;base64,...`), já redimensionada no cliente
+    #: antes do upload. `MEDIUMTEXT` no MySQL (o `TEXT` puro estoura ~64KB,
+    #: pouco até para uma foto pequena); `Text` comum nos outros dialetos,
+    #: usados pelos testes em sqlite.
+    foto = Column(Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True)

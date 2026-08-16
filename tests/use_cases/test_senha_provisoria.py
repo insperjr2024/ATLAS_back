@@ -39,6 +39,7 @@ class UsuarioFake:
         self.semestre_graduacao = None
         self.senha_hash = hash_senha("senha-antiga-dela")
         self.senha_provisoria = False
+        self.foto = None
 
 
 class UsuarioRepositoryFake:

@@ -39,12 +39,12 @@ class CreateMentoriaUseCase:
             raise RegraDeNegocioError("Este mentorado já tem um mentor — remova o vínculo atual primeiro")
 
         mentoria = self.repository.create(mentor_id=request.mentor_id, mentorado_id=request.mentorado_id)
-        # Mesma forma da listagem, incluindo os nomes: a tela acrescenta o que
-        # volta daqui direto na lista que já está na mão, sem recarregar. Sem
-        # os nomes, o vínculo recém-criado aparecia como uma linha em branco
+        # Mesma forma da listagem, incluindo nome e foto: a tela acrescenta o
+        # que volta daqui direto na lista que já está na mão, sem recarregar.
+        # Sem eles, o vínculo recém-criado aparecia como uma linha em branco
         # até alguém dar F5.
         mentorado = self.usuario_repo.get_by_id(request.mentorado_id)
         return serializar_mentoria(
             mentoria,
-            {mentor.id: mentor.nome, **({mentorado.id: mentorado.nome} if mentorado else {})},
+            {mentor.id: mentor, **({mentorado.id: mentorado} if mentorado else {})},
         )

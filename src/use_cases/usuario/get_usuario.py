@@ -22,6 +22,7 @@ def serializar_usuario(usuario, projetos_alocados: int = 0):
         # linhas e oferece o reenvio da senha provisória.
         "senha_provisoria": usuario.senha_provisoria,
         "projetos_alocados": projetos_alocados,
+        "foto": usuario.foto,
     }
 
 
