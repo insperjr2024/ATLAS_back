@@ -1,4 +1,4 @@
-"""Confere se o SMTP do `.env` está mandando e-mail de verdade.
+"""Confere se o Gmail OAuth do `.env` está mandando e-mail de verdade.
 
     uv run python -m scripts.testar_email seu.email@al.insper.edu.br
 
@@ -8,7 +8,7 @@ mensagem cai no spam sem precisar criar um usuário para jogar fora depois.
 
 Existe porque o diagnóstico "o e-mail não chegou" tem três culpados possíveis
 (configuração, provedor e caixa de destino) e este script isola o primeiro:
-se ele passa, o SMTP está certo e o problema é do lado de lá.
+se ele passa, a credencial está certa e o problema é do lado de lá.
 """
 
 import sys
@@ -27,15 +27,15 @@ def main() -> int:
     destino = sys.argv[1]
     settings = get_settings()
 
-    if not settings.SMTP_HOST:
+    if not settings.GMAIL_OAUTH_REFRESH_TOKEN:
         print(
-            "SMTP_HOST está vazio no .env — o envio não é nem tentado.\n"
-            "Preencha SMTP_HOST, SMTP_USER e SMTP_PASSWORD (no Gmail, uma App "
-            "Password) e rode de novo."
+            "GMAIL_OAUTH_REFRESH_TOKEN está vazio no .env — o envio não é nem tentado.\n"
+            "Rode scripts/gerar_refresh_token_gmail.py para gerar as três "
+            "credenciais (GMAIL_OAUTH_CLIENT_ID, GMAIL_OAUTH_CLIENT_SECRET, "
+            "GMAIL_OAUTH_REFRESH_TOKEN) e preencha o .env."
         )
         return 1
 
-    print(f"host      : {settings.SMTP_HOST}:{settings.SMTP_PORT}")
     print(f"usuário   : {settings.SMTP_USER}")
     print(f"remetente : {settings.SMTP_FROM or settings.SMTP_USER}")
     print(f"destino   : {destino}")
@@ -47,13 +47,13 @@ def main() -> int:
     try:
         EmailSender().enviar(destino, f"[TESTE] {assunto}", texto, html)
     except Exception as erro:
-        # A mensagem crua do smtplib é o que resolve o caso: "Username and
-        # Password not accepted" (App Password errada) e "Connection refused"
-        # (host/porta) pedem correções diferentes.
-        print(f"\n❌ não saiu: {type(erro).__name__}: {erro}")
+        # A resposta crua da API é o que resolve o caso: token revogado,
+        # client id/secret errados, ou escopo insuficiente pedem correções
+        # diferentes.
+        print(f"\nnão saiu: {type(erro).__name__}: {erro}")
         return 1
 
-    print("\n✅ enviado. Confira a caixa de entrada (e o spam).")
+    print("\nenviado. Confira a caixa de entrada (e o spam).")
     return 0
 
 
