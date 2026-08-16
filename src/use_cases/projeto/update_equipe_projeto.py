@@ -38,7 +38,7 @@ class UpdateEquipeProjetoUseCase:
         if not projeto:
             return None
 
-        validar_equipe(request.equipe, self.usuario_repository)
+        validar_equipe(request.equipe, self.usuario_repository, projeto.max_consultores)
 
         atuais = self.repository.get_by_projeto(projeto_id, apenas_atuais=True)
         ids_novos = {m.usuario_id for m in request.equipe}

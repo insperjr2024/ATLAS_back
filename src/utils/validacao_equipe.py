@@ -47,7 +47,7 @@ ROTULO_POSICAO = {
 }
 
 
-def validar_equipe(equipe, usuario_repository):
+def validar_equipe(equipe, usuario_repository, max_consultores=None):
     """Valida a equipe inteira antes de gravar qualquer linha.
 
     Roda por completo em `create_projeto` e `update_equipe_projeto` para os
@@ -57,6 +57,17 @@ def validar_equipe(equipe, usuario_repository):
     coordenadores = [m for m in equipe if m.papel == "coordenador"]
     if len(coordenadores) > 1:
         raise RegraDeNegocioError("O projeto pode ter no máximo 1 coordenador")
+
+    # Teto de consultores: só entra se o chamador passar o número, porque
+    # `create_projeto` grava `max_consultores` na mesma chamada em que valida
+    # a equipe (não dá pra ler de volta um projeto que ainda não existe).
+    if max_consultores is not None:
+        consultores = [m for m in equipe if m.papel == "consultor"]
+        if len(consultores) > max_consultores:
+            raise RegraDeNegocioError(
+                f"A equipe tem {len(consultores)} consultores, mas o teto do projeto é "
+                f"{max_consultores}. Aumente o teto ou tire alguém antes de salvar."
+            )
 
     # Depois da checagem por membro (papel/posição de CADA um) — checagem
     # agregada primeiro escondia o motivo de verdade: toda entrada inválida

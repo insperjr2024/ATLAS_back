@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.notificacao.deletar_notificacao import (
+    ExcluirNotificacaoUseCase,
+    LimparNotificacoesLidasUseCase,
+)
 from src.use_cases.notificacao.listar_notificacoes import ListarNotificacoesUseCase
 from src.use_cases.notificacao.marcar_lida import (
     MarcarLidaRequest,
@@ -54,3 +58,20 @@ def marcar_lida(request: MarcarLidaRequest, current_user=Depends(get_current_use
 @router.post("/marcar-todas-lidas")
 def marcar_todas_lidas(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     return MarcarTodasLidasUseCase(db).execute(current_user)
+
+
+@router.delete("/limpar-lidas")
+def limpar_lidas(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Rota fixa antes de `/{notificacao_id}` — senão o FastAPI tentaria
+    converter "limpar-lidas" para `int` e a rota nunca seria alcançada."""
+    return LimparNotificacoesLidasUseCase(db).execute(current_user)
+
+
+@router.delete("/{notificacao_id}")
+def excluir(notificacao_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        ExcluirNotificacaoUseCase(db).execute(current_user, notificacao_id)
+    except RegraDeNegocioError as e:
+        status = 404 if e.codigo == "nao_encontrada" else 400
+        raise HTTPException(status_code=status, detail=str(e))
+    return {"ok": True}

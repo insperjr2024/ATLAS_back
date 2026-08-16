@@ -161,5 +161,14 @@ class GetEventosCalendarioUseCase:
                     }
                 )
 
+        # "prova" ainda NÃO é gerado aqui de propósito. A tentativa inicial
+        # escopava pela frente do PROJETO em que a pessoa está alocada, o que é
+        # errado, porque prova é do CURSO da pessoa, não do projeto em que ela
+        # trabalha (o exemplo que derrubou isso: um consultor de engenharia
+        # alocado num projeto de Business continua tendo prova de engenharia).
+        # E `frente` também não é o mesmo que `curso`: uma frente cobre vários
+        # cursos. Falta a plataforma ter de onde tirar o curso de cada usuário
+        # antes de este bloco voltar a existir.
+
         eventos.sort(key=lambda e: (str(e["data"]), e["tipo"]))
         return eventos
