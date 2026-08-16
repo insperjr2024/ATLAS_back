@@ -270,7 +270,7 @@ def _do_projeto(
                     # A data entra na chave para uma banca remarcada voltar a
                     # avisar no dia novo.
                     chave_dedup=f"{BANCA_HOJE}:banca={banca.id}:data={hoje.isoformat()}",
-                    rota=f"/bancas/{banca.id}",
+                    rota=f"/bancas?banca={banca.id}",
                     dias=0,
                     payload={"banca_id": banca.id},
                 )

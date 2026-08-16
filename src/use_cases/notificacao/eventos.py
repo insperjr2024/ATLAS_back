@@ -108,7 +108,7 @@ def notificar_banca_remarcada(
         corpo=corpo,
         # ⚠ Sem `projeto_id` e apontando para /bancas: quem se inscreveu não é
         # da equipe (§8) e não pode abrir a página do projeto.
-        rota=f"/bancas/{banca_id}",
+        rota=f"/bancas?banca={banca_id}",
         payload={"banca_id": banca_id},
         chave_dedup=f"banca_remarcada:banca={banca_id}:para={_chave_data(para)}",
     )
@@ -317,7 +317,7 @@ def notificar_escalacao_banca(
         # Sem `projeto_id`: quem participa da banca normalmente NÃO é da equipe
         # do projeto (§8 proíbe), então preencher a FK daria a ele um link para
         # um projeto que o recorte de visão não deixa abrir.
-        rota=f"/bancas/{banca_id}",
+        rota=f"/bancas?banca={banca_id}",
         payload={"banca_id": banca_id},
         chave_dedup=f"escalacao_banca:banca={banca_id}:usuario={usuario_id}",
     )

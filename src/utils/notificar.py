@@ -45,6 +45,6 @@ def notificar(
         # domínio faria a tabela ganhar uma coluna a cada área que passasse a
         # notificar.
         payload={"banca_id": banca_id} if banca_id else None,
-        rota=f"/bancas/{banca_id}" if banca_id else None,
+        rota=f"/bancas?banca={banca_id}" if banca_id else None,
         chave_dedup=chave or f"{tipo}:{uuid4()}",
     )
