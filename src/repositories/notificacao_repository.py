@@ -155,3 +155,34 @@ class NotificacaoRepository(BaseRepository[NotificacaoModel]):
         )
         self.db.commit()
         return atualizadas
+
+    def get_evento_do_usuario(
+        self, notificacao_id: int, usuario_id: int
+    ) -> Optional[NotificacaoModel]:
+        """Só `origem="evento"`: uma linha de `condicao` não é a notificação,
+        é a marcação de leitura dela, apagá-la faz o alerta voltar a contar
+        no sino mesmo com o problema continuando resolvido."""
+        return (
+            self.db.query(NotificacaoModel)
+            .filter(
+                NotificacaoModel.id == notificacao_id,
+                NotificacaoModel.usuario_id == usuario_id,
+                NotificacaoModel.origem == "evento",
+            )
+            .first()
+        )
+
+    def excluir(self, linha: NotificacaoModel) -> None:
+        self.db.delete(linha)
+        self.db.commit()
+
+    def limpar_eventos_lidos(self, usuario_id: int) -> int:
+        linhas = self.db.query(NotificacaoModel).filter(
+            NotificacaoModel.usuario_id == usuario_id,
+            NotificacaoModel.origem == "evento",
+            NotificacaoModel.lida_em.isnot(None),
+        )
+        total = linhas.count()
+        linhas.delete(synchronize_session=False)
+        self.db.commit()
+        return total
