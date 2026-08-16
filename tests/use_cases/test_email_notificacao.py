@@ -62,7 +62,7 @@ def montar(monkeypatch):
     teste enxerga o `email_enviado_em` sem banco nenhum.
     """
 
-    def _montar(*, pessoa=None, smtp_host="smtp.exemplo.com", falha=False):
+    def _montar(*, pessoa=None, refresh_token="token-fake", falha=False):
         pessoa = pessoa if pessoa is not None else usuario()
         carimbos = []
         sender = EmailSenderFake(falha=falha)
@@ -85,7 +85,7 @@ def montar(monkeypatch):
             enviar_email_notificacao,
             "get_settings",
             lambda: SimpleNamespace(
-                SMTP_HOST=smtp_host, FRONTEND_URL="https://atlas.insperjr.com.br"
+                GMAIL_OAUTH_REFRESH_TOKEN=refresh_token, FRONTEND_URL="https://atlas.insperjr.com.br"
             ),
         )
 
@@ -145,10 +145,10 @@ class TestEnvio:
         assert executar(usuario_id=404) is False
         assert sender.enviados == []
 
-    def test_sem_smtp_configurado_nao_tenta(self, montar):
+    def test_sem_gmail_oauth_configurado_nao_tenta(self, montar):
         """Ambiente sem e-mail configurado: silêncio, não exceção. O aviso já
         está no sino, que é o canal principal."""
-        executar, carimbos, sender = montar(smtp_host="")
+        executar, carimbos, sender = montar(refresh_token="")
 
         assert executar() is False
         assert sender.enviados == []

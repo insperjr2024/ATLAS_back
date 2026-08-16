@@ -1,8 +1,9 @@
-"""Envio de e-mail, via `smtplib` da biblioteca padrão.
+"""Envio de e-mail, pela API do Gmail (HTTPS), não por SMTP.
 
-Sem dependência nova de propósito: o README manda manter `pyproject.toml` e
-`requirements.txt` em sincronia a cada pacote instalado, e a stdlib resolve o
-que precisamos (um e-mail transacional, texto e HTML).
+O Render bloqueia conexão de saída nas portas de SMTP (25, 465, 587) no plano
+free — bloqueio deles, não nosso, pra conter spam. A API do Gmail manda o
+mesmo e-mail, da mesma caixa, mas fala por HTTPS (porta 443, nunca
+bloqueada). `httpx` já era dependência do projeto, não precisou de nada novo.
 
 **A classe existe para poder ser trocada por um fake no teste.** Os testes do
 repo não usam `unittest.mock.patch` — escrevem dublês à mão (ver
@@ -10,26 +11,30 @@ repo não usam `unittest.mock.patch` — escrevem dublês à mão (ver
 "esqueci minha senha" mandaria e-mail de verdade a cada `pytest`.
 """
 
-import smtplib
-import socket
+import base64
 from email.message import EmailMessage
 from typing import Optional
+
+import httpx
 
 from src.config.config import get_settings
 from src.utils.exceptions import RegraDeNegocioError
 
+GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+
 
 class EmailSender:
-    """Envia pelo SMTP configurado no `.env`."""
+    """Envia pela API do Gmail, autenticado com o refresh token do `.env`."""
 
     def enviar(self, destino: str, assunto: str, corpo_texto: str, corpo_html: str) -> None:
         settings = get_settings()
 
-        # Falha explícita em vez de silenciosa: sem host configurado o e-mail
-        # não sai, e o usuário ficaria esperando um link que nunca chega.
-        if not settings.SMTP_HOST:
+        # Falha explícita em vez de silenciosa: sem credencial configurada o
+        # e-mail não sai, e o usuário ficaria esperando um link que nunca chega.
+        if not settings.GMAIL_OAUTH_REFRESH_TOKEN:
             raise RegraDeNegocioError(
-                "Envio de e-mail não configurado no servidor (SMTP_HOST vazio). "
+                "Envio de e-mail não configurado no servidor (Gmail OAuth vazio). "
                 "Fale com a diretoria para redefinir sua senha."
             )
 
@@ -42,24 +47,35 @@ class EmailSender:
         mensagem.set_content(corpo_texto)
         mensagem.add_alternative(corpo_html, subtype="html")
 
-        # No Render, resolver smtp.gmail.com devolve endereço IPv6 primeiro,
-        # e a rede de saída de lá não tem rota IPv6: a conexão morre com
-        # "Network is unreachable" antes de chegar a tentar IPv4 na porta
-        # 587. Força a resolução a devolver só IPv4, só durante esta chamada.
-        getaddrinfo_original = socket.getaddrinfo
+        access_token = self._access_token(settings)
+        # A API do Gmail pede a mensagem RFC 2822 inteira, em base64url — o
+        # mesmo formato que o `EmailMessage` já monta pra SMTP.
+        bruto = base64.urlsafe_b64encode(mensagem.as_bytes()).decode()
+        resposta = httpx.post(
+            GMAIL_SEND_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={"raw": bruto},
+            timeout=15,
+        )
+        resposta.raise_for_status()
 
-        def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
-            return getaddrinfo_original(host, port, socket.AF_INET, type, proto, flags)
-
-        socket.getaddrinfo = getaddrinfo_ipv4
-        try:
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as smtp:
-                smtp.starttls()
-                if settings.SMTP_USER:
-                    smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                smtp.send_message(mensagem)
-        finally:
-            socket.getaddrinfo = getaddrinfo_original
+    def _access_token(self, settings) -> str:
+        """O refresh token não expira (a menos que revogado); o access token
+        expira em 1h, então pede um novo a cada envio em vez de guardar em
+        cache, um e-mail transacional não é volume que justifique a
+        complexidade de cachear."""
+        resposta = httpx.post(
+            GMAIL_TOKEN_URL,
+            data={
+                "client_id": settings.GMAIL_OAUTH_CLIENT_ID,
+                "client_secret": settings.GMAIL_OAUTH_CLIENT_SECRET,
+                "refresh_token": settings.GMAIL_OAUTH_REFRESH_TOKEN,
+                "grant_type": "refresh_token",
+            },
+            timeout=15,
+        )
+        resposta.raise_for_status()
+        return resposta.json()["access_token"]
 
 
 def montar_email_senha_provisoria(nome: str, senha: str, link_login: str) -> tuple[str, str, str]:
