@@ -1,7 +1,9 @@
 from typing import Optional
 from datetime import datetime
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.use_cases.banca.excecao_choque import checar_choque
@@ -111,6 +113,14 @@ class DeleteBancaUseCase:
                 banca,
                 f"A banca de {banca.nome_projeto} foi cancelada e não acontecerá mais.",
             )
+        # ⚠ `projeto_remarcacao_banca.banca_id` não cascateia (mesmo motivo
+        # documentado em `delete_projeto.py`): uma banca já remarcada alguma
+        # vez travava aqui com IntegrityError, e o 503 na tela não dizia por
+        # quê. As outras tabelas filhas (banca_escopo, candidatura,
+        # avaliacao+nota, banca_frente) já cascateiam sozinhas.
+        self.db.execute(
+            delete(ProjetoRemarcacaoBancaModel).where(ProjetoRemarcacaoBancaModel.banca_id == banca_id)
+        )
         return self.repository.delete(banca_id)
 
 
