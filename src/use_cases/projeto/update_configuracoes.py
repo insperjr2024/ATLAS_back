@@ -4,8 +4,10 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
+from src.utils.exceptions import RegraDeNegocioError
 
 
 class UpdateDiasAmbientacaoRequest(BaseModel):
@@ -49,6 +51,43 @@ class UpdateDiaReuniaoPadraoUseCase:
         if not projeto:
             return None
         return {"id": projeto.id, "dia_reuniao_padrao": projeto.dia_reuniao_padrao}
+
+
+class UpdateMaxConsultoresRequest(BaseModel):
+    max_consultores: int = Field(ge=0, le=20)
+
+
+class UpdateMaxConsultoresUseCase:
+    """O teto de consultores, editável depois do cadastro — até aqui só dava
+    pra escolher na criação do projeto (§6.3: é o número que `validar_equipe`
+    usa pra recusar equipe grande demais, e que Vagas usa pra calcular
+    quantas vagas ainda tem).
+
+    ⚠ Não deixa baixar o teto abaixo da equipe atual: `validar_equipe` já
+    recusaria a próxima edição de equipe com um erro sem contexto nenhum de
+    onde veio o descompasso. Aqui, no momento em que o número mudaria, dá pra
+    dizer exatamente quem sobra.
+    """
+
+    def __init__(self, db: Session):
+        self.repository = ProjetoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
+
+    def execute(self, projeto_id: int, request: UpdateMaxConsultoresRequest):
+        projeto = self.repository.get_by_id(projeto_id)
+        if not projeto:
+            return None
+
+        atuais = self.membro_repository.get_by_projeto(projeto_id, apenas_atuais=True)
+        consultores = [m for m in atuais if m.papel == "consultor"]
+        if len(consultores) > request.max_consultores:
+            raise RegraDeNegocioError(
+                f"A equipe tem {len(consultores)} consultores, mas o novo teto seria "
+                f"{request.max_consultores}. Tire alguém da equipe antes de baixar o teto."
+            )
+
+        atualizado = self.repository.update(projeto_id, max_consultores=request.max_consultores)
+        return {"id": atualizado.id, "max_consultores": atualizado.max_consultores}
 
 
 class UpdateEntregaPrevistaClienteRequest(BaseModel):
