@@ -5,7 +5,10 @@ from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
 from src.models.desempenho_lote_projeto_model import DesempenhoLoteProjetoModel
+from src.models.justificativa_pedido_model import JustificativaPedidoModel
 from src.models.notificacao_model import NotificacaoModel
+from src.models.projeto_justificativa_atraso_model import ProjetoJustificativaAtrasoModel
+from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_frente_model import ProjetoFrenteModel
 from src.models.projeto_membro_model import ProjetoMembroModel
@@ -51,6 +54,28 @@ class DeleteProjetoPermanenteUseCase:
         tarefa_ids = [
             row[0] for row in self.db.query(TarefaModel.id).filter(TarefaModel.projeto_id == projeto_id).all()
         ]
+
+        # ⚠ ANTES das bancas, e não junto do resto lá embaixo.
+        #
+        # `projeto_remarcacao_banca` aponta para `banca.id` além de
+        # `projeto.id`, e nenhuma das duas chaves cascateia. Deixada para
+        # depois, ela segura a exclusão da banca com
+        # `projeto_remarcacao_banca_banca_id_fkey` — e um projeto que a
+        # diretoria já remarcou banca alguma vez vira impossível de apagar.
+        #
+        # As outras duas são o histórico do §7.4 (a nota de atraso e o pedido
+        # dela). Também `NO ACTION`, e também faltavam: qualquer projeto que
+        # tenha passado pela fila de Aprovações do monitoramento levava
+        # violação de chave ao ser apagado.
+        self.db.execute(
+            delete(ProjetoRemarcacaoBancaModel).where(ProjetoRemarcacaoBancaModel.projeto_id == projeto_id)
+        )
+        self.db.execute(delete(JustificativaPedidoModel).where(JustificativaPedidoModel.projeto_id == projeto_id))
+        self.db.execute(
+            delete(ProjetoJustificativaAtrasoModel).where(
+                ProjetoJustificativaAtrasoModel.projeto_id == projeto_id
+            )
+        )
 
         if escopo_ids:
             banca_ids = [
