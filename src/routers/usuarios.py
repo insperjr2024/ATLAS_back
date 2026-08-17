@@ -20,6 +20,10 @@ from src.use_cases.usuario.atualizar_foto import (
     AtualizarFotoUsuarioUseCase,
     RemoverFotoUsuarioUseCase,
 )
+from src.use_cases.usuario.atualizar_preferencia_notificacao import (
+    AtualizarPreferenciaNotificacaoRequest,
+    AtualizarPreferenciaNotificacaoUseCase,
+)
 from src.use_cases.usuario.get_desempenho import GetDesempenhoUseCase
 from src.use_cases.usuario.get_usuario import GetUsuarioUseCase, ListUsuariosUseCase
 from src.use_cases.usuario.transferir_diretoria import (
@@ -58,6 +62,19 @@ def atualizar_minha_foto(
 @router.delete("/usuarios/me/foto")
 def remover_minha_foto(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     return RemoverFotoUsuarioUseCase(db).execute(current_user)
+
+
+@router.patch("/usuarios/me/notificacoes-email")
+def atualizar_minhas_notificacoes_email(
+    request: AtualizarPreferenciaNotificacaoRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Sempre a PRÓPRIA preferência — mesmo espírito de `/usuarios/me/foto`."""
+    try:
+        return AtualizarPreferenciaNotificacaoUseCase(db).execute(current_user.id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/usuarios")

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Enum, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, Enum, Integer, String, Text
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from src.database.database import Base
 
@@ -50,3 +50,9 @@ class UsuarioModel(Base):
     #: pouco até para uma foto pequena); `Text` comum nos outros dialetos,
     #: usados pelos testes em sqlite.
     foto = Column(Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True)
+    #: Tipos de `TIPO_NOTIFICACAO_ENUM` que esta pessoa desligou do e-mail —
+    #: só os de `TIPOS_NOTIFICACAO_OPCIONAIS` (ver `notificacao_model.py`)
+    #: podem entrar aqui, os fixos ignoram esta lista. Vazia (o padrão) =
+    #: tudo ligado, de propósito: um tipo opcional novo já nasce ligado pra
+    #: todo mundo, sem precisar de migração de dado.
+    notificacoes_email_desativadas = Column(JSON, nullable=False, default=list, server_default="[]")

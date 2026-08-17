@@ -26,8 +26,11 @@ from src.use_cases.notificacao.enviar_email_notificacao import _link, enviar
 from src.utils.email import montar_email_notificacao
 
 
-def usuario(id=7, nome="Bia Martins", email="bia@al.insper.edu.br", ativo=True):
-    return SimpleNamespace(id=id, nome=nome, email_insper=email, ativo=ativo)
+def usuario(id=7, nome="Bia Martins", email="bia@al.insper.edu.br", ativo=True, desativadas=None):
+    return SimpleNamespace(
+        id=id, nome=nome, email_insper=email, ativo=ativo,
+        notificacoes_email_desativadas=desativadas or [],
+    )
 
 
 class EmailSenderFake:
@@ -90,10 +93,11 @@ def montar(monkeypatch):
         )
 
         def executar(usuario_id=7, titulo="Banca de Alfa remarcada", corpo="De 06/08 para 20/08.",
-                    rota="/projetos/3/cronograma", notificacao_id=99):
+                    rota="/projetos/3/cronograma", notificacao_id=99, tipo="banca_remarcada"):
             return enviar(
                 notificacao_id=notificacao_id,
                 usuario_id=usuario_id,
+                tipo=tipo,
                 titulo=titulo,
                 corpo=corpo,
                 rota=rota,
@@ -161,6 +165,31 @@ class TestEnvio:
 
         assert executar() is False
         assert carimbos == []
+
+    def test_tipo_opcional_desativado_nao_manda(self, montar):
+        """A pessoa desligou este tipo do e-mail — o sino continua registrando
+        o evento normal, só o envio por fora é que não acontece."""
+        executar, carimbos, sender = montar(pessoa=usuario(desativadas=["entrega_registrada"]))
+
+        assert executar(tipo="entrega_registrada") is False
+        assert sender.enviados == []
+        assert carimbos == []
+
+    def test_tipo_opcional_sem_desativar_manda_normal(self, montar):
+        """Lista vazia (o padrão) = tudo ligado."""
+        executar, carimbos, sender = montar()
+
+        assert executar(tipo="entrega_registrada") is True
+        assert len(sender.enviados) == 1
+
+    def test_tipo_fixo_manda_mesmo_desativado(self, montar):
+        """Só os tipos de TIPOS_NOTIFICACAO_OPCIONAIS respeitam a preferência —
+        um tipo fixo sai sempre, mesmo com o nome dele (por engano ou não) na
+        lista de desativados."""
+        executar, carimbos, sender = montar(pessoa=usuario(desativadas=["banca_remarcada"]))
+
+        assert executar(tipo="banca_remarcada") is True
+        assert len(sender.enviados) == 1
 
 
 class TestLink:

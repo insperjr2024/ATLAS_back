@@ -63,6 +63,7 @@ def registrar(
             enfileirar(
                 notificacao_id=linha.id,
                 usuario_id=usuario_id,
+                tipo=tipo,
                 titulo=titulo,
                 corpo=corpo,
                 rota=dados.get("rota"),

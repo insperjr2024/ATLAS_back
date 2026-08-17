@@ -32,6 +32,7 @@ from typing import Optional
 
 from src.config.config import get_settings
 from src.database.database import SessionLocal
+from src.models.notificacao_model import TIPOS_NOTIFICACAO_OPCIONAIS
 from src.repositories.notificacao_repository import NotificacaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.email import EmailSender, montar_email_notificacao
@@ -48,6 +49,7 @@ def enfileirar(
     *,
     notificacao_id: int,
     usuario_id: int,
+    tipo: str,
     titulo: str,
     corpo: Optional[str],
     rota: Optional[str],
@@ -64,6 +66,7 @@ def enfileirar(
             enviar,
             notificacao_id=notificacao_id,
             usuario_id=usuario_id,
+            tipo=tipo,
             titulo=titulo,
             corpo=corpo,
             rota=rota,
@@ -77,6 +80,7 @@ def enviar(
     *,
     notificacao_id: int,
     usuario_id: int,
+    tipo: str,
     titulo: str,
     corpo: Optional[str],
     rota: Optional[str],
@@ -104,6 +108,10 @@ def enviar(
         # Ex-membro e desligado (§10) continuam com notificações antigas no
         # banco, mas não são mais avisados por fora da plataforma.
         if not usuario.ativo:
+            return False
+        # Só os tipos opcionais respeitam a preferência — os de fora da lista
+        # saem sempre, mesmo que o campo tenha algum lixo com o nome deles.
+        if tipo in TIPOS_NOTIFICACAO_OPCIONAIS and tipo in (usuario.notificacoes_email_desativadas or []):
             return False
 
         assunto, texto, html = montar_email_notificacao(

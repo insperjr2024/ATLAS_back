@@ -29,15 +29,21 @@ from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRe
 from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
 from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRepository
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
+from src.repositories.notificacao_repository import NotificacaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
 from src.use_cases.avaliacao.submeter_avaliacao import apurar_banca
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
 from src.use_cases.notificacao.eventos import notificar_pdi_prazo_proximo, notificar_pdi_prazo_vencido
 from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
+from src.use_cases.monitoramento.monitoramento import _BaseMonitoramento, _agrupar
+from src.models.projeto_model import ProjetoModel
+from src.utils.condicoes_alerta import BANCA_HOJE, TAREFA_VENCIDA, detectar_condicoes, para_papel
 from src.utils.notificar import notificar
+from src.utils.tarefa_status import janela_semana
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +149,96 @@ def rodar_lembrete_prazo_avaliacao() -> None:
                 lembretes,
                 avisos_diretoria,
             )
+    finally:
+        db.close()
+
+
+def rodar_lembrete_condicoes() -> None:
+    """A fase 2 prometida em `condicoes_alerta.py`: `tarefa_vencida` e
+    `banca_hoje` passam a sair por e-mail também, não só no sino.
+
+    ⚠ **Mesma detecção, não uma segunda régua.** Roda `detectar_condicoes` e
+    `para_papel` — as mesmas funções que montam o sino — sobre TODOS os
+    projetos ativos de uma vez (sem `current_user`: aqui não há recorte de
+    visão, é o job quem decide quem recebe, pelo papel na equipe).
+
+    ⚠ **A linha nasce com `origem="condicao"`, nunca `registrar()`.**
+    `registrar()` sempre grava `origem="evento"` — usar ele aqui faria a
+    MESMA tarefa vencida aparecer duas vezes no sino: uma vez como evento
+    persistido por este job, outra como condição recalculada a cada leitura
+    (`detectar_condicoes` continua rodando, e não tem como saber que este job
+    já avisou). `origem="condicao"` é o mesmo formato que `marcar_lida.py`
+    já grava quando a PESSOA dispensa — só entra no mapa de leituras
+    (`get_leituras_de_condicao`), nunca na lista de eventos do sino.
+
+    ⚠ **O dedup por `chave_dedup` é o que evita spam.** `tarefa_vencida` não
+    leva data na chave: um lembrete só, na primeira vez que a tarefa aparece
+    vencida, não um por dia enquanto continuar vencida. `banca_hoje` leva a
+    data — mas só é verdade no próprio dia da banca, então também dispara
+    uma vez só, natural.
+
+    As demais condições (`kickoff_pendente`, `banca_nao_marcada`,
+    `projeto_sem_reuniao`) e os agregados da liderança ficam de fora de
+    propósito — só os dois tipos acima têm o "fixo" decidido em 2026-08-17.
+    """
+    db = SessionLocal()
+    try:
+        base = _BaseMonitoramento(db)
+        notificacao_repository = NotificacaoRepository(db)
+        projetos = db.query(ProjetoModel).filter(ProjetoModel.arquivado_em.is_(None)).all()
+        if not projetos:
+            return
+
+        hoje = datetime.now().date()
+        ctx = base._contexto(projetos)
+        inicio, fim = janela_semana(hoje)
+        reunioes = base.reuniao_repository.get_by_projetos_e_janela(ctx["ids"], inicio, fim)
+        condicoes = detectar_condicoes(
+            projetos,
+            escopos_por_projeto=ctx["escopos_por_projeto"],
+            bancas_por_escopo=ctx["bancas_por_escopo"],
+            nomes_escopo=ctx["nomes_escopo"],
+            tarefas_por_projeto=_agrupar(base.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"),
+            encerra_por_coluna=base._encerra_por_coluna(),
+            projetos_com_reuniao={r.projeto_id for r in reunioes},
+            hoje=hoje,
+        )
+        relevantes = [c for c in condicoes if c.tipo in (TAREFA_VENCIDA, BANCA_HOJE)]
+        if not relevantes:
+            return
+
+        membros_por_projeto = _agrupar(
+            base.membro_repository.get_by_projetos(ctx["ids"], apenas_atuais=True), "projeto_id"
+        )
+
+        enviados = 0
+        for projeto_id, condicoes_do_projeto in _agrupar(relevantes, "projeto_id").items():
+            for membro in membros_por_projeto.get(projeto_id, []):
+                for condicao in para_papel(condicoes_do_projeto, membro.papel, membro.usuario_id):
+                    linha = notificacao_repository.criar_se_nao_existe(
+                        usuario_id=membro.usuario_id,
+                        tipo=condicao.tipo,
+                        origem="condicao",
+                        titulo=condicao.titulo,
+                        projeto_id=condicao.projeto_id,
+                        payload={"rota": condicao.rota},
+                        chave_dedup=condicao.chave_dedup,
+                    )
+                    # `None` = já existia (dedup) ou a pessoa já tinha
+                    # dispensado antes deste job rodar — não manda de novo.
+                    if linha is None:
+                        continue
+                    enfileirar(
+                        notificacao_id=linha.id,
+                        usuario_id=membro.usuario_id,
+                        tipo=condicao.tipo,
+                        titulo=condicao.titulo,
+                        corpo=None,
+                        rota=condicao.rota,
+                    )
+                    enviados += 1
+        if enviados:
+            logger.info("Lembrete de condições: %d e-mail(s) enfileirado(s)", enviados)
     finally:
         db.close()
 
@@ -297,6 +393,12 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_prazo_pdi,
         CronTrigger(hour=6, minute=30),
         id="lembrete_prazo_pdi",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_lembrete_condicoes,
+        CronTrigger(hour=6, minute=20),
+        id="lembrete_condicoes",
         replace_existing=True,
     )
     scheduler.add_job(

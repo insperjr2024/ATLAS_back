@@ -64,6 +64,30 @@ TIPO_NOTIFICACAO_ENUM = Enum(
 
 ORIGEM_NOTIFICACAO_ENUM = Enum("evento", "condicao", name="origem_notificacao")
 
+#: Os únicos tipos que a pessoa pode desligar do e-mail
+#: (`usuario.notificacoes_email_desativadas`). Os de fora desta lista saem
+#: sempre — decisão de 2026-08-17: são pedido direto de alguém (
+#: `justificativa_pedida`, `solicitacao_projeto`), prazo com bloqueio
+#: depois que vence (`avaliacao_pendente`, `pdi_prazo_proximo`,
+#: `pdi_prazo_vencido`, `lote_desempenho_aberto`), compromisso de agenda
+#: que mudou (`banca_remarcada`, `banca_hoje`), fluxo de aprovação (
+#: `reajuste_solicitado`, `reajuste_respondido`), tarefa obrigatória (
+#: `descricao_coordenador_pendente`) ou vencimento que é do dono da tarefa
+#: resolver (`tarefa_vencida`).
+TIPOS_NOTIFICACAO_OPCIONAIS = frozenset(
+    {
+        "alocado_em_projeto",
+        "entrega_registrada",
+        "escalacao_banca",
+        "troca_banca",
+        "banca_aviso",
+        "entrega_alterada",
+        "kickoff_pendente",
+        "banca_nao_marcada",
+        "projeto_sem_reuniao",
+    }
+)
+
 
 class NotificacaoModel(Base):
     """A central de notificações do §6.6 e do §8, numa tabela só.

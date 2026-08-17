@@ -143,4 +143,5 @@ def get_me(current_user=Depends(get_current_user_em_definicao_de_senha)):
         # 403 das outras rotas é a rede de segurança, não o caminho normal.
         "senha_provisoria": current_user.senha_provisoria,
         "foto": current_user.foto,
+        "notificacoes_email_desativadas": current_user.notificacoes_email_desativadas,
     }
