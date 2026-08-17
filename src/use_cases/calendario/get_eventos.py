@@ -39,7 +39,13 @@ class GetEventosCalendarioUseCase:
         eventos: List[dict] = []
         quer = lambda t: not tipos or t in tipos  # noqa: E731
 
-        query_projetos = aplicar_recorte_visao(self.db.query(ProjetoModel), current_user, self.db)
+        # Arquivado saiu de tudo que se organiza (§6.2): o calendário mostra
+        # o que ainda está em curso, não o histórico de projeto encerrado.
+        query_projetos = aplicar_recorte_visao(
+            self.db.query(ProjetoModel).filter(ProjetoModel.arquivado_em.is_(None)),
+            current_user,
+            self.db,
+        )
         projetos = {p.id: p for p in query_projetos.all()}
         catalogo = {e.id: e.nome for e in self.catalogo_repository.get_all()}
 
