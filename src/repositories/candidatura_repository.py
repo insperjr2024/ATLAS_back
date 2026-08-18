@@ -1,8 +1,9 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from src.models.candidatura_model import CandidaturaModel
 from src.utils.exceptions import ResourceInUseError
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 
 
@@ -46,6 +47,25 @@ class CandidaturaRepository:
             .filter(CandidaturaModel.banca_id.in_(banca_ids))
             .all()
         )
+
+    def ultima_alocacao_por_usuario(self) -> Dict[int, datetime]:
+        """Quando cada pessoa foi alocada pela última vez — a fila do rodízio (§8).
+
+        Um `GROUP BY` no banco em vez de trazer a tabela inteira e reduzir em
+        Python. O push varre de 5 em 5 minutos e `candidatura` só cresce: a
+        versão anterior carregava todo o histórico de alocações a cada passada
+        para calcular um máximo por pessoa, e o custo subia junto com o
+        semestre. Aqui volta uma linha por usuário, sempre.
+        """
+        linhas = (
+            self.db.query(
+                CandidaturaModel.usuario_id,
+                func.max(CandidaturaModel.criado_em),
+            )
+            .group_by(CandidaturaModel.usuario_id)
+            .all()
+        )
+        return {usuario_id: ultima for usuario_id, ultima in linhas}
 
     def get_by_usuario(self, usuario_id: int) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).filter(CandidaturaModel.usuario_id == usuario_id).all()

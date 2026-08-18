@@ -5,8 +5,12 @@ sistema escala consultores automaticamente — primeiro da mesma frente,
 depois de qualquer frente se precisar — dando prioridade a quem foi alocado
 há mais tempo (rodízio justo: quem acabou de ir para o final da fila).
 
-Roda tanto pelo agendador (`src/app.py`, uma vez por dia) quanto sob demanda
-(`POST /bancas/push-alocacao`, diretoria).
+Roda pelo agendador (`src/app.py`: de 5 em 5 minutos, e também na subida do
+app) e sob demanda (`POST /bancas/push-alocacao`, diretoria).
+
+A varredura é idempotente de propósito — é o que permite rodar com essa
+frequência sem medo: ela preenche até o piso e para, quem já está inscrito
+entra em `_excluidos`, e a notificação carrega chave de deduplicação.
 """
 
 from datetime import datetime, timedelta
@@ -58,6 +62,12 @@ class PushAlocacaoAutomaticaUseCase:
         agora = datetime.now()
         bancas = self.banca_repository.get_por_periodo(agora, agora + timedelta(days=JANELA_PUSH_DIAS))
 
+        # Passada ociosa termina aqui. Sem banca na janela não há teto a ler
+        # nem rodízio a montar, e a varredura de 5 em 5 minutos passa a custar
+        # uma query só — fora de semestre, é a esmagadora maioria delas.
+        if not bancas:
+            return []
+
         configuracao = self.configuracao_repository.get()
         teto = configuracao.vagas_por_banca if configuracao else 5
 
@@ -71,12 +81,7 @@ class PushAlocacaoAutomaticaUseCase:
         return resumo
 
     def _ultima_alocacao_por_usuario(self) -> Dict[int, datetime]:
-        ultima: Dict[int, datetime] = {}
-        for candidatura in self.candidatura_repository.get_all():
-            atual = ultima.get(candidatura.usuario_id)
-            if atual is None or candidatura.criado_em > atual:
-                ultima[candidatura.usuario_id] = candidatura.criado_em
-        return ultima
+        return self.candidatura_repository.ultima_alocacao_por_usuario()
 
     def _processar_banca(
         self, banca: BancaModel, teto: int, ultima_alocacao: Dict[int, datetime]

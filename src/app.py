@@ -363,7 +363,16 @@ def rodar_lembrete_prazo_pdi() -> None:
 async def lifespan(app: FastAPI):
     scheduler.add_job(
         rodar_push_alocacao_automatica,
-        CronTrigger(hour=6, minute=0),
+        # De 5 em 5 minutos, e não uma vez por dia: a regra do §8 é "uma semana
+        # antes da banca", e com varredura diária uma banca marcada logo depois
+        # do horário do job só era atendida quase 24h atrasada.
+        #
+        # A frequência é barata porque a varredura é idempotente e sai cedo: só
+        # preenche até o piso, quem já está inscrito entra em `_excluidos`, a
+        # notificação tem chave, e sem banca na janela o `execute` retorna na
+        # primeira query. Roda em thread (o job é `def`, não `async def`), então
+        # não disputa o event loop com as requisições.
+        CronTrigger(minute="*/5"),
         id="push_alocacao_automatica",
         replace_existing=True,
     )
@@ -416,6 +425,13 @@ async def lifespan(app: FastAPI):
     # Na mesma ordem do agendamento: ambientação primeiro, e o avanço logo
     # depois já enxerga quem acabou de virar para Em andamento.
     rodar_avanco_de_status()
+    # Mesma razão dos dois acima — e o motivo de a alocação automática nunca
+    # ter acontecido de fato. O agendador vive DENTRO do processo, então "toda
+    # hora" só dispara enquanto há processo de pé; servidor fora do ar não
+    # acumula disparo, ele os perde. Sem esta chamada, uma banca podia
+    # atravessar a janela inteira de 7 dias sem ninguém escalado, e a primeira
+    # subida seguinte não corrigia nada.
+    rodar_push_alocacao_automatica()
     yield
     scheduler.shutdown()
 
