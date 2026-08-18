@@ -38,7 +38,12 @@ class TarefaColunaModel(Base):
         UniqueConstraint("projeto_id", "chave", name="uq_coluna_projeto_chave"),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
+    #: Sem `index=True`, ao contrario dos outros models: o nome gerado
+    #: (`ix_tarefa_coluna_id`) colide com o indice de `tarefa.coluna_id`,
+    #: e nome de indice no Postgres e unico por schema. O indice seria
+    #: redundante de qualquer forma — a PK ja cria `tarefa_coluna_pkey`
+    #: sobre esta coluna. Nao reponha.
+    id = Column(Integer, primary_key=True)
     projeto_id = Column(Integer, ForeignKey("projeto.id"), nullable=False, index=True)
     #: Slug estável das colunas padrão — é por ele que a migration converteu
     #: o ENUM antigo e que a criação de projeto continua idempotente. Colunas
