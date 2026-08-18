@@ -13,6 +13,11 @@ ASSINATURAS = {
     ".jpg": b"\xff\xd8\xff",
     ".jpeg": b"\xff\xd8\xff",
     ".png": b"\x89PNG\r\n\x1a\n",
+    # Mesma assinatura de .docx/.pptx (zip) e .doc (OLE) respectivamente —
+    # quem discrimina é o nome do arquivo, não a assinatura (ver o comentário
+    # acima sobre .docx).
+    ".xlsx": b"PK\x03\x04",
+    ".xls": b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
 }
 
 # Quais extensões cada `tipo_arquivo` de item aceita (ver
@@ -21,13 +26,15 @@ ASSINATURAS = {
 EXTENSOES_POR_TIPO = {
     "documento": {".pdf", ".docx", ".doc"},
     "foto": {".jpg", ".jpeg", ".png"},
+    "planilha": {".xlsx", ".xls"},
     "qualquer": set(ASSINATURAS),
 }
 
 MENSAGEM_POR_TIPO = {
     "documento": "Este item precisa de um PDF ou Word (.doc/.docx)",
     "foto": "Este item precisa de uma foto (.jpg/.jpeg/.png)",
-    "qualquer": "O arquivo precisa ser um PDF, Word (.doc/.docx) ou uma foto (.jpg/.jpeg/.png)",
+    "planilha": "Este item precisa de uma planilha Excel (.xlsx/.xls)",
+    "qualquer": "O arquivo precisa ser um PDF, Word (.doc/.docx), Excel (.xlsx/.xls) ou uma foto (.jpg/.jpeg/.png)",
 }
 
 

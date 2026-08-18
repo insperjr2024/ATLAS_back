@@ -9,10 +9,12 @@ from src.repositories.projeto_repository import ProjetoRepository
 class UpdateDescricaoRequest(BaseModel):
     descricao: Optional[str] = None
     # Nome errado na criação (duplicado, digitado errado) precisa de conserto
-    # depois — mora aqui, e não num use case próprio, pelo mesmo motivo de
-    # `cliente` não ter um: é edição de texto simples, sem regra de negócio
-    # nenhuma amarrada.
+    # depois — mora aqui, e não num use case próprio: é edição de texto
+    # simples, sem regra de negócio nenhuma amarrada. `cliente` e
+    # `link_proposta` são o mesmo caso.
     nome: Optional[str] = None
+    cliente: Optional[str] = None
+    link_proposta: Optional[str] = None
 
 
 class UpdateDescricaoUseCase:
@@ -26,4 +28,10 @@ class UpdateDescricaoUseCase:
         projeto = self.repository.update(projeto_id, **dados)
         if not projeto:
             return None
-        return {"id": projeto.id, "nome": projeto.nome, "descricao": projeto.descricao}
+        return {
+            "id": projeto.id,
+            "nome": projeto.nome,
+            "descricao": projeto.descricao,
+            "cliente": projeto.cliente,
+            "link_proposta": projeto.link_proposta,
+        }

@@ -8,7 +8,7 @@ from src.utils.exceptions import RegraDeNegocioError
 
 class CreatePdiItemRequest(BaseModel):
     nome: str
-    tipo_arquivo: str = "qualquer"  # "documento" | "foto" | "qualquer"
+    tipo_arquivo: str = "qualquer"  # "documento" | "foto" | "planilha" | "qualquer"
 
 
 def serializar_item(item) -> dict:

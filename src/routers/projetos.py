@@ -72,6 +72,8 @@ from src.use_cases.projeto.update_configuracoes import (
     UpdateDiasAmbientacaoUseCase,
     UpdateEntregaPrevistaClienteRequest,
     UpdateEntregaPrevistaClienteUseCase,
+    UpdateFrentesRequest,
+    UpdateFrentesUseCase,
     UpdateMaxConsultoresRequest,
     UpdateMaxConsultoresUseCase,
 )
@@ -221,6 +223,18 @@ def update_max_consultores(projeto_id: int, request: UpdateMaxConsultoresRequest
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         result = UpdateMaxConsultoresUseCase(db).execute(projeto_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/frentes")
+def update_frentes(projeto_id: int, request: UpdateFrentesRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = UpdateFrentesUseCase(db).execute(projeto_id, request)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:

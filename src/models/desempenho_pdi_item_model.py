@@ -16,7 +16,7 @@ class DesempenhoPdiItemModel(Base):
     pasta_id = Column(Integer, ForeignKey("desempenho_pdi_pasta.id"), nullable=False, index=True)
     nome = Column(String(150), nullable=False)
     tipo_arquivo = Column(
-        Enum("documento", "foto", "qualquer", name="desempenho_pdi_item_tipo_arquivo"),
+        Enum("documento", "foto", "planilha", "qualquer", name="desempenho_pdi_item_tipo_arquivo"),
         nullable=False,
         default="qualquer",
         server_default="qualquer",
