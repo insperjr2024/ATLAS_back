@@ -12,6 +12,7 @@ se ele passa, a credencial está certa e o problema é do lado de lá.
 """
 
 import sys
+from datetime import datetime
 
 from src.config.config import get_settings
 from src.utils.email import EmailSender, montar_email_senha_provisoria
@@ -40,12 +41,29 @@ def main() -> int:
     print(f"remetente : {settings.SMTP_FROM or settings.SMTP_USER}")
     print(f"destino   : {destino}")
 
+    # O código de data/hora identifica ESTA execução.
+    #
+    # Sem ele o script mandava texto idêntico toda vez — mesmo nome falso,
+    # mesma senha falsa, mesmo assunto —, e quem depura entrega manda o teste
+    # várias vezes seguidas. Com todas as tentativas iguais na caixa, não dá
+    # para dizer qual chegou, se alguma chegou duas vezes, ou se a que você
+    # está olhando é a de agora ou a de dez minutos atrás.
+    #
+    # ⚠ Não é proteção contra deduplicação do destinatário. Isso foi testado
+    # em 17/08/2026 — duas mensagens de conteúdo byte a byte idêntico,
+    # mandadas com 12s de diferença para a mesma caixa do Gmail, chegaram as
+    # duas. O código serve para você conseguir LER o resultado do teste, não
+    # para fazer a mensagem passar.
+    codigo = datetime.now().strftime("%d/%m %H:%M:%S")
     assunto, texto, html = montar_email_senha_provisoria(
         "Fulano de Teste", SENHA_DE_MENTIRA, f"{settings.FRONTEND_URL.rstrip('/')}/login"
     )
+    texto = f"{texto}\nTeste enviado em {codigo}.\n"
+    html = f'{html}<p style="color:#666;font-size:12px">Teste enviado em {codigo}.</p>'
+    print(f"código    : {codigo}")
 
     try:
-        EmailSender().enviar(destino, f"[TESTE] {assunto}", texto, html)
+        EmailSender().enviar(destino, f"[TESTE {codigo}] {assunto}", texto, html)
     except Exception as erro:
         # A resposta crua da API é o que resolve o caso: token revogado,
         # client id/secret errados, ou escopo insuficiente pedem correções

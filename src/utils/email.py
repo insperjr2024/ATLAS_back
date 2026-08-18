@@ -13,6 +13,8 @@ repo não usam `unittest.mock.patch` — escrevem dublês à mão (ver
 
 import base64
 from email.message import EmailMessage
+from email.policy import SMTP as _POLITICA_SMTP
+from email.utils import formatdate
 from typing import Optional
 
 import httpx
@@ -22,6 +24,26 @@ from src.utils.exceptions import RegraDeNegocioError
 
 GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+
+#: Como a mensagem é serializada. Os dois desvios do padrão do Python aqui são
+#: o que decide se um e-mail com acento chega ou some no caminho.
+#:
+#: `EmailMessage()` sem argumento usa `email.policy.default`, que quebra linha
+#: com `\n` puro e, quando o corpo tem caractere fora do ASCII, marca a parte
+#: como `Content-Transfer-Encoding: 8bit` e despeja os bytes UTF-8 crus. Isso
+#: viola a RFC 5322 em dois pontos: linha termina em CRLF, e o corpo
+#: transportado precisa ser 7-bit limpo. Mandar essa mensagem no campo `raw`
+#: da API do Gmail entrega ao filtro do destinatário algo malformado — ela sai
+#: da nossa caixa (aparece em "Enviados", com 200 na API) e é descartada ou
+#: jogada no spam do lado de lá, sem erro nenhum voltando pra cá.
+#:
+#: `policy.SMTP` é a `default` com `linesep="\r\n"`; `cte_type="7bit"` faz o
+#: `set_content` escolher quoted-printable em vez de 8bit — "Olá" viaja como
+#: `Ol=C3=A1`, que atravessa qualquer servidor.
+#:
+#: O sintoma que trouxe até aqui: dos e-mails de teste, chegavam só os que não
+#: tinham acento nenhum — exatamente os que caíam no caminho 7-bit por acaso.
+POLITICA_EMAIL = _POLITICA_SMTP.clone(cte_type="7bit")
 
 
 class EmailSender:
@@ -38,10 +60,13 @@ class EmailSender:
                 "Fale com a diretoria para redefinir sua senha."
             )
 
-        mensagem = EmailMessage()
+        mensagem = EmailMessage(policy=POLITICA_EMAIL)
         mensagem["Subject"] = assunto
         mensagem["From"] = settings.SMTP_FROM or settings.SMTP_USER
         mensagem["To"] = destino
+        # Sem `Date` a mensagem depende de algum servidor no caminho carimbar a
+        # hora, e o filtro de spam conta a ausência como ponto contra.
+        mensagem["Date"] = formatdate(localtime=True)
         # O texto puro vem primeiro e o HTML como alternativa: cliente que não
         # renderiza HTML ainda mostra o link, em vez de um corpo vazio.
         mensagem.set_content(corpo_texto)
