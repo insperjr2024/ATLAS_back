@@ -9,7 +9,7 @@ from typing import List
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.models.notificacao_model import TIPOS_NOTIFICACAO_OPCIONAIS
+from src.models.notificacao_model import EMAIL_DESATIVADO_TOTAL, TIPOS_NOTIFICACAO_OPCIONAIS
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -28,7 +28,11 @@ class AtualizarPreferenciaNotificacaoUseCase:
         # Recusa tipo fixo ou inexistente na lista: aceitar caladamente
         # deixaria alguém desligar sem saber que não tinha efeito nenhum
         # (fixo) ou guardar lixo que nunca mais é lido (tipo inexistente).
-        invalidos = set(request.desativadas) - TIPOS_NOTIFICACAO_OPCIONAIS
+        # EMAIL_DESATIVADO_TOTAL é a exceção: não é um tipo, é a válvula de
+        # "desliga tudo" de uma conta de teste — não tem tela pra ligar isso
+        # (é ajuste direto no banco), mas precisa sobreviver caso a pessoa
+        # mexa em outro toggle desta tela e salve, sem perder o próprio.
+        invalidos = set(request.desativadas) - TIPOS_NOTIFICACAO_OPCIONAIS - {EMAIL_DESATIVADO_TOTAL}
         if invalidos:
             raise RegraDeNegocioError(
                 f"Estes tipos não podem ser desativados: {', '.join(sorted(invalidos))}."
