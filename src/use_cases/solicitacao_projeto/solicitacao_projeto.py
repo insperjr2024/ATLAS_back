@@ -620,8 +620,8 @@ class SolicitacaoProjetoUseCase:
         você não acompanha", e um resto anônimo não ajuda a decidir — quem
         monta time precisa saber se aquele quarto projeto é pesado ou não.
 
-        Mesma régua de carga do §7.3: finalizado ou arquivado não conta, para
-        o número e a lista nunca discordarem.
+        Mesma régua de carga do §7.3: finalizado, arquivado ou pausado
+        (2026-08-19) não conta, para o número e a lista nunca discordarem.
         """
         linhas = (
             self.db.query(ProjetoMembroModel.usuario_id, ProjetoModel.id, ProjetoModel.nome)
@@ -629,7 +629,7 @@ class SolicitacaoProjetoUseCase:
             .filter(
                 ProjetoMembroModel.saiu_em.is_(None),
                 ProjetoModel.arquivado_em.is_(None),
-                ProjetoModel.status != "finalizado",
+                ProjetoModel.status.notin_(["finalizado", "pausado"]),
             )
             .all()
         )

@@ -1168,8 +1168,11 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # o caminho para o chip da tabela linkar para o projeto.
         por_id = {p.id: {"id": p.id, "nome": p.nome, "status": p.status} for p in projetos}
         # Só projetos ATIVOS contam como carga — quem coordenou algo
-        # finalizado não está ocupado por isso.
-        ativos = {p.id for p in projetos if p.status not in ("finalizado",)}
+        # finalizado não está ocupado por isso, e quem está num projeto
+        # pausado (2026-08-19) também não: pausado é "parado", ninguém
+        # trabalha nele enquanto durar, e contar a vaga como ocupada
+        # impediria a pessoa de entrar em outro projeto de verdade.
+        ativos = {p.id for p in projetos if p.status not in ("finalizado", "pausado")}
 
         membros = self.membro_repository.get_by_projetos(ids, apenas_atuais=True)
         usuarios = {u.id: u for u in self.usuario_repository.get_all() if u.status == "ativo"}

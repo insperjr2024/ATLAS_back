@@ -41,8 +41,11 @@ class ProjetoMembroRepository(BaseRepository[ProjetoMembroModel]):
     def contar_ativos_por_usuario(self) -> Dict[int, int]:
         """Quantos projetos cada pessoa toca hoje, numa consulta só.
 
-        Mesma régua de carga do §7.3 (`AlocacaoUseCase`): projeto finalizado
-        ou arquivado não ocupa ninguém. Sem recorte de visão de propósito —
+        Mesma régua de carga do §7.3 (`AlocacaoUseCase`): projeto finalizado,
+        arquivado ou pausado não ocupa ninguém — pausado (2026-08-19) porque
+        é exatamente "parado", ninguém trabalha nele enquanto durar, e contar
+        a vaga como ocupada impediria a pessoa de entrar em outro projeto de
+        verdade. Sem recorte de visão de propósito —
         quem monta a equipe precisa saber que a pessoa já está alocada mesmo
         em frente que ela própria não enxerga.
 
@@ -62,7 +65,7 @@ class ProjetoMembroRepository(BaseRepository[ProjetoMembroModel]):
             .filter(
                 ProjetoMembroModel.saiu_em.is_(None),
                 ProjetoModel.arquivado_em.is_(None),
-                ProjetoModel.status != "finalizado",
+                ProjetoModel.status.notin_(["finalizado", "pausado"]),
             )
             .group_by(ProjetoMembroModel.usuario_id)
             .all()
