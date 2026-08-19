@@ -1,9 +1,18 @@
-"""Envio de e-mail, pela API do Gmail (HTTPS), não por SMTP.
+"""Envio de e-mail, pela API do Resend (HTTPS).
 
-O Render bloqueia conexão de saída nas portas de SMTP (25, 465, 587) no plano
-free — bloqueio deles, não nosso, pra conter spam. A API do Gmail manda o
-mesmo e-mail, da mesma caixa, mas fala por HTTPS (porta 443, nunca
-bloqueada). `httpx` já era dependência do projeto, não precisou de nada novo.
+Terceira parada desse fio: SMTP direto -> API do Gmail (conta pessoal) ->
+Resend (domínio próprio, `insperjr.org`, verificado por SPF/DKIM/DMARC). A
+API do Gmail resolvia o bloqueio de porta SMTP do Render, mas herdava o
+limite de envio e o risco de bloqueio por volume de uma conta comum — o
+Resend é infraestrutura feita para isto, sem esse teto. Fala por HTTPS
+(porta 443, nunca bloqueada), então a razão original de sair do SMTP direto
+continua resolvida.
+
+**Não precisa mais montar a mensagem RFC 2822 à mão.** A API do Gmail pedia
+o e-mail inteiro serializado (`raw`, base64), e dali vinha o cuidado com
+`email.policy`/`cte_type="7bit"` para acento sobreviver. O Resend recebe
+`subject`/`text`/`html` como campos JSON separados, em UTF-8 puro — a
+codificação MIME é responsabilidade dele, não nossa.
 
 **A classe existe para poder ser trocada por um fake no teste.** Os testes do
 repo não usam `unittest.mock.patch` — escrevem dublês à mão (ver
@@ -11,10 +20,6 @@ repo não usam `unittest.mock.patch` — escrevem dublês à mão (ver
 "esqueci minha senha" mandaria e-mail de verdade a cada `pytest`.
 """
 
-import base64
-from email.message import EmailMessage
-from email.policy import SMTP as _POLITICA_SMTP
-from email.utils import formatdate
 from typing import Optional
 
 import httpx
@@ -22,85 +27,45 @@ import httpx
 from src.config.config import get_settings
 from src.utils.exceptions import RegraDeNegocioError
 
-GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
-
-#: Como a mensagem é serializada. Os dois desvios do padrão do Python aqui são
-#: o que decide se um e-mail com acento chega ou some no caminho.
-#:
-#: `EmailMessage()` sem argumento usa `email.policy.default`, que quebra linha
-#: com `\n` puro e, quando o corpo tem caractere fora do ASCII, marca a parte
-#: como `Content-Transfer-Encoding: 8bit` e despeja os bytes UTF-8 crus. Isso
-#: viola a RFC 5322 em dois pontos: linha termina em CRLF, e o corpo
-#: transportado precisa ser 7-bit limpo. Mandar essa mensagem no campo `raw`
-#: da API do Gmail entrega ao filtro do destinatário algo malformado — ela sai
-#: da nossa caixa (aparece em "Enviados", com 200 na API) e é descartada ou
-#: jogada no spam do lado de lá, sem erro nenhum voltando pra cá.
-#:
-#: `policy.SMTP` é a `default` com `linesep="\r\n"`; `cte_type="7bit"` faz o
-#: `set_content` escolher quoted-printable em vez de 8bit — "Olá" viaja como
-#: `Ol=C3=A1`, que atravessa qualquer servidor.
-#:
-#: O sintoma que trouxe até aqui: dos e-mails de teste, chegavam só os que não
-#: tinham acento nenhum — exatamente os que caíam no caminho 7-bit por acaso.
-POLITICA_EMAIL = _POLITICA_SMTP.clone(cte_type="7bit")
+RESEND_SEND_URL = "https://api.resend.com/emails"
 
 
 class EmailSender:
-    """Envia pela API do Gmail, autenticado com o refresh token do `.env`."""
+    """Envia pela API do Resend, autenticado com a API key do `.env`."""
 
     def enviar(self, destino: str, assunto: str, corpo_texto: str, corpo_html: str) -> None:
         settings = get_settings()
 
         # Falha explícita em vez de silenciosa: sem credencial configurada o
         # e-mail não sai, e o usuário ficaria esperando um link que nunca chega.
-        if not settings.GMAIL_OAUTH_REFRESH_TOKEN:
+        if not settings.RESEND_API_KEY:
             raise RegraDeNegocioError(
-                "Envio de e-mail não configurado no servidor (Gmail OAuth vazio). "
+                "Envio de e-mail não configurado no servidor (Resend API key vazia). "
                 "Fale com a diretoria para redefinir sua senha."
             )
 
-        mensagem = EmailMessage(policy=POLITICA_EMAIL)
-        mensagem["Subject"] = assunto
-        mensagem["From"] = settings.SMTP_FROM or settings.SMTP_USER
-        mensagem["To"] = destino
-        # Sem `Date` a mensagem depende de algum servidor no caminho carimbar a
-        # hora, e o filtro de spam conta a ausência como ponto contra.
-        mensagem["Date"] = formatdate(localtime=True)
-        # O texto puro vem primeiro e o HTML como alternativa: cliente que não
-        # renderiza HTML ainda mostra o link, em vez de um corpo vazio.
-        mensagem.set_content(corpo_texto)
-        mensagem.add_alternative(corpo_html, subtype="html")
-
-        access_token = self._access_token(settings)
-        # A API do Gmail pede a mensagem RFC 2822 inteira, em base64url — o
-        # mesmo formato que o `EmailMessage` já monta pra SMTP.
-        bruto = base64.urlsafe_b64encode(mensagem.as_bytes()).decode()
         resposta = httpx.post(
-            GMAIL_SEND_URL,
-            headers={"Authorization": f"Bearer {access_token}"},
-            json={"raw": bruto},
-            timeout=15,
-        )
-        resposta.raise_for_status()
-
-    def _access_token(self, settings) -> str:
-        """O refresh token não expira (a menos que revogado); o access token
-        expira em 1h, então pede um novo a cada envio em vez de guardar em
-        cache, um e-mail transacional não é volume que justifique a
-        complexidade de cachear."""
-        resposta = httpx.post(
-            GMAIL_TOKEN_URL,
-            data={
-                "client_id": settings.GMAIL_OAUTH_CLIENT_ID,
-                "client_secret": settings.GMAIL_OAUTH_CLIENT_SECRET,
-                "refresh_token": settings.GMAIL_OAUTH_REFRESH_TOKEN,
-                "grant_type": "refresh_token",
+            RESEND_SEND_URL,
+            headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+            json={
+                "from": settings.SMTP_FROM or settings.SMTP_USER,
+                "to": [destino],
+                "subject": assunto,
+                # Texto puro primeiro e HTML como alternativa: cliente que não
+                # renderiza HTML ainda mostra o link, em vez de um corpo vazio.
+                "text": corpo_texto,
+                "html": corpo_html,
             },
             timeout=15,
         )
-        resposta.raise_for_status()
-        return resposta.json()["access_token"]
+        # `raise_for_status()` sozinho só diz o código (ex.: "403 Forbidden"),
+        # não o motivo — e o motivo é o que o Resend manda no corpo ("domain
+        # is not verified", "API key is restricted to a different domain"
+        # etc.). Sem ele, todo 4xx cai igual no log e vira adivinhação.
+        if resposta.is_error:
+            raise RegraDeNegocioError(
+                f"Resend recusou o envio ({resposta.status_code}): {resposta.text}"
+            )
 
 
 def montar_email_senha_provisoria(nome: str, senha: str, link_login: str) -> tuple[str, str, str]:
