@@ -94,10 +94,10 @@ def enviar(
     manda e-mail de verdade (ver a docstring de `utils/email.py`).
     """
     settings = get_settings()
-    # Sem Gmail OAuth configurado não há o que tentar. Silêncio, e não exceção
+    # Sem Resend configurado não há o que tentar. Silêncio, e não exceção
     # como em `EmailSender.enviar`: lá o e-mail É o fluxo (a pessoa espera um
     # link), aqui ele é a cópia de um aviso que já está no sino.
-    if not settings.GMAIL_OAUTH_REFRESH_TOKEN:
+    if not settings.RESEND_API_KEY:
         return False
 
     db = session_factory()

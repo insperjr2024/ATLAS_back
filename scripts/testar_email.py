@@ -1,4 +1,4 @@
-"""Confere se o Gmail OAuth do `.env` está mandando e-mail de verdade.
+"""Confere se o Resend do `.env` está mandando e-mail de verdade.
 
     uv run python -m scripts.testar_email seu.email@al.insper.edu.br
 
@@ -28,12 +28,10 @@ def main() -> int:
     destino = sys.argv[1]
     settings = get_settings()
 
-    if not settings.GMAIL_OAUTH_REFRESH_TOKEN:
+    if not settings.RESEND_API_KEY:
         print(
-            "GMAIL_OAUTH_REFRESH_TOKEN está vazio no .env — o envio não é nem tentado.\n"
-            "Rode scripts/gerar_refresh_token_gmail.py para gerar as três "
-            "credenciais (GMAIL_OAUTH_CLIENT_ID, GMAIL_OAUTH_CLIENT_SECRET, "
-            "GMAIL_OAUTH_REFRESH_TOKEN) e preencha o .env."
+            "RESEND_API_KEY está vazia no .env — o envio não é nem tentado.\n"
+            "Gera uma em resend.com/api-keys e preenche o .env."
         )
         return 1
 
@@ -65,9 +63,9 @@ def main() -> int:
     try:
         EmailSender().enviar(destino, f"[TESTE {codigo}] {assunto}", texto, html)
     except Exception as erro:
-        # A resposta crua da API é o que resolve o caso: token revogado,
-        # client id/secret errados, ou escopo insuficiente pedem correções
-        # diferentes.
+        # A resposta crua da API é o que resolve o caso: API key errada,
+        # domínio ainda não verificado, ou remetente fora do domínio
+        # verificado pedem correções diferentes.
         print(f"\nnão saiu: {type(erro).__name__}: {erro}")
         return 1
 
