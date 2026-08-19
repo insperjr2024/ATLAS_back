@@ -58,7 +58,14 @@ class EmailSender:
             },
             timeout=15,
         )
-        resposta.raise_for_status()
+        # `raise_for_status()` sozinho só diz o código (ex.: "403 Forbidden"),
+        # não o motivo — e o motivo é o que o Resend manda no corpo ("domain
+        # is not verified", "API key is restricted to a different domain"
+        # etc.). Sem ele, todo 4xx cai igual no log e vira adivinhação.
+        if resposta.is_error:
+            raise RegraDeNegocioError(
+                f"Resend recusou o envio ({resposta.status_code}): {resposta.text}"
+            )
 
 
 def montar_email_senha_provisoria(nome: str, senha: str, link_login: str) -> tuple[str, str, str]:
