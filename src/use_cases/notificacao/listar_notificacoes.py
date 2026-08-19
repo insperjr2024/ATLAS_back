@@ -116,6 +116,15 @@ class ListarNotificacoesUseCase(_BaseMonitoramento):
             ),
             encerra_por_coluna=self._encerra_por_coluna(),
             projetos_com_reuniao={r.projeto_id for r in reunioes},
+            # Para `ambientacao_sem_banca`. Ela não chega ao sino hoje — não
+            # está em `PAPEIS_DESTINATARIOS` nem em `AGREGAVEIS_PARA_LIDERANCA`,
+            # e o filtro a descarta. O calendário vai junto assim mesmo: no dia
+            # em que alguém decidir que a coordenação recebe esta cobrança pelo
+            # sino, basta a linha em `PAPEIS_DESTINATARIOS` — sem isto aqui, a
+            # condição chegaria lá calculada por uma régua diferente da do
+            # monitoramento, que é exatamente o que este módulo existe para
+            # evitar.
+            dias_nao_letivos=self._calendario_global(),
             hoje=hoje,
         )
 

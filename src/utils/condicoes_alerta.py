@@ -23,15 +23,22 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Dict, Iterable, List, Optional, Set
 
+from src.utils.ambientacao import fim_da_ambientacao
 from src.utils.banca_status import NAO_MARCADA, calcular_status_banca
+from src.utils.dias_uteis import normalizar
 from src.utils.tarefa_status import eh_vencida, janela_semana
 
-# Os 5 tipos 🔄 do §6.6 mais "banca hoje".
+# Os 5 tipos 🔄 do §6.6, mais "banca hoje" e o prazo do §5.3.
 KICKOFF_PENDENTE = "kickoff_pendente"
 TAREFA_VENCIDA = "tarefa_vencida"
 BANCA_NAO_MARCADA = "banca_nao_marcada"
 PROJETO_SEM_REUNIAO = "projeto_sem_reuniao"
 BANCA_HOJE = "banca_hoje"
+#: ⭐ O prazo do §5.3 vencendo: chegou o último dia da ambientação e o projeto
+#: ainda não tem NENHUMA banca marcada. Irmão do `kickoff_pendente` — os dois
+#: cobram um marco que devia existir e não existe, e os dois só somem quando
+#: alguém marca a data.
+AMBIENTACAO_SEM_BANCA = "ambientacao_sem_banca"
 
 #: Quem, DENTRO da equipe do projeto, recebe cada condição individualmente.
 #: Fora daqui ninguém recebe individual — liderança vê o agregado (ver
@@ -94,6 +101,7 @@ def detectar_condicoes(
     tarefas_por_projeto: Dict[int, list],
     encerra_por_coluna: Dict[int, bool],
     projetos_com_reuniao: Set[int],
+    dias_nao_letivos: Iterable[date] = (),
     hoje: Optional[date] = None,
 ) -> List[Condicao]:
     """Varre os projetos já carregados e devolve tudo que está em aberto.
@@ -101,8 +109,19 @@ def detectar_condicoes(
     Os projetos entram **já recortados** por `aplicar_recorte_visao` — por isso
     não há filtro de permissão aqui. Quem chama garante que a pessoa enxerga
     esses projetos; esta função só olha o estado deles.
+
+    `dias_nao_letivos` é o calendário do Insper, carregado **uma vez** por quem
+    chama — só `ambientacao_sem_banca` depende dele, para achar o fim da janela.
+    Devem ser os dias **globais** (`frente_id` nulo), a mesma régua da faixa do
+    cronograma e da virada automática de status: a ambientação é do projeto
+    inteiro, e um projeto sinérgico não pode acabá-la em datas diferentes
+    conforme a frente que se olhe. Sem calendário nenhum a conta ainda fecha —
+    só ignora feriados, e o alerta nasce um pouco cedo.
     """
     hoje = hoje or date.today()
+    # Normalizado UMA vez: `somar_dias_uteis` roda por projeto, e um gerador
+    # chegaria vazio no segundo.
+    nao_letivos = normalizar(dias_nao_letivos)
     condicoes: List[Condicao] = []
 
     for projeto in projetos:
@@ -116,6 +135,7 @@ def detectar_condicoes(
             tarefas=tarefas_por_projeto.get(projeto.id, []),
             encerra_por_coluna=encerra_por_coluna,
             tem_reuniao=projeto.id in projetos_com_reuniao,
+            dias_nao_letivos=nao_letivos,
             hoje=hoje,
         ))
 
@@ -142,6 +162,20 @@ def _passou_o_dia_da_reuniao(projeto, hoje: date) -> bool:
     return hoje.isoweekday() > dia
 
 
+def _tem_banca_marcada(escopos, bancas_por_escopo) -> bool:
+    """Algum destes escopos já tem data e hora de banca?
+
+    ⭐ Escopo **entregue** conta como marcado, e por isso não é filtrado por
+    quem chama: ele só chegou lá porque passou por uma banca. Excluí-lo faria o
+    alerta renascer num projeto que já validou tudo que tinha para validar.
+    """
+    for escopo in escopos:
+        banca = bancas_por_escopo.get(escopo.id)
+        if banca is not None and banca.data_hora:
+            return True
+    return False
+
+
 def _do_projeto(
     projeto,
     *,
@@ -151,6 +185,7 @@ def _do_projeto(
     tarefas,
     encerra_por_coluna,
     tem_reuniao: bool,
+    dias_nao_letivos,
     hoje: date,
 ) -> List[Condicao]:
     condicoes: List[Condicao] = []
@@ -168,6 +203,47 @@ def _do_projeto(
                 # data. Dispensou uma vez, não volta a incomodar.
                 chave_dedup=f"{KICKOFF_PENDENTE}:projeto={projeto.id}",
                 rota=f"/projetos/{projeto.id}",
+            )
+        )
+
+    # ── Acabou a ambientação e a banca não foi cravada (§5.3) ────────────
+    # *"Ao fim da ambientação, o coordenador crava o cronograma oficial do
+    # escopo e a data e horário da banca."* Esse prazo passava em SILÊNCIO: o
+    # `banca_nao_marcada` daqui de baixo só cobra escopo que já COMEÇOU, e quem
+    # começa o escopo é a reunião inicial — marcada, na prática, junto com a
+    # banca. Quem não marcava nenhuma das duas não tinha nem escopo iniciado
+    # nem banca, então não disparava condição nenhuma, e o projeto saía da
+    # ambientação para Em andamento sem ninguém ser avisado.
+    #
+    # A pergunta é do PROJETO, não do escopo, porque o marco do §5.3 é um só:
+    # marcar a primeira banca já responde. A cobrança escopo a escopo continua
+    # sendo do `banca_nao_marcada`, que entra quando cada um começa.
+    escopos_vivos = [e for e in escopos if e.status != "cancelado"]
+    tem_alguma_banca = _tem_banca_marcada(escopos_vivos, bancas_por_escopo)
+    fim_ambientacao = fim_da_ambientacao(
+        projeto.data_kickoff, projeto.dias_ambientacao, dias_nao_letivos
+    )
+    # ⏱ `>=`, não `>`: o alerta nasce NO último dia, que é o dia em que a banca
+    # deveria estar sendo cravada — esperar o seguinte avisaria quando o prazo
+    # já foi. É de propósito a régua CONTRÁRIA à de `ambientacao_encerrada`,
+    # que vira o status só no dia seguinte para não roubar um dia útil de quem
+    # comprou cinco: um cobra o prazo, o outro consome a janela.
+    #
+    # E não se apaga quando a janela passa: enquanto não houver banca, continua
+    # cobrando. Projeto sem escopo vivo fica de fora — não há banca para marcar.
+    if fim_ambientacao and hoje >= fim_ambientacao and escopos_vivos and not tem_alguma_banca:
+        condicoes.append(
+            Condicao(
+                tipo=AMBIENTACAO_SEM_BANCA,
+                projeto_id=projeto.id,
+                projeto_nome=nome,
+                titulo=f"{nome} terminou a ambientação sem banca marcada",
+                # Sem janela na chave, como no kickoff: é o mesmo alerta até
+                # alguém marcar a data.
+                chave_dedup=f"{AMBIENTACAO_SEM_BANCA}:projeto={projeto.id}",
+                # O cronograma é onde a banca se marca (§6.5) — a aba do
+                # projeto abre já no lugar de resolver.
+                rota=f"/projetos/{projeto.id}/cronograma",
             )
         )
 
