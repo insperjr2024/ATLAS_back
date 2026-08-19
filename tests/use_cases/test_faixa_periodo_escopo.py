@@ -30,8 +30,12 @@ SEX_21_08 = date(2026, 8, 21)
 SEX_28_08 = date(2026, 8, 28)
 
 
-def projeto(kickoff=None, dias_ambientacao=0):
-    return SimpleNamespace(data_kickoff=kickoff, dias_ambientacao=dias_ambientacao)
+def projeto(kickoff=None, dias_ambientacao=0, inicio_ambientacao=None):
+    return SimpleNamespace(
+        data_kickoff=kickoff,
+        dias_ambientacao=dias_ambientacao,
+        data_inicio_ambientacao=inicio_ambientacao,
+    )
 
 
 def escopo(id=1, inicio=SEG_10_08, entrega_real=None, vendidos=10, ajustados=0):

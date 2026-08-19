@@ -64,6 +64,10 @@ from src.use_cases.projeto.update_kickoff import (
     UpdateKickoffRequest,
     UpdateKickoffUseCase,
 )
+from src.use_cases.projeto.update_inicio_ambientacao import (
+    UpdateInicioAmbientacaoRequest,
+    UpdateInicioAmbientacaoUseCase,
+)
 from src.use_cases.projeto.update_descricao import UpdateDescricaoRequest, UpdateDescricaoUseCase
 from src.use_cases.projeto.update_configuracoes import (
     UpdateDiaReuniaoPadraoRequest,
@@ -144,6 +148,35 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
 def update_kickoff(projeto_id: int, request: UpdateKickoffRequest, current_user=Depends(require_pode_marcar_kickoff), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     result = UpdateKickoffUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/inicio-ambientacao")
+def update_inicio_ambientacao(
+    projeto_id: int,
+    request: UpdateInicioAmbientacaoRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Corrige o início da ambientação pra ANTES do kickoff (§5.3, exceção).
+
+    Sem `require_*` de cargo: quem edita é o **coordenador daquele projeto**
+    ou a diretoria, e isso é vínculo, não permissão de posição — mesmo
+    espírito de `confirmar_entrega_escopo`. A checagem mora no use case, que
+    já carrega a equipe.
+    """
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    try:
+        result = UpdateInicioAmbientacaoUseCase(db).execute(
+            projeto_id,
+            request,
+            current_user,
+            eh_diretor=current_user.posicao == "diretor",
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result
