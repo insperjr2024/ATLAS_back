@@ -8,9 +8,9 @@ gerente fica travado nas próprias frentes mesmo mandando outro `?frente_id=`.
 """
 
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -33,20 +33,61 @@ from src.use_cases.monitoramento.monitoramento import (
     TarefasGeraisUseCase,
     VisaoGeralUseCase,
 )
+from src.utils.status_projeto import STATUS_VALIDOS
 
 router = APIRouter(
     prefix="/monitoramento", tags=["monitoramento"], dependencies=[Depends(get_current_user)]
 )
 
 
+def filtro_status(
+    status: Optional[List[str]] = Query(
+        None,
+        description=(
+            "Etapas do ciclo de vida a manter. Repetir o parâmetro soma etapas: "
+            "`?status=ambientacao&status=em_andamento`. Ausente = todas."
+        ),
+    ),
+) -> Optional[List[str]]:
+    """⭐ O filtro de status, compartilhado por todas as abas de números.
+
+    Uma dependência só, e não uma validação copiada em cada rota, porque o
+    valor errado precisa dar a MESMA resposta em todas — o seletor da tela é
+    o mesmo componente, e um `?status=` que passa numa aba e falha em outra
+    vira bug de "só a Alocação está quebrada".
+
+    Recusa com 422 em vez de ignorar o desconhecido: filtro ignorado devolve
+    o portfólio inteiro com o seletor marcado na tela, e quem olha lê o número
+    do núcleo achando que é o da etapa. Vazio é diferente de errado — o §4 não
+    tem etapa `em_progresso`, e dizer isso é mais honesto que uma tela cheia.
+    """
+    if not status:
+        return None
+    invalidos = [s for s in status if s not in STATUS_VALIDOS]
+    if invalidos:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Status inválido: {', '.join(invalidos)}. "
+                f"Valores aceitos: {', '.join(STATUS_VALIDOS)}"
+            ),
+        )
+    # `dict.fromkeys` e não `set`: tira o repetido preservando a ordem em que
+    # a pessoa marcou. A ordem não muda o resultado do `IN`, mas mantém a URL
+    # estável entre requisições iguais — o que deixa o cache do navegador e os
+    # logs legíveis.
+    return list(dict.fromkeys(status))
+
+
 @router.get("/visao-geral")
 def visao_geral(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_pode_ver_monitoramento),
     db: Session = Depends(get_db),
 ):
-    return VisaoGeralUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+    return VisaoGeralUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id, status=status)
 
 
 @router.get("/execucao")
@@ -54,6 +95,7 @@ def execucao(
     frente_id: Optional[int] = None,
     referencia: Optional[date] = None,
     escopo_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_pode_ver_monitoramento),
     db: Session = Depends(get_db),
 ):
@@ -68,27 +110,31 @@ def execucao(
         raise HTTPException(
             status_code=422, detail="Só é possível consultar a semana atual ou anteriores"
         )
-    return ExecucaoUseCase(db).execute(current_user, frente_id, referencia, escopo_id=escopo_id)
+    return ExecucaoUseCase(db).execute(
+        current_user, frente_id, referencia, escopo_id=escopo_id, status=status
+    )
 
 
 @router.get("/alocacao")
 def alocacao(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_pode_ver_monitoramento),
     db: Session = Depends(get_db),
 ):
-    return AlocacaoUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+    return AlocacaoUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id, status=status)
 
 
 @router.get("/atrasos")
 def atrasos(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_pode_ver_monitoramento),
     db: Session = Depends(get_db),
 ):
-    return AtrasosUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+    return AtrasosUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id, status=status)
 
 
 @router.get("/aprovacoes")
@@ -108,10 +154,13 @@ def aprovacoes(current_user=Depends(require_diretor), db: Session = Depends(get_
 def tarefas(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_diretor),
     db: Session = Depends(get_db),
 ):
-    return TarefasGeraisUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+    return TarefasGeraisUseCase(db).execute(
+        current_user, frente_id, escopo_id=escopo_id, status=status
+    )
 
 
 @router.get("/graficos/fontes")
@@ -149,21 +198,25 @@ def graficos_dados(
 def cronogramas(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_diretor),
     db: Session = Depends(get_db),
 ):
-    return CronogramasGeraisUseCase(db).execute(current_user, frente_id, escopo_id=escopo_id)
+    return CronogramasGeraisUseCase(db).execute(
+        current_user, frente_id, escopo_id=escopo_id, status=status
+    )
 
 
 @router.get("/projetos-ativos")
 def projetos_ativos(
     frente_id: Optional[int] = None,
+    status: Optional[List[str]] = Depends(filtro_status),
     current_user=Depends(require_pode_ver_monitoramento),
     db: Session = Depends(get_db),
 ):
     """A aba Projetos ativos: o retrato dos projetos em curso (não finalizados
     nem arquivados), com o mesmo recorte de visão do resto do painel."""
-    return ProjetosAtivosUseCase(db).execute(current_user, frente_id)
+    return ProjetosAtivosUseCase(db).execute(current_user, frente_id, status=status)
 
 
 @router.get("/historico-projetos")
