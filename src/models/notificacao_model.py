@@ -88,6 +88,13 @@ TIPOS_NOTIFICACAO_OPCIONAIS = frozenset(
     }
 )
 
+#: Valor especial de `notificacoes_email_desativadas` que desliga TODO tipo,
+#: inclusive os fixos da lista acima — não é um tipo de verdade, é a válvula
+#: pra conta de teste/admin com e-mail que não existe (ex.: `admin@
+#: insperjr.com`) parar de gastar cota do Resend e de acumular bounce à toa.
+#: Continua no sino normalmente; só o e-mail é que some.
+EMAIL_DESATIVADO_TOTAL = "__tudo__"
+
 
 class NotificacaoModel(Base):
     """A central de notificações do §6.6 e do §8, numa tabela só.

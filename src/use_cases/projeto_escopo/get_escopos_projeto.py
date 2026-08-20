@@ -21,6 +21,7 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_justificativa_atraso_repository import (
     ProjetoJustificativaAtrasoRepository,
 )
+from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.banca_status import calcular_status_banca
@@ -67,6 +68,7 @@ class ListEscoposProjetoUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.repository = ProjetoEscopoRepository(db)
+        self.projeto_repository = ProjetoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.catalogo_repository = EscopoRepository(db)
@@ -82,6 +84,19 @@ class ListEscoposProjetoUseCase:
         escopos = self.repository.get_by_projeto(projeto_id)
         if not escopos:
             return []
+
+        # ⭐ Arquivar também para a contagem, do mesmo jeito que Pausado —
+        # mas arquivar não é um STATUS (é `arquivado_em`, um timestamp à
+        # parte, que não passa por `projeto_status_historico`), então não
+        # dá pra reaproveitar `derivar_janelas_pausa`. O jeito mais simples e
+        # sem risco de descontar a mesma janela duas vezes é travar a
+        # REFERÊNCIA no dia do arquivamento: tudo daqui pra baixo já enxerga
+        # "hoje" como aquele dia, e o resto da conta (pausas inclusive)
+        # continua funcionando sem mudar mais nada.
+        projeto = self.projeto_repository.get_by_id(projeto_id)
+        referencia = referencia or date.today()
+        if projeto and projeto.arquivado_em:
+            referencia = min(referencia, projeto.arquivado_em.date())
 
         # Carrega o banco UMA vez e passa para as funções puras — é o contrato
         # que `dias_uteis.py` estabelece no docstring.

@@ -32,7 +32,7 @@ from typing import Optional
 
 from src.config.config import get_settings
 from src.database.database import SessionLocal
-from src.models.notificacao_model import TIPOS_NOTIFICACAO_OPCIONAIS
+from src.models.notificacao_model import EMAIL_DESATIVADO_TOTAL, TIPOS_NOTIFICACAO_OPCIONAIS
 from src.repositories.notificacao_repository import NotificacaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.email import EmailSender, montar_email_notificacao
@@ -109,9 +109,16 @@ def enviar(
         # banco, mas não são mais avisados por fora da plataforma.
         if not usuario.ativo:
             return False
+        desativadas = usuario.notificacoes_email_desativadas or []
+        # EMAIL_DESATIVADO_TOTAL desliga tudo, inclusive tipo fixo — é a
+        # válvula pra conta de teste/admin com e-mail que não existe (ver
+        # notificacao_model.py). Checa antes da regra normal, que só olha
+        # tipo opcional.
+        if EMAIL_DESATIVADO_TOTAL in desativadas:
+            return False
         # Só os tipos opcionais respeitam a preferência — os de fora da lista
         # saem sempre, mesmo que o campo tenha algum lixo com o nome deles.
-        if tipo in TIPOS_NOTIFICACAO_OPCIONAIS and tipo in (usuario.notificacoes_email_desativadas or []):
+        if tipo in TIPOS_NOTIFICACAO_OPCIONAIS and tipo in desativadas:
             return False
 
         assunto, texto, html = montar_email_notificacao(

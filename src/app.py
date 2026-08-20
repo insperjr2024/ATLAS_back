@@ -398,12 +398,16 @@ async def lifespan(app: FastAPI):
         id="lembrete_prazo_avaliacao",
         replace_existing=True,
     )
-    scheduler.add_job(
-        rodar_lembrete_prazo_pdi,
-        CronTrigger(hour=6, minute=30),
-        id="lembrete_prazo_pdi",
-        replace_existing=True,
-    )
+    # Pausado (19/08/2026, pedido direto): PDI ainda não está em uso pela
+    # diretoria, e o lembrete diário estava incomodando. A função continua
+    # aqui pronta — é só reativar o `add_job` abaixo quando o PDI voltar a
+    # ser usado de verdade.
+    # scheduler.add_job(
+    #     rodar_lembrete_prazo_pdi,
+    #     CronTrigger(hour=6, minute=30),
+    #     id="lembrete_prazo_pdi",
+    #     replace_existing=True,
+    # )
     scheduler.add_job(
         rodar_lembrete_condicoes,
         CronTrigger(hour=6, minute=20),
