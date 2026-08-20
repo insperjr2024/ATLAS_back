@@ -27,6 +27,13 @@ from src.use_cases.banca.excecao_choque import (
     SolicitarExcecaoChoqueRequest,
     SolicitarExcecaoChoqueUseCase,
 )
+from src.use_cases.banca.fora_janela import (
+    DecidirForaJanelaRequest,
+    DecidirForaJanelaUseCase,
+    ListarForaJanelaPendentesUseCase,
+    SolicitarForaJanelaRequest,
+    SolicitarForaJanelaUseCase,
+)
 from src.use_cases.banca.marcar_banca_escopo import (
     MarcarBancaEscopoRequest,
     MarcarBancaEscopoUseCase,
@@ -278,6 +285,51 @@ def decidir_excecao_choque(
     """§8: a exceção de choque é decisão da diretoria — aqui ela é tomada."""
     try:
         result = DecidirExcecaoChoqueUseCase(db).execute(
+            pedido_id, request, respondido_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return result
+
+
+@router.post("/bancas/fora-janela")
+def solicitar_fora_janela(
+    request: SolicitarForaJanelaRequest,
+    current_user=Depends(require_pode_definir_cronograma),
+    db: Session = Depends(get_db),
+):
+    """⭐ Pedir para marcar a banca fora da janela do escopo (§13).
+
+    Quem MARCA a banca pede — por isso `require_pode_definir_cronograma`, o
+    mesmo cargo que a marcação exige. Quem decide é a diretoria, na rota abaixo.
+    """
+    try:
+        result = SolicitarForaJanelaUseCase(db).execute(request, solicitado_por=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    return result
+
+
+@router.get("/bancas/fora-janela/pendentes")
+def listar_fora_janela_pendentes(_=Depends(require_diretor), db: Session = Depends(get_db)):
+    """A fila da aba Aprovações."""
+    return ListarForaJanelaPendentesUseCase(db).execute()
+
+
+@router.patch("/bancas/fora-janela/{pedido_id}")
+def decidir_fora_janela(
+    pedido_id: int,
+    request: DecidirForaJanelaRequest,
+    current_user=Depends(require_diretor),
+    db: Session = Depends(get_db),
+):
+    """§13: marcar banca fora da janela é decisão da diretoria — aqui ela é tomada."""
+    try:
+        result = DecidirForaJanelaUseCase(db).execute(
             pedido_id, request, respondido_por=current_user.id
         )
     except RegraDeNegocioError as e:

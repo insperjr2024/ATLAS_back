@@ -23,7 +23,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.use_cases.banca import marcar_banca_escopo
+from src.use_cases.banca import fora_janela, marcar_banca_escopo
 from src.use_cases.banca.marcar_banca_escopo import (
     MarcarBancaEscopoRequest,
     MarcarBancaEscopoUseCase,
@@ -58,11 +58,19 @@ def escopo(id=7, inicio=QUI_03_09, vendidos=20, ajustados=0):
 def marcar(monkeypatch):
     """Devolve `(executar, estado)`; `estado.remarcacoes` mostra o registrado."""
 
-    def _montar(alvo=None, *, banca_existente=None, escopos_extras=()):
+    def _montar(alvo=None, *, banca_existente=None, escopos_extras=(), fora_janela_aprovada=None):
         alvo = alvo if alvo is not None else escopo()
         estado = SimpleNamespace(
             sessoes=[],remarcacoes=[], bancas=[], notificou=False)
         todos = {e.id: e for e in (alvo, *escopos_extras)}
+        # `(projeto_escopo_id, data_hora)` já autorizados pela diretoria —
+        # mesma régua de `BancaForaJanelaRepository.get_aprovada`.
+        aprovadas = set(fora_janela_aprovada or [])
+
+        class ForaJanelaFake:
+            def __init__(self, db): pass
+            def get_aprovada(self, escopo_id, data_hora):
+                return SimpleNamespace(id=1) if (escopo_id, data_hora) in aprovadas else None
 
         class BancaFake:
             def __init__(self, db): pass
@@ -202,6 +210,8 @@ def marcar(monkeypatch):
         ]:
             monkeypatch.setattr(marcar_banca_escopo, nome, fake)
 
+        monkeypatch.setattr(fora_janela, "BancaForaJanelaRepository", ForaJanelaFake)
+
         def notificou(*a, **k):
             estado.notificou = True
 
@@ -257,16 +267,28 @@ class TestPrimeiraMarcacao:
         with pytest.raises(RegraDeNegocioError, match="fora da janela"):
             executar(data_hora=FORA)
 
-    def test_fora_da_janela_a_diretoria_marca_com_justificativa(self, marcar):
-        """§13: os dias além da janela viram atraso — derivado, sem coluna."""
-        executar, estado = marcar()
+    def test_fora_da_janela_a_diretoria_tambem_e_barrada_sem_autorizacao(self, marcar):
+        """⭐ Não é mais atalho de um ato só: nem a diretoria marca sozinha
+        fora da janela. Sem um pedido APROVADO (`fora_janela`), ela esbarra
+        na mesma trava que o coordenador — a decisão dela agora é um ato
+        separado, tomado na aba Aprovações, não um clique na marcação."""
+        executar, _ = marcar()
 
-        resposta = executar(data_hora=FORA, quem=DANI, justificativa="Agenda do cliente")
+        with pytest.raises(RegraDeNegocioError, match="autorização da diretoria"):
+            executar(data_hora=FORA, quem=DANI, justificativa="Agenda do cliente")
+
+    def test_fora_da_janela_com_autorizacao_aprovada_o_coordenador_marca(self, marcar):
+        """§13: aprovado o pedido de `fora_janela`, os dias além da janela
+        viram atraso — derivado, sem coluna — e quem marca não precisa mais
+        ser diretor: a autorização já foi dada, separadamente, por quem podia."""
+        executar, estado = marcar(fora_janela_aprovada=[(7, FORA)])
+
+        resposta = executar(data_hora=FORA, quem=ANA, justificativa="Agenda do cliente")
 
         assert resposta["data_hora"] == FORA
 
-    def test_fora_da_janela_sem_justificativa_nao_passa_nem_para_a_diretoria(self, marcar):
-        executar, _ = marcar()
+    def test_fora_da_janela_sem_justificativa_nao_passa_mesmo_autorizada(self, marcar):
+        executar, _ = marcar(fora_janela_aprovada=[(7, FORA)])
 
         with pytest.raises(RegraDeNegocioError, match="justificativa"):
             executar(data_hora=FORA, quem=DANI)
@@ -330,7 +352,10 @@ class TestRemarcacao:
         assert registro["autorizado_por"] is None
 
     def test_remarcacao_autorizada_registra_quem_liberou(self, marcar):
-        executar, estado = marcar(banca_existente=banca_marcada(datetime(2026, 9, 24, 14, 0)))
+        executar, estado = marcar(
+            banca_existente=banca_marcada(datetime(2026, 9, 24, 14, 0)),
+            fora_janela_aprovada=[(7, FORA)],
+        )
 
         executar(data_hora=FORA, quem=DANI, justificativa="Agenda do cliente")
 
