@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    acesso_somente_por_venda,
     eh_diretoria_de_projetos,
     exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
@@ -123,12 +124,26 @@ def get_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Ses
     escalado numa banca deste projeto, que precisa do cabeçalho para votar mas
     não enxerga o projeto pelo §3. O shell usa a flag para mostrar só a aba
     Banca — sem ela, as outras abas apareceriam e devolveriam 404 no clique.
+
+    ⭐ `somente_leitura` é o irmão dela para quem VENDEU o projeto e não está na
+    equipe: enxerga a ficha inteira, todas as abas, e nenhum botão de ação. As
+    duas flags são independentes — um avaliador não é vendedor, e o vendedor vê
+    muito mais que a aba Banca.
+
+    A flag existe porque as permissões são globais por posição: sem ela, a tela
+    de um consultor-vendedor mostraria "Nova tarefa" num projeto onde a API vai
+    responder 403. O backend já barra (`exigir_acesso_ao_projeto`); isto é para
+    a tela não oferecer o que vai falhar.
     """
     apenas_banca = exigir_acesso_a_banca_do_projeto(projeto_id, current_user, db)
     result = GetProjetoUseCase(db).execute(projeto_id)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
-    return {**result, "apenas_banca": apenas_banca}
+    return {
+        **result,
+        "apenas_banca": apenas_banca,
+        "somente_leitura": acesso_somente_por_venda(projeto_id, current_user, db),
+    }
 
 
 @router.put("/projetos/{projeto_id}/equipe")
@@ -137,7 +152,9 @@ def update_equipe(projeto_id: int, request: UpdateEquipeProjetoRequest, current_
     # gerente de Business editava a equipe de um projeto de Direito.
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
-        result = UpdateEquipeProjetoUseCase(db).execute(projeto_id, request)
+        result = UpdateEquipeProjetoUseCase(db).execute(
+        projeto_id, request, registrado_por=current_user.id
+    )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:
@@ -295,7 +312,7 @@ def get_historico(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     return GetHistoricoProjetoUseCase(db).execute(projeto_id, incluir_ocultos=incluir_ocultos)
 
 
@@ -471,7 +488,7 @@ def upload_anexo_proposta(
 
 @router.get("/projetos/{projeto_id}/anexo-proposta")
 def download_anexo_proposta(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     projeto = ProjetoRepository(db).get_by_id(projeto_id)
     if not projeto or not projeto.anexo_proposta_path:
         raise HTTPException(status_code=404, detail="Anexo não encontrado")
@@ -501,7 +518,7 @@ def _projeto_do_escopo(escopo_id: int, current_user, db: Session) -> int:
 
 @router.get("/projetos/{projeto_id}/escopos")
 def list_escopos(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     return ListEscoposProjetoUseCase(db).execute(projeto_id)
 
 

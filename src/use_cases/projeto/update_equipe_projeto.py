@@ -1,10 +1,11 @@
 from datetime import date
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
 from sqlalchemy.orm import Session
 
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
@@ -20,6 +21,14 @@ class MembroEquipeRequest(BaseModel):
 
 class UpdateEquipeProjetoRequest(BaseModel):
     equipe: List[MembroEquipeRequest]
+    #: ⭐ Quem VENDEU o projeto. Zero ou mais, e não faz parte da equipe — vem
+    #: junto porque é a mesma tela e a mesma permissão (`pode_editar_equipe`),
+    #: não porque seja time.
+    #:
+    #: `None` (o padrão) significa "não mexa nos vendedores", diferente de `[]`,
+    #: que significa "apague todos". Sem essa distinção, qualquer tela que
+    #: salvasse só a equipe apagaria os vendedores em silêncio.
+    vendedor_ids: Optional[List[int]] = None
 
 
 class UpdateEquipeProjetoUseCase:
@@ -32,13 +41,22 @@ class UpdateEquipeProjetoUseCase:
         self.repository = ProjetoMembroRepository(db)
         self.projeto_repository = ProjetoRepository(db)
         self.usuario_repository = UsuarioRepository(db)
+        self.vendedor_repository = ProjetoVendedorRepository(db)
 
-    def execute(self, projeto_id: int, request: UpdateEquipeProjetoRequest):
+    def execute(
+        self,
+        projeto_id: int,
+        request: UpdateEquipeProjetoRequest,
+        registrado_por: Optional[int] = None,
+    ):
         projeto = self.projeto_repository.get_by_id(projeto_id)
         if not projeto:
             return None
 
         validar_equipe(request.equipe, self.usuario_repository, projeto.max_consultores)
+
+        if request.vendedor_ids is not None:
+            self._definir_vendedores(projeto_id, request.vendedor_ids, registrado_por)
 
         atuais = self.repository.get_by_projeto(projeto_id, apenas_atuais=True)
         ids_novos = {m.usuario_id for m in request.equipe}
@@ -78,3 +96,24 @@ class UpdateEquipeProjetoUseCase:
                 for m in self.repository.get_by_projeto(projeto_id, apenas_atuais=True)
             ]
         }
+
+    def _definir_vendedores(self, projeto_id: int, usuario_ids, registrado_por):
+        """Valida e grava a lista de vendedores.
+
+        Duas regras, as duas sobre existir de verdade: a pessoa precisa existir
+        e estar ativa. Um id solto viraria uma linha órfã que a ficha do projeto
+        mostraria como nome em branco.
+        """
+        vistos = set()
+        for usuario_id in usuario_ids:
+            if usuario_id in vistos:
+                raise RegraDeNegocioError("A mesma pessoa aparece duas vezes como vendedora")
+            vistos.add(usuario_id)
+            usuario = self.usuario_repository.get_by_id(usuario_id)
+            if not usuario:
+                raise RegraDeNegocioError("Vendedor(a) não encontrado(a)")
+            if usuario.status != "ativo":
+                raise RegraDeNegocioError(
+                    f"{usuario.nome} não está ativo(a) e não pode ser marcado(a) como vendedor(a)"
+                )
+        self.vendedor_repository.definir(projeto_id, list(vistos), registrado_por)

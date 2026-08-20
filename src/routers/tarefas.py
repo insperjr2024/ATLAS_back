@@ -76,7 +76,7 @@ def _coluna_do_projeto(projeto_id: int, coluna_id: int, db: Session):
 
 @router.get("/projetos/{projeto_id}/tarefas-colunas")
 def list_colunas(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     return ListColunasUseCase(db).execute(projeto_id)
 
 
@@ -144,7 +144,7 @@ def _acesso_pela_reuniao(reuniao_id: int, current_user, db: Session):
 
 @router.get("/projetos/{projeto_id}/tarefas")
 def list_tarefas(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     return ListTarefasUseCase(db).execute(projeto_id)
 
 
@@ -231,7 +231,7 @@ def delete_comentario(comentario_id: int, current_user=Depends(get_current_user)
 
 @router.get("/projetos/{projeto_id}/reunioes")
 def list_reunioes(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     return ListReunioesUseCase(db).execute(projeto_id)
 
 

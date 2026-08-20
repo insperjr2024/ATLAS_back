@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -18,6 +19,7 @@ from src.utils.equipe_banca import membros_da_banca
 class GetBancaUseCase:
     def __init__(self, db: Session):
         self.repository = BancaRepository(db)
+        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
@@ -69,6 +71,7 @@ class GetBancaUseCase:
                     self.escopo_repository,
                     self.membro_repository,
                     self.equipe_projeto_repository,
+                    self.vendedor_repository,
                 )
             ),
             "semestre_id": semestre.id if semestre else None,
@@ -139,6 +142,7 @@ class ListBancasUseCase:
                         self.escopo_repository,
                         self.membro_repository,
                         self.equipe_projeto_repository,
+                        self.vendedor_repository,
                     )
                 ),
                 "semestre_id": semestre.id if semestre else None,

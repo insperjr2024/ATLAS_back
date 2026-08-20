@@ -74,7 +74,7 @@ def _executar(acao):
 def get_cronograma(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     """A aba inteira numa ida só: escopos + etapas + marcos + faixas
     derivadas + os dias cinzas já resolvidos para a janela."""
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     result = GetCronogramaUseCase(db).execute(projeto_id)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
