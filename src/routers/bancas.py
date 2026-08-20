@@ -145,7 +145,7 @@ def get_banca_detalhes(
     if not detalhes:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     if detalhes["projeto_id"]:
-        exigir_acesso_ao_projeto(detalhes["projeto_id"], current_user, db)
+        exigir_acesso_ao_projeto(detalhes["projeto_id"], current_user, db, somente_leitura_ok=True)
     return detalhes
 
 

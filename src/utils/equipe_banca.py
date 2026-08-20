@@ -26,11 +26,22 @@ def membros_da_banca(
     escopo_repository,
     membro_repository,
     equipe_projeto_repository=None,
+    vendedor_repository=None,
 ) -> Set[int]:
     """Os usuários que NÃO podem avaliar esta banca por serem do grupo dela.
 
-    Inclui o coordenador da banca, a equipe legada (`equipe_projeto`) e os
-    membros atuais dos projetos de todos os escopos que a banca cobre.
+    Inclui o coordenador da banca, a equipe legada (`equipe_projeto`), os
+    membros atuais dos projetos de todos os escopos que a banca cobre e — desde
+    2026-08-20 — **quem vendeu esses projetos**.
+
+    ⭐ **Por que o vendedor entra.** O §8 barra a equipe porque ninguém julga o
+    próprio trabalho. Quem vendeu não executou, mas prometeu: foi ele que
+    combinou escopo e prazo com o cliente, e é o resultado dessa promessa que a
+    banca está avaliando. É o mesmo conflito, por outro caminho.
+
+    `vendedor_repository` é opcional para não quebrar os chamadores antigos,
+    mas quem valida candidatura DEVE passá-lo — sem ele o vendedor volta a
+    poder se inscrever.
 
     Uma banca pode cobrir escopos de um projeto só (é o que o §8 permite), mas
     a varredura passa por todos assim mesmo — é barato e não depende dessa
@@ -53,6 +64,11 @@ def membros_da_banca(
             m.usuario_id
             for m in membro_repository.get_by_projeto(escopo.projeto_id, apenas_atuais=True)
         )
+        if vendedor_repository is not None:
+            ids.update(
+                v.usuario_id
+                for v in vendedor_repository.get_by_projeto(escopo.projeto_id)
+            )
 
     return ids
 

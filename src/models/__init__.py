@@ -31,6 +31,7 @@ from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoMo
 from src.models.projeto_model import ProjetoModel
 from src.models.projeto_frente_model import ProjetoFrenteModel
 from src.models.projeto_membro_model import ProjetoMembroModel
+from src.models.projeto_vendedor_model import ProjetoVendedorModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.justificativa_pedido_model import JustificativaPedidoModel

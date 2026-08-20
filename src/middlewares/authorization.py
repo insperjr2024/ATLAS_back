@@ -33,6 +33,7 @@ o front só ESCONDE, quem DECIDE é o backend.
 
 from typing import List, Optional
 
+import sqlalchemy as sa
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.database.database import get_db
@@ -273,6 +274,11 @@ def aplicar_recorte_visao(query, current_user, db: Session, frente_id: Optional[
       envolvam) — o filtro é forçado, não vem da query string;
     - **coordenador / consultor**: só os projetos em que estão alocados hoje.
 
+    ⭐ **Quem VENDEU um projeto também o enxerga**, somado ao que já via — vale
+    para gerente, coordenador e consultor (a diretoria já vê tudo). É só
+    VISÃO: o acesso que vem por venda é somente leitura, e quem cuida disso é
+    `exigir_acesso_ao_projeto`, não esta função.
+
     Recebe e devolve a query, para poder ser encadeada antes do `.all()`.
     """
     from src.models.projeto_frente_model import ProjetoFrenteModel
@@ -302,20 +308,27 @@ def aplicar_recorte_visao(query, current_user, db: Session, frente_id: Optional[
         minhas = frentes_do_usuario(current_user, db)
         alvo = [frente_id] if frente_id in minhas else minhas
         return query.filter(
-            ProjetoModel.id.in_(
-                db.query(ProjetoFrenteModel.projeto_id).filter(
-                    ProjetoFrenteModel.frente_id.in_(alvo or [-1])
-                )
+            sa.or_(
+                ProjetoModel.id.in_(
+                    db.query(ProjetoFrenteModel.projeto_id).filter(
+                        ProjetoFrenteModel.frente_id.in_(alvo or [-1])
+                    )
+                ),
+                ProjetoModel.id.in_(_projetos_vendidos_por(current_user, db)),
             )
         )
 
-    # Coordenador e consultor: só onde estão alocados HOJE (saiu_em vazio).
+    # Coordenador e consultor: só onde estão alocados HOJE (saiu_em vazio),
+    # MAIS o que a pessoa vendeu.
     return query.filter(
-        ProjetoModel.id.in_(
-            db.query(ProjetoMembroModel.projeto_id).filter(
-                ProjetoMembroModel.usuario_id == current_user.id,
-                ProjetoMembroModel.saiu_em.is_(None),
-            )
+        sa.or_(
+            ProjetoModel.id.in_(
+                db.query(ProjetoMembroModel.projeto_id).filter(
+                    ProjetoMembroModel.usuario_id == current_user.id,
+                    ProjetoMembroModel.saiu_em.is_(None),
+                )
+            ),
+            ProjetoModel.id.in_(_projetos_vendidos_por(current_user, db)),
         )
     )
 
@@ -332,10 +345,101 @@ def pode_ver_projeto(projeto_id: int, current_user, db: Session) -> bool:
     return query.first() is not None
 
 
-def exigir_acesso_ao_projeto(projeto_id: int, current_user, db: Session) -> None:
+def _projetos_vendidos_por(current_user, db: Session):
+    """Subquery com os ids dos projetos que esta pessoa vendeu."""
+    from src.models.projeto_vendedor_model import ProjetoVendedorModel
+
+    return db.query(ProjetoVendedorModel.projeto_id).filter(
+        ProjetoVendedorModel.usuario_id == getattr(current_user, "id", None)
+    )
+
+
+def vendeu_o_projeto(projeto_id: int, current_user, db: Session) -> bool:
+    from src.models.projeto_vendedor_model import ProjetoVendedorModel
+
+    return (
+        db.query(ProjetoVendedorModel.id)
+        .filter(
+            ProjetoVendedorModel.projeto_id == projeto_id,
+            ProjetoVendedorModel.usuario_id == getattr(current_user, "id", None),
+        )
+        .first()
+        is not None
+    )
+
+
+def acesso_somente_por_venda(projeto_id: int, current_user, db: Session) -> bool:
+    """A pessoa enxerga este projeto SÓ porque o vendeu?
+
+    ⭐ É a pergunta que separa leitura de escrita. As permissões da plataforma
+    são globais por posição, não por projeto: um consultor-vendedor tem
+    `pode_criar_tarefa` em qualquer projeto que enxergue. Sem esta distinção,
+    vender um projeto daria escrita nele.
+
+    Quem entra por outra porta (está na equipe, é gerente da frente, é
+    diretoria) NÃO é somente-leitura, mesmo que também tenha vendido — a porta
+    mais forte vence.
+    """
+    if eh_diretoria(current_user) or usuario_tem_permissao(
+        current_user, db, "pode_ver_todos_projetos"
+    ):
+        return False
+
+    from src.models.projeto_frente_model import ProjetoFrenteModel
+    from src.models.projeto_membro_model import ProjetoMembroModel
+
+    na_equipe = (
+        db.query(ProjetoMembroModel.id)
+        .filter(
+            ProjetoMembroModel.projeto_id == projeto_id,
+            ProjetoMembroModel.usuario_id == current_user.id,
+            ProjetoMembroModel.saiu_em.is_(None),
+        )
+        .first()
+        is not None
+    )
+    if na_equipe:
+        return False
+
+    if current_user.posicao == "gerente":
+        minhas = frentes_do_usuario(current_user, db)
+        da_frente_dele = (
+            db.query(ProjetoFrenteModel.id)
+            .filter(
+                ProjetoFrenteModel.projeto_id == projeto_id,
+                ProjetoFrenteModel.frente_id.in_(minhas or [-1]),
+            )
+            .first()
+            is not None
+        )
+        if da_frente_dele:
+            return False
+
+    return vendeu_o_projeto(projeto_id, current_user, db)
+
+
+def exigir_acesso_ao_projeto(
+    projeto_id: int, current_user, db: Session, *, somente_leitura_ok: bool = False
+) -> None:
+    """Barra quem não enxerga o projeto — e, por padrão, quem só o vê por ter
+    vendido.
+
+    ⚠ **O padrão é RECUSAR o vendedor**, e a permissão é dada rota a rota com
+    `somente_leitura_ok=True`. É o contrário do que parece natural, e é de
+    propósito: são 44 chamadas desta função, a maioria em rota de escrita.
+    Liberando por padrão, cada uma teria que lembrar de barrar; recusando,
+    quem esquece do parâmetro erra para o lado seguro — e uma rota de escrita
+    escrita amanhã já nasce fechada para o vendedor.
+    """
     if not pode_ver_projeto(projeto_id, current_user, db):
         # 404 e não 403: quem não enxerga o projeto não deve nem saber que ele existe.
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
+
+    if not somente_leitura_ok and acesso_somente_por_venda(projeto_id, current_user, db):
+        raise HTTPException(
+            status_code=403,
+            detail="Você vendeu este projeto, mas não faz parte da equipe — o acesso é de leitura",
+        )
 
 
 def eh_avaliador_do_projeto(projeto_id: int, current_user, db: Session) -> bool:

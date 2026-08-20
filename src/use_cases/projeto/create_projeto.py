@@ -4,6 +4,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
@@ -40,6 +41,11 @@ class CreateProjetoRequest(BaseModel):
     #: Teto de consultores. 3 é o padrão combinado com o núcleo.
     max_consultores: int = 3
     equipe: List[MembroEquipeRequest]
+    #: Quem vendeu o projeto. Opcional e sem obrigatoriedade: nem toda venda
+    #: tem um vendedor identificado, e exigir aqui travaria o cadastro por um
+    #: dado que às vezes ninguém lembra na hora. Editável depois, na mesma tela
+    #: da equipe.
+    vendedor_ids: List[int] = Field(default_factory=list)
     #: ⭐ A promessa feita ao cliente na venda. Opcional: nem toda venda fecha
     #: com data combinada, e exigi-la aqui travaria o cadastro por um dado que
     #: às vezes só existe depois do kickoff. Editável na Visão geral.
@@ -70,6 +76,7 @@ class CreateProjetoUseCase:
         self.repository = ProjetoRepository(db)
         self.frente_repository = ProjetoFrenteRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
+        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
         self.frente_catalogo = FrenteRepository(db)
         self.usuario_repository = UsuarioRepository(db)
@@ -134,6 +141,14 @@ class CreateProjetoUseCase:
                 entrou_em=hoje,
             )
             notificar_alocacao(self.db, projeto, membro.usuario_id)
+
+        # Sem notificação: quem vendeu não foi ALOCADO em nada — ganhou visão
+        # de leitura, não trabalho. Avisar "você entrou no projeto" seria
+        # mentira, e é a única mensagem que existe para este evento.
+        if request.vendedor_ids:
+            self.vendedor_repository.definir(
+                projeto.id, list(dict.fromkeys(request.vendedor_ids)), criado_por
+            )
 
         self.historico_repository.create(
             projeto_id=projeto.id,

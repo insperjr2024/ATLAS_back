@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.models.projeto_model import ProjetoModel
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.banca_remarcacao_repository import BancaRemarcacaoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.banca_sessao_repository import BancaSessaoRepository
@@ -26,12 +27,20 @@ from src.utils.ambientacao import fim_da_ambientacao
 
 
 def serializar_projeto_resumo(
-    projeto, frente_repo: ProjetoFrenteRepository, membro_repo: ProjetoMembroRepository, proxima_banca=None
+    projeto,
+    frente_repo: ProjetoFrenteRepository,
+    membro_repo: ProjetoMembroRepository,
+    proxima_banca=None,
+    vendedor_repo=None,
 ):
     """A forma enxuta, usada nos cards da lista (§6.2)."""
     frentes = frente_repo.get_by_projeto(projeto.id)
     membros = membro_repo.get_by_projeto(projeto.id, apenas_atuais=True)
     coordenadores = [m for m in membros if m.papel == "coordenador"]
+    # `None` (sem repositório) devolve lista vazia em vez de estourar: os
+    # chamadores antigos não conhecem vendedor, e a lista de projetos não
+    # precisa dele para desenhar o card.
+    vendedores = vendedor_repo.get_by_projeto(projeto.id) if vendedor_repo else []
 
     return {
         "id": projeto.id,
@@ -48,6 +57,10 @@ def serializar_projeto_resumo(
         "coordenador_id": coordenadores[0].usuario_id if coordenadores else None,
         "coordenador_ids": [c.usuario_id for c in coordenadores],
         "consultor_ids": [m.usuario_id for m in membros if m.papel == "consultor"],
+        # ⚠ Fora de `consultor_ids` de propósito: quem vendeu NÃO é da equipe.
+        # Misturar as duas listas faria o vendedor ocupar vaga de consultor na
+        # tela de vagas e entrar na conta de capacidade.
+        "vendedor_ids": [v.usuario_id for v in vendedores],
         # Teto de consultores: a tela de vagas compara com quantos já entraram.
         "max_consultores": projeto.max_consultores,
         "data_kickoff": projeto.data_kickoff,
@@ -71,9 +84,12 @@ def serializar_projeto_completo(
     membro_repo: ProjetoMembroRepository,
     escopos=None,
     fim_ambientacao=None,
+    vendedor_repo=None,
 ):
     """A forma completa, usada na página do projeto (§6.4, aba Visão geral)."""
-    resumo = serializar_projeto_resumo(projeto, frente_repo, membro_repo)
+    resumo = serializar_projeto_resumo(
+        projeto, frente_repo, membro_repo, vendedor_repo=vendedor_repo
+    )
     membros = membro_repo.get_by_projeto(projeto.id, apenas_atuais=True)
     return {
         **resumo,
@@ -120,6 +136,7 @@ class GetProjetoUseCase:
         self.repository = ProjetoRepository(db)
         self.frente_repository = ProjetoFrenteRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
+        self.vendedor_repository = ProjetoVendedorRepository(db)
 
     def execute(self, projeto_id: int):
         from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
@@ -134,6 +151,7 @@ class GetProjetoUseCase:
             self.membro_repository,
             escopos,
             fim_ambientacao=self._fim_ambientacao(projeto),
+            vendedor_repo=self.vendedor_repository,
         )
 
     def _fim_ambientacao(self, projeto):

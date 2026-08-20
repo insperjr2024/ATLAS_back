@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -31,6 +32,7 @@ class CreateSolicitacaoTrocaUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.candidatura_repository = CandidaturaRepository(db)
+        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.banca_repository = BancaRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
@@ -96,6 +98,7 @@ class CreateSolicitacaoTrocaUseCase:
                 self.escopo_repository,
                 self.membro_repository,
                 self.equipe_projeto_repository,
+                self.vendedor_repository,
             )
         )
         return excluidos
