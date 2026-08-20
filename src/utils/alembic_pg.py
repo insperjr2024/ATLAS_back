@@ -19,6 +19,30 @@ def redefinir_enum_postgres(op, tabela: str, coluna: str, nome_tipo: str, valore
     if bind.dialect.name != "postgresql":
         return
 
+    # ⚠ O DEFAULT precisa sair antes e voltar depois.
+    #
+    # O Postgres guarda o default de uma coluna ENUM já convertido
+    # (`'consultor'::posicao_usuario`). No `ALTER ... TYPE` ele sabe converter
+    # os DADOS — é para isso que serve o `USING` — mas não a expressão do
+    # default, e recusa a operação inteira com "default for column ... cannot
+    # be cast automatically". A mensagem não diz "default" por acaso: os dados
+    # nunca são o problema.
+    #
+    # Só apareceu quando a divisão da diretoria (2026-08-20) foi a primeira a
+    # redefinir um enum de coluna COM default — `usuario.posicao` nasce
+    # 'consultor'. As migrations anteriores que usaram este helper mexiam em
+    # colunas sem default, e por isso ele passou até aqui sem tratar o caso.
+    default = bind.execute(
+        sa.text(
+            "SELECT column_default FROM information_schema.columns "
+            "WHERE table_name = :tabela AND column_name = :coluna"
+        ),
+        {"tabela": tabela, "coluna": coluna},
+    ).scalar()
+
+    if default:
+        op.execute(f"ALTER TABLE {tabela} ALTER COLUMN {coluna} DROP DEFAULT")
+
     tipo_tmp = f"{nome_tipo}_novo"
     sa.Enum(*valores_novos, name=tipo_tmp).create(bind, checkfirst=True)
     op.execute(
@@ -27,6 +51,16 @@ def redefinir_enum_postgres(op, tabela: str, coluna: str, nome_tipo: str, valore
     )
     op.execute(f"DROP TYPE {nome_tipo}")
     op.execute(f"ALTER TYPE {tipo_tmp} RENAME TO {nome_tipo}")
+
+    if default:
+        # Só o literal: `'consultor'::posicao_usuario` volta como
+        # `'consultor'`, e o Postgres converte sozinho para o tipo novo da
+        # coluna. Recolocar o `::tipo` antigo apontaria para um type que
+        # acabou de ser derrubado.
+        literal = default.split("::")[0]
+        op.execute(
+            f"ALTER TABLE {tabela} ALTER COLUMN {coluna} SET DEFAULT {literal}"
+        )
 
 
 def nome_da_fk(op, tabela: str, coluna: str):

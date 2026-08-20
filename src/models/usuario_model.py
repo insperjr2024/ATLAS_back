@@ -30,7 +30,15 @@ class UsuarioModel(Base):
     #: senha própria não é empurrado para tela nenhuma.
     senha_provisoria = Column(Boolean, nullable=False, default=False, server_default="0")
     posicao = Column(
-        Enum("diretor", "gerente", "coordenador", "consultor", name="posicao_usuario"),
+        Enum(
+            "diretor_projetos",
+            "diretor_pessoas",
+            "diretor",
+            "gerente",
+            "coordenador",
+            "consultor",
+            name="posicao_usuario",
+        ),
         nullable=False,
         default="consultor",
         server_default="consultor",

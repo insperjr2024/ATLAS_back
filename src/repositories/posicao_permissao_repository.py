@@ -15,7 +15,14 @@ class PosicaoPermissaoRepository:
     def get_all(self) -> List[PosicaoPermissaoModel]:
         # Ordem fixa da hierarquia, não a de inserção — a tela sempre lista
         # diretor primeiro, consultor por último.
-        ordem = {"diretor": 0, "gerente": 1, "coordenador": 2, "consultor": 3}
+        ordem = {
+            "diretor_projetos": 0,
+            "diretor_pessoas": 1,
+            "diretor": 2,
+            "gerente": 3,
+            "coordenador": 4,
+            "consultor": 5,
+        }
         return sorted(
             self.db.query(PosicaoPermissaoModel).all(), key=lambda p: ordem.get(p.posicao, 99)
         )

@@ -22,7 +22,15 @@ class PosicaoPermissaoModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     posicao = Column(
-        Enum("diretor", "gerente", "coordenador", "consultor", name="posicao_permissao_posicao"),
+        Enum(
+            "diretor_projetos",
+            "diretor_pessoas",
+            "diretor",
+            "gerente",
+            "coordenador",
+            "consultor",
+            name="posicao_permissao_posicao",
+        ),
         nullable=False,
         unique=True,
     )
