@@ -42,6 +42,18 @@ class ProjetoModel(Base):
     #: papel, não por vaga.
     max_consultores = Column(Integer, nullable=False, default=3, server_default="3")
     data_kickoff = Column(Date, nullable=True)
+    #: ⭐ Quando NÃO nulo, substitui `data_kickoff` como início da janela de
+    #: ambientação (ver `utils/ambientacao.py`). `None` (o padrão) é o caso
+    #: normal: ambientação começa no kickoff, sem exceção.
+    #:
+    #: Existe só pro caso em que a ambientação, na prática, começou antes do
+    #: kickoff (ex.: o time já estava em campo e o kickoff formal atrasou) —
+    #: o coordenador do projeto corrige aqui. Editável só para ANTECIPAR: a
+    #: validação (`UpdateInicioAmbientacaoUseCase`) exige
+    #: `data_inicio_ambientacao <= data_kickoff`, e não mais que
+    #: `dias_ambientacao` dias úteis antes dele — o kickoff nunca fica fora
+    #: da própria janela de ambientação que ele mesmo abriu.
+    data_inicio_ambientacao = Column(Date, nullable=True)
     #: ⚠ **Não é lida em lugar nenhum desde a reformulação do cronograma.**
     #: "Entrega ao cliente" virou DERIVADA — é a do último escopo entregue
     #: (ver `serializar_projeto_completo`). A coluna fica porque apagá-la

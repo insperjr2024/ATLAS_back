@@ -16,6 +16,8 @@ from src.models.banca_escopo_model import BancaEscopoModel
 # Cada tentativa de uma banca (§9) — é ela que preserva a reprovação quando o
 # escopo precisa de uma segunda banca.
 from src.models.banca_excecao_choque_model import BancaExcecaoChoqueModel
+# O pedido de autorização para marcar banca fora da janela do escopo (§13).
+from src.models.banca_fora_janela_solicitacao_model import BancaForaJanelaSolicitacaoModel
 from src.models.banca_sessao_model import BancaSessaoModel
 from src.models.banca_remarcacao_model import BancaRemarcacaoModel
 from src.models.configuracao_model import ConfiguracaoModel

@@ -65,20 +65,24 @@ class EncerrarAmbientacaoUseCase:
         return self._encerrar_se_acabou(projeto, referencia or date.today())
 
     def _encerrar_se_acabou(self, projeto: ProjetoModel, referencia: date) -> bool:
+        # `data_inicio_ambientacao` substitui o kickoff como início da janela
+        # quando o coordenador corrigiu (ambientação começou antes do
+        # kickoff, ver `UpdateInicioAmbientacaoUseCase`). `None` é o caso
+        # normal: a janela conta do próprio kickoff, como sempre contou.
+        inicio = projeto.data_inicio_ambientacao or projeto.data_kickoff
+
         # Os dias não letivos GLOBAIS, sem recorte de frente: a ambientação é
         # do projeto inteiro, e um projeto sinérgico não pode sair de
         # Ambientação em datas diferentes conforme a frente que se olhe. É o
         # mesmo recorte que pinta a faixa no cronograma.
         nao_letivos = [
             d.data
-            for d in self.dia_nao_letivo_repository.get_por_intervalo(
-                projeto.data_kickoff, referencia
-            )
+            for d in self.dia_nao_letivo_repository.get_por_intervalo(inicio, referencia)
             if d.frente_id is None
-        ] if projeto.data_kickoff else []
+        ] if inicio else []
 
         if not ambientacao_encerrada(
-            projeto.data_kickoff, projeto.dias_ambientacao, nao_letivos, referencia
+            inicio, projeto.dias_ambientacao, nao_letivos, referencia
         ):
             return False
 

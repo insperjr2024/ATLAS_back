@@ -13,7 +13,7 @@ e nenhuma delas entra aqui: são coisas que ela FAZ quando quer, não coisas que
 esperam por ela. O critério desta fila é ter alguém do outro lado bloqueado
 enquanto ela não responde.
 
-São QUATRO, e cada uma tem um bloqueio concreto atrás:
+São SEIS, e cada uma tem um bloqueio concreto atrás:
 
 1. **Pedidos de dias de ajuste** (§8) — o coordenador não consegue pintar
    além da janela enquanto não houver resposta.
@@ -23,15 +23,19 @@ São QUATRO, e cada uma tem um bloqueio concreto atrás:
    parado esperando; o projeto segue com a vaga aberta.
 4. **Bancas realizadas sem resultado** (§5.5) — a banca aconteceu e ninguém
    registrou o veredito.
+5. **Exceções de choque de horário** (§8) — duas bancas no mesmo horário,
+   e só a diretoria libera.
+6. **Bancas fora da janela do escopo** (§13) — a data pretendida passa do
+   vendido + ajustado, e só a diretoria autoriza.
 
-⚠ Havia uma quinta, "entregas sem classificação", removida em 2026-08-12 junto
+⚠ Havia uma sétima, "entregas sem classificação", removida em 2026-08-12 junto
 com o atraso de entrega nos insights: sem a métrica que separava interno de
 agenda do cliente, a classificação deixou de mudar qualquer número.
 
-⚠ **A fila mostra as quatro SEMPRE**, mesmo vazias — quem abre precisa saber o
+⚠ **A fila mostra as seis SEMPRE**, mesmo vazias — quem abre precisa saber o
 que esta tela cobre, e uma tela que só aparece quando há problema não ensina
 ninguém a confiar nela. Quem decide isso é o front; o backend sempre devolve
-as quatro chaves.
+as seis chaves.
 """
 
 from datetime import date, timedelta
@@ -54,6 +58,7 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.banca.excecao_choque import ListarExcecoesChoquePendentesUseCase
+from src.use_cases.banca.fora_janela import ListarForaJanelaPendentesUseCase
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
@@ -133,6 +138,11 @@ class ListarAprovacoesPendentesUseCase:
         # diretoria decide. Antes o bloqueio existia sem via de exceção — a
         # regra era anunciada e não havia como cumpri-la.
         choques = ListarExcecoesChoquePendentesUseCase(self.db).execute()
+        # ⭐ §13: mesma lógica, para banca fora da janela do escopo. Antes só
+        # quem tinha `posicao == "diretor"` conseguia marcar, sozinho, na
+        # mesma chamada — pedido e decisão eram o mesmo clique. Agora quem
+        # marca pede aqui, e esta fila é onde a diretoria decide.
+        fora_janela = ListarForaJanelaPendentesUseCase(self.db).execute()
 
         # ⚠ Havia aqui uma quinta fila, `entregas_sem_classificacao`: as
         # entregas atrasadas ainda não marcadas como atraso interno ou por
@@ -146,10 +156,18 @@ class ListarAprovacoesPendentesUseCase:
             "solicitacoes_de_entrada": entradas,
             "bancas_sem_resultado": sem_resultado,
             "excecoes_de_choque": choques,
+            "bancas_fora_da_janela": fora_janela,
             # O total é servido pronto porque o badge da aba precisa dele antes
             # de qualquer render — somar no front daria a mesma conta em dois
             # lugares, e é a que sai errada quando nasce uma fila nova.
-            "total": len(dias) + len(atrasos) + len(entradas) + len(sem_resultado) + len(choques),
+            "total": (
+                len(dias)
+                + len(atrasos)
+                + len(entradas)
+                + len(sem_resultado)
+                + len(choques)
+                + len(fora_janela)
+            ),
         }
 
     def _solicitacoes_de_entrada(self, current_user) -> List[dict]:

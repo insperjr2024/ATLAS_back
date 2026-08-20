@@ -434,14 +434,22 @@ class MarcarBancaEscopoUseCase:
         entre o fim da janela e a data nova viram atraso sozinhos — não há o
         que gravar, `dias_de_atraso` deriva.
 
-        ⭐ **A 2ª banca continua precisando de diretoria, mas não de texto.**
-        Ela quase sempre cai fora da janela — é da natureza de uma reprovação
-        empurrar o escopo para além do vendido —, e isentá-la do gate apagaria
-        do monitoramento exatamente o atraso que a reprovação causou. O que ela
-        dispensa é a JUSTIFICATIVA digitada: o motivo é a reprovação, que já
-        está gravada na sessão anterior. Exigir que se escreva de novo o que o
-        sistema acabou de registrar é pedir carimbo.
+        ⭐ **Não é mais um atalho de um ato só.** Antes, só quem tinha
+        `posicao == "diretor"` conseguia marcar fora da janela, e marcava
+        sozinho, na mesma chamada — pedido e decisão eram a mesma pessoa no
+        mesmo clique. Agora quem marca PEDE (`fora_janela.SolicitarForaJanelaUseCase`)
+        e a diretoria decide depois, em ato separado — mesmo desenho do pedido
+        de exceção de choque (§8). `eh_diretor` não basta mais aqui; o que
+        libera é uma autorização APROVADA para este par (escopo, data).
+
+        ⭐ **A 2ª banca continua sendo a exceção, sem pedido nenhum.** Ela
+        quase sempre cai fora da janela — é da natureza de uma reprovação
+        empurrar o escopo para além do vendido —, e cobrar um pedido formal
+        para algo que é consequência automática da reprovação seria pedir
+        carimbo por carimbo. Continua exigindo `eh_diretor`, só isso.
         """
+        from src.use_cases.banca.fora_janela import fora_janela_liberada
+
         for alvo in escopos_cobertos:
             janela = self._janela_do_escopo(alvo)
 
@@ -457,21 +465,30 @@ class MarcarBancaEscopoUseCase:
             if dentro_da_janela(request.data_hora, janela):
                 continue
 
-            if not eh_diretor:
+            if eh_segunda_banca:
+                if not eh_diretor:
+                    raise RegraDeNegocioError(
+                        f"A banca de '{self._nome(alvo)}' foi reprovada e a nova data "
+                        "passa da janela — só a diretoria pode marcar a segunda banca fora dela"
+                    )
+                # A 2ª banca dispensa justificativa: o motivo é a reprovação,
+                # já gravada na sessão anterior. Cobrar texto de novo do que o
+                # sistema acabou de registrar é pedir carimbo.
+                continue
+
+            if not fora_janela_liberada(self.db, alvo.id, request.data_hora):
                 raise RegraDeNegocioError(
                     f"Esta data está fora da janela de '{self._nome(alvo)}', que vai de "
                     f"{janela.data_inicio.strftime('%d/%m/%Y')} a "
                     f"{janela.fim.strftime('%d/%m/%Y')} "
                     f"({janela.dias_vendidos} vendidos + {janela.dias_ajustados} ajustados). "
-                    "Marcar fora dela é decisão da diretoria, e os dias além da janela "
-                    "entram como atraso do projeto (§13)"
+                    "Marcar fora dela exige autorização da diretoria — peça em Monitoramento → "
+                    "Aprovações e volte para marcar depois que ela decidir. Os dias além da "
+                    "janela entram como atraso do projeto (§13)"
                 )
-            # §13: fora da janela é "autorização **+ justificativa**". Vale
-            # também na primeira marcação — sem isso, o Histórico registraria
-            # um atraso que ninguém explicou. A 2ª banca é a exceção: o texto
-            # dela já existe, é a reprovação da sessão anterior.
-            if eh_segunda_banca:
-                continue
+            # Liberada a autorização, a justificativa continua obrigatória —
+            # vale também na primeira marcação, sem isso o Histórico
+            # registraria um atraso que ninguém explicou.
             if not (request.justificativa or "").strip():
                 raise RegraDeNegocioError(
                     f"Marcar a banca fora da janela de '{self._nome(alvo)}' exige "

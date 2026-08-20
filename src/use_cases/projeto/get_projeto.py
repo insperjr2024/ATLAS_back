@@ -47,6 +47,9 @@ def serializar_projeto_resumo(
         "max_consultores": projeto.max_consultores,
         "data_kickoff": projeto.data_kickoff,
         "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
+        # `None` = ambientação começa no kickoff, o caso normal. Só não-nulo
+        # quando o coordenador corrigiu que ela começou antes dele.
+        "data_inicio_ambientacao": projeto.data_inicio_ambientacao,
         "arquivado_em": projeto.arquivado_em,
         # "Limpar histórico" (§4): corte de exibição da timeline, não exclusão.
         "historico_oculto_ate": projeto.historico_oculto_ate,
@@ -131,17 +134,16 @@ class GetProjetoUseCase:
     def _fim_ambientacao(self, projeto):
         """Mesma régua da faixa do cronograma e da virada automática: dias não
         letivos GLOBAIS, porque a ambientação é do projeto inteiro."""
-        if not projeto.data_kickoff or projeto.dias_ambientacao <= 0:
+        inicio = projeto.data_inicio_ambientacao or projeto.data_kickoff
+        if not inicio or projeto.dias_ambientacao <= 0:
             return None
-        limite = projeto.data_kickoff + timedelta(days=365)
+        limite = inicio + timedelta(days=365)
         nao_letivos = [
             d.data
-            for d in DiaNaoLetivoRepository(self.db).get_por_intervalo(
-                projeto.data_kickoff, limite
-            )
+            for d in DiaNaoLetivoRepository(self.db).get_por_intervalo(inicio, limite)
             if d.frente_id is None
         ]
-        return fim_da_ambientacao(projeto.data_kickoff, projeto.dias_ambientacao, nao_letivos)
+        return fim_da_ambientacao(inicio, projeto.dias_ambientacao, nao_letivos)
 
 
 class ListProjetosUseCase:

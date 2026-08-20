@@ -179,6 +179,8 @@ class GetCronogramaUseCase:
         candidatas: List[date] = [referencia]
         if projeto.data_kickoff:
             candidatas.append(projeto.data_kickoff)
+        if projeto.data_inicio_ambientacao:
+            candidatas.append(projeto.data_inicio_ambientacao)
         for e in escopos:
             candidatas += [
                 d for d in (e.data_inicio, e.data_entrega_planejada, e.data_entrega_real) if d
@@ -236,17 +238,20 @@ class GetCronogramaUseCase:
                 }
             )
 
-        # A ambientação: kickoff + N dias úteis (§5.3).
-        if projeto.data_kickoff and projeto.dias_ambientacao > 0:
+        # A ambientação: kickoff + N dias úteis (§5.3) — ou `data_inicio_ambientacao`
+        # + N dias úteis, quando o coordenador corrigiu que ela começou antes do
+        # kickoff (ver `UpdateInicioAmbientacaoUseCase`).
+        inicio_ambientacao = projeto.data_inicio_ambientacao or projeto.data_kickoff
+        if inicio_ambientacao and projeto.dias_ambientacao > 0:
             try:
                 fim = somar_dias_uteis(
-                    projeto.data_kickoff, projeto.dias_ambientacao, dias_nao_letivos
+                    inicio_ambientacao, projeto.dias_ambientacao, dias_nao_letivos
                 )
                 faixas.append(
                     {
                         "tipo": "ambientacao",
                         "projeto_escopo_id": None,
-                        "inicio": projeto.data_kickoff,
+                        "inicio": inicio_ambientacao,
                         "fim": fim,
                         "rotulo": f"Ambientação ({projeto.dias_ambientacao} dias úteis)",
                     }
