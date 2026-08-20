@@ -7,10 +7,25 @@ linhas fixas (`posicao_permissao`), sem catálogo aberto. `cargo` foi removido
 inteiro; a distinção não sobrevivia ao uso real (dava pra marcar "Admin" numa
 pessoa sem isso ampliar quais projetos ela via, por exemplo).
 
-`require_diretor` e `require_posicao(...)` continuam existindo para o que é
-identidade organizacional, não permissão delegável (última pessoa na
-diretoria, elegibilidade de coordenador/consultor num projeto, composição de
-banca) — essas nunca viraram caixa.
+As guardas por POSIÇÃO continuam existindo para o que é identidade
+organizacional, não permissão delegável (última pessoa na diretoria,
+elegibilidade de coordenador/consultor num projeto, composição de banca) —
+essas nunca viraram caixa.
+
+⭐ **A diretoria são TRÊS cargos desde 2026-08-20** (antes era `diretor`, um
+só):
+
+- `diretor_projetos` — o diretor de antes, com tudo. Herdou as guardas que
+  diziam `require_diretor`;
+- `diretor_pessoas` — visualização + Avaliação de Desempenho + as ações de
+  cadastro de gente;
+- `diretor` — só visualização. Enxerga todos os projetos e administra Membros,
+  e não conduz nada.
+
+Os três enxergam o portfólio inteiro (`eh_diretoria`), e é só isso que eles
+têm em comum. Toda guarda daqui para baixo sai de uma das constantes abaixo —
+nenhuma compara `posicao` com string solta, porque foi assim que a regra
+antiga se espalhou por ~40 lugares.
 
 O recorte de visão (`aplicar_recorte_visao`) é a regra mais importante daqui:
 o front só ESCONDE, quem DECIDE é o backend.
@@ -23,6 +38,33 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
+
+
+# ---------------------------------------------------------------- os cargos
+
+#: Os três cargos da diretoria. O que os une é enxergar o portfólio inteiro
+#: (`aplicar_recorte_visao`) — e mais nada.
+DIRETORIA = ("diretor_projetos", "diretor_pessoas", "diretor")
+
+#: Quem conduz a operação de PROJETO. É o herdeiro do `diretor` antigo: toda
+#: guarda que dizia `require_diretor` aponta para cá.
+DIRETORIA_DE_PROJETOS = ("diretor_projetos",)
+
+#: Quem mexe no CADASTRO DE GENTE: registrar usuário, senha provisória, apagar
+#: em definitivo, passar o bastão. O diretor de projetos entra junto porque é
+#: quem faz isso hoje — tirar dele seria uma perda de poder que a divisão dos
+#: cargos não pediu.
+DIRETORIA_DE_PESSOAS = ("diretor_projetos", "diretor_pessoas")
+
+
+def eh_diretoria(current_user) -> bool:
+    """Qualquer um dos três cargos de diretoria."""
+    return getattr(current_user, "posicao", None) in DIRETORIA
+
+
+def eh_diretoria_de_projetos(current_user) -> bool:
+    """O cargo que herdou os poderes do `diretor` de antes."""
+    return getattr(current_user, "posicao", None) in DIRETORIA_DE_PROJETOS
 
 
 # -------------------------------------------------- permissão (as 13 caixas, por posição)
@@ -128,54 +170,57 @@ def tem_posicao(current_user, *posicoes: str) -> bool:
 
 
 def eh_lideranca(current_user) -> bool:
-    """Diretor, gerente e coordenador. Consultor não é liderança."""
-    return tem_posicao(current_user, "diretor", "gerente", "coordenador")
+    """Quem conduz projeto: coordenador, gerente e diretoria DE PROJETOS.
 
-
-def require_posicao(*posicoes: str):
-    """Dependência que exige uma das posições dadas.
-
-    Uso: `_=Depends(require_posicao("diretor", "gerente"))`
+    ⚠ O diretor só-visualização e o de gestão de pessoas ficam de fora — eles
+    são diretoria, mas não conduzem projeto. É o par de `require_lideranca`.
     """
-    permitidas = set(posicoes)
+    return tem_posicao(current_user, *DIRETORIA_DE_PROJETOS, "gerente", "coordenador")
+
+
+def _require_posicoes(posicoes, mensagem: str):
+    """Fabrica uma dependência que exige uma das posições dadas.
+
+    Substituiu o `require_posicao(*posicoes)` público, que estava definido,
+    documentado e usado em ZERO rotas — a divisão da diretoria era a hora de
+    tirá-lo em vez de atualizá-lo.
+    """
+    permitidas = tuple(posicoes)
 
     def _dependencia(current_user=Depends(get_current_user)):
-        if current_user.posicao not in permitidas:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Ação restrita a: {', '.join(sorted(permitidas))}",
-            )
+        if getattr(current_user, "posicao", None) not in permitidas:
+            raise HTTPException(status_code=403, detail=mensagem)
         return current_user
 
     return _dependencia
 
 
-def require_diretor(current_user=Depends(get_current_user)):
-    """Aprovar reajuste, gerir membros e justificar atraso são só da diretoria."""
-    if current_user.posicao != "diretor":
-        raise HTTPException(status_code=403, detail="Ação restrita à diretoria")
-    return current_user
+#: Conduzir a operação de projeto: aprovar reajuste, decidir exceção de banca,
+#: registrar resultado, configurar o kanban. Era `require_diretor`.
+require_diretor_projetos = _require_posicoes(
+    DIRETORIA_DE_PROJETOS, "Ação restrita à diretoria de projetos"
+)
 
+#: Cadastro de gente. Ver `DIRETORIA_DE_PESSOAS`.
+require_diretoria_de_pessoas = _require_posicoes(
+    DIRETORIA_DE_PESSOAS,
+    "Ação restrita à diretoria de projetos e à de gestão de pessoas",
+)
 
-def require_gestao(current_user=Depends(get_current_user)):
-    """Criar projeto, editar equipe e ver monitoramento: diretor e gerente."""
-    if current_user.posicao not in ("diretor", "gerente"):
-        raise HTTPException(
-            status_code=403,
-            detail="Ação restrita à diretoria e à gerência de frente",
-        )
-    return current_user
+#: Criar projeto, editar equipe, arquivar, mexer em escopo vendido.
+require_gestao = _require_posicoes(
+    DIRETORIA_DE_PROJETOS + ("gerente",),
+    "Ação restrita à diretoria de projetos e à gerência de frente",
+)
 
-
-def require_lideranca(current_user=Depends(get_current_user)):
-    """Conduzir o projeto (mudar status, definir cronograma): coordenador —
-    com diretor e gerente herdando. O consultor não move o ciclo de vida (§4)."""
-    if not eh_lideranca(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="Ação restrita a coordenação, gerência e diretoria",
-        )
-    return current_user
+#: Conduzir o projeto (mudar status, marcar banca do escopo, justificar
+#: atraso): coordenador, com gerência e diretoria de projetos herdando. O
+#: consultor não move o ciclo de vida (§4), e o diretor só-visualização
+#: também não.
+require_lideranca = _require_posicoes(
+    DIRETORIA_DE_PROJETOS + ("gerente", "coordenador"),
+    "Ação restrita a coordenação, gerência e diretoria de projetos",
+)
 
 
 # ---------------------------------------------------------------- avaliação de desempenho
@@ -193,9 +238,13 @@ def require_self_mentor_ou_gestao(usuario_id: int, current_user=Depends(get_curr
     vínculo de mentoria com ela (`desempenho_mentoria`), ou diretor/gerente.
 
     A Avaliação de Desempenho não está na tabela das 10, então continua travada
-    por posição, como o resto do painel.
+    por posição, como o resto do painel. O diretor só-visualização fica de
+    fora: desempenho é justamente o que ele não vê.
     """
-    if current_user.id == usuario_id or current_user.posicao in ("diretor", "gerente"):
+    if current_user.id == usuario_id or current_user.posicao in (
+        *DIRETORIA_DE_PESSOAS,
+        "gerente",
+    ):
         return current_user
 
     from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
@@ -218,7 +267,8 @@ def frentes_do_usuario(current_user, db: Session) -> List[int]:
 def aplicar_recorte_visao(query, current_user, db: Session, frente_id: Optional[int] = None):
     """Restringe uma query de projetos ao que o usuário pode enxergar (§3).
 
-    - **diretor**: tudo, e pode filtrar por frente via `?frente_id=`;
+    - **diretoria** (os três cargos): tudo, e pode filtrar por frente via
+      `?frente_id=`;
     - **gerente**: só as frentes dele (o que inclui os sinérgicos que as
       envolvam) — o filtro é forçado, não vem da query string;
     - **coordenador / consultor**: só os projetos em que estão alocados hoje.
@@ -233,7 +283,7 @@ def aplicar_recorte_visao(query, current_user, db: Session, frente_id: Optional[
     # ligam/desligam funcionalidade, nunca o recorte. Uma posição com isto
     # marcado é tratada como diretor pra fins de visão (ver
     # `PosicaoPermissaoModel.pode_ver_todos_projetos`).
-    if current_user.posicao == "diretor" or usuario_tem_permissao(
+    if eh_diretoria(current_user) or usuario_tem_permissao(
         current_user, db, "pode_ver_todos_projetos"
     ):
         if frente_id is not None:

@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    eh_diretoria_de_projetos,
     exigir_acesso_ao_projeto,
-    require_diretor,
+    require_diretor_projetos,
     require_lideranca,
     require_pode_definir_cronograma,
     usuario_tem_permissao,
@@ -108,7 +109,7 @@ def _exigir_acesso_a_banca(banca_id: int, current_user, db: Session) -> None:
 def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
     try:
         return CreateBancaUseCase(db).execute(
-            request, coordenador_id=current_user.id, eh_diretor=current_user.posicao == "diretor"
+            request, coordenador_id=current_user.id, eh_diretor_projetos=eh_diretoria_de_projetos(current_user)
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -149,7 +150,7 @@ def get_banca_detalhes(
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
-def get_notas_por_pergunta(banca_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def get_notas_por_pergunta(banca_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     return GetNotasPorPerguntaUseCase(db).execute(banca_id)
 
 
@@ -158,7 +159,7 @@ def update_banca(banca_id: int, request: UpdateBancaRequest, current_user=Depend
     _exigir_acesso_a_banca(banca_id, current_user, db)
     try:
         result = UpdateBancaUseCase(db).execute(
-            banca_id, request, eh_diretor=current_user.posicao == "diretor"
+            banca_id, request, eh_diretor_projetos=eh_diretoria_de_projetos(current_user)
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -177,7 +178,7 @@ def delete_banca(banca_id: int, current_user=Depends(require_pode_definir_cronog
 
 
 @router.post("/bancas/push-alocacao")
-def push_alocacao_automatica(_=Depends(require_diretor), db: Session = Depends(get_db)):
+def push_alocacao_automatica(_=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """Roda na hora a mesma alocação automática por rodízio do agendador
     diário (§8) — para a diretoria disparar manualmente e para teste."""
     return PushAlocacaoAutomaticaUseCase(db).execute()
@@ -199,7 +200,7 @@ def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_u
     """
     try:
         result = RegistrarRealizacaoBancaUseCase(db).execute(
-            banca_id, request, eh_diretor=current_user.posicao == "diretor"
+            banca_id, request, eh_diretor_projetos=eh_diretoria_de_projetos(current_user)
         )
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
@@ -226,7 +227,7 @@ def registrar_descricao_coordenador(
 
 
 @router.patch("/bancas/{banca_id}/resultado")
-def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """🔒 Override da diretoria sobre o resultado da banca (§5.5, §8).
 
     ⭐ O caminho normal é o VOTO: a maioria dos avaliadores presentes decide, e
@@ -235,7 +236,7 @@ def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, curre
     votou e o prazo venceu, que ficaria travada para sempre e trancaria a
     entrega ao cliente junto.
 
-    ⚠ Por isso `require_diretor`, e não `require_pode_definir_cronograma`: quem
+    ⚠ Por isso `require_diretor_projetos`, e não `require_pode_definir_cronograma`: quem
     marca a banca não pode decidir o resultado dela por cima dos avaliadores. A
     checagem de acesso ao projeto sai junto — a diretoria enxerga todos, e
     exigir vínculo impediria justamente quem precisa destravar.
@@ -270,7 +271,7 @@ def solicitar_excecao_choque(
 
 
 @router.get("/bancas/excecoes-choque/pendentes")
-def listar_excecoes_choque_pendentes(_=Depends(require_diretor), db: Session = Depends(get_db)):
+def listar_excecoes_choque_pendentes(_=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """A fila da aba Aprovações."""
     return ListarExcecoesChoquePendentesUseCase(db).execute()
 
@@ -279,7 +280,7 @@ def listar_excecoes_choque_pendentes(_=Depends(require_diretor), db: Session = D
 def decidir_excecao_choque(
     pedido_id: int,
     request: DecidirExcecaoChoqueRequest,
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     """§8: a exceção de choque é decisão da diretoria — aqui ela é tomada."""
@@ -315,7 +316,7 @@ def solicitar_fora_janela(
 
 
 @router.get("/bancas/fora-janela/pendentes")
-def listar_fora_janela_pendentes(_=Depends(require_diretor), db: Session = Depends(get_db)):
+def listar_fora_janela_pendentes(_=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """A fila da aba Aprovações."""
     return ListarForaJanelaPendentesUseCase(db).execute()
 
@@ -324,7 +325,7 @@ def listar_fora_janela_pendentes(_=Depends(require_diretor), db: Session = Depen
 def decidir_fora_janela(
     pedido_id: int,
     request: DecidirForaJanelaRequest,
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     """§13: marcar banca fora da janela é decisão da diretoria — aqui ela é tomada."""
@@ -375,7 +376,7 @@ def marcar_banca_do_escopo(escopo_id: int, request: MarcarBancaEscopoRequest, cu
         result = MarcarBancaEscopoUseCase(db).execute(
             escopo_id,
             request,
-            eh_diretor=current_user.posicao == "diretor",
+            eh_diretor_projetos=eh_diretoria_de_projetos(current_user),
             current_user=current_user,
             registrado_por=current_user.id,
         )
@@ -392,7 +393,7 @@ def get_historico_bancas(
     coordenador_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     semestre_id: Optional[int] = None,
-    _=Depends(require_diretor),
+    _=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     return GetHistoricoBancasUseCase(db).execute(consultor_id, coordenador_id, escopo_id, semestre_id)
@@ -408,7 +409,7 @@ def create_candidatura(request: CreateCandidaturaRequest, current_user=Depends(g
     é da diretoria (§8: é ela quem faz a alocação por push).
     """
     alvo = request.usuario_id or current_user.id
-    if alvo != current_user.id and current_user.posicao != "diretor":
+    if alvo != current_user.id and not eh_diretoria_de_projetos(current_user):
         raise HTTPException(
             status_code=403,
             detail="Apenas o Diretor de Projetos pode alocar outra pessoa numa banca",

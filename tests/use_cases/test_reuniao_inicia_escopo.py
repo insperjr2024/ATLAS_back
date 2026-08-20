@@ -183,7 +183,7 @@ class TestMoverEApagar:
         é o caso que fazia a data ficar velha quando ela era digitada à parte.
 
         Mover a largada zera o cronograma do escopo, então só a diretoria
-        move direto (ver `UpdateReuniaoUseCase`); é como `eh_diretor=True`
+        move direto (ver `UpdateReuniaoUseCase`); é como `eh_diretor_projetos=True`
         aqui."""
         projeto, escopo = montar(db)
         reuniao = registrar(db, projeto, QUA_05, escopo.id)
@@ -191,7 +191,7 @@ class TestMoverEApagar:
         UpdateReuniaoUseCase(db).execute(
             reuniao["id"],
             ReuniaoRequest(data_reuniao=QUI_06, projeto_escopo_id=escopo.id),
-            eh_diretor=True,
+            eh_diretor_projetos=True,
         )
 
         db.refresh(escopo)
@@ -204,7 +204,7 @@ class TestMoverEApagar:
         reuniao = registrar(db, projeto, QUA_05, escopo.id)
 
         resposta = UpdateReuniaoUseCase(db).execute(
-            reuniao["id"], ReuniaoRequest(data_reuniao=QUI_06), eh_diretor=True
+            reuniao["id"], ReuniaoRequest(data_reuniao=QUI_06), eh_diretor_projetos=True
         )
 
         assert resposta["projeto_escopo_id"] == escopo.id

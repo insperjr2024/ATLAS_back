@@ -37,6 +37,7 @@ from src.utils.equipe_banca import membros_da_banca
 from src.utils.fuso import para_hora_local
 from src.utils.notificar import notificar
 from src.utils.piso_banca import calcular_piso_banca
+from src.middlewares.authorization import DIRETORIA
 
 JANELA_PUSH_DIAS = 7
 
@@ -140,7 +141,7 @@ class PushAlocacaoAutomaticaUseCase:
                 and usuarios_por_id.get(uid)
                 and (
                     (uid in membros_ids and usuarios_por_id[uid].posicao == "gerente")
-                    or usuarios_por_id[uid].posicao == "diretor"
+                    or usuarios_por_id[uid].posicao in DIRETORIA
                 )
             }
             falta_lideranca = max(0, lideranca_minima - len(lideres_presentes))

@@ -353,7 +353,7 @@ class UpdateReuniaoUseCase:
         self.db = db
         self.repository = ReuniaoSemanalRepository(db)
 
-    def execute(self, reuniao_id: int, request: ReuniaoRequest, eh_diretor: bool = False):
+    def execute(self, reuniao_id: int, request: ReuniaoRequest, eh_diretor_projetos: bool = False):
         reuniao = self.repository.get_by_id(reuniao_id)
         if not reuniao:
             return None
@@ -365,7 +365,7 @@ class UpdateReuniaoUseCase:
         )
         if muda_a_largada:
             exigir_reset_permitido(self.db, escopo_anterior)
-            if not eh_diretor:
+            if not eh_diretor_projetos:
                 resumo = resumir_o_que_sera_apagado(self.db, escopo_anterior)
                 perda = _descrever_perda(resumo)
                 raise RegraDeNegocioError(

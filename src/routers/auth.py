@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import require_diretor
+from src.middlewares.authorization import require_diretoria_de_pessoas
 from src.middlewares.validate_user_auth_token import (
     get_current_user,
     get_current_user_em_definicao_de_senha,
@@ -75,7 +75,7 @@ def redefinir_senha(request: RedefinirSenhaRequest, db: Session = Depends(get_db
 
 
 @router.post("/auth/registrar")
-def registrar(request: RegistrarRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def registrar(request: RegistrarRequest, _=Depends(require_diretoria_de_pessoas), db: Session = Depends(get_db)):
     """§10: ninguém se auto-registra — os membros entram pré-cadastrados.
 
     🔒 Antes disto, qualquer pessoa logada criava uma conta e escolhia a

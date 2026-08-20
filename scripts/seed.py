@@ -157,7 +157,7 @@ CARGOS = [
 
 # (nome, email, posicao, cargo, frentes, status)
 USUARIOS = [
-    ("Dani Alves", "dani@al.insper.edu.br", "diretor", "Diretor de Projetos", [], "ativo"),
+    ("Dani Alves", "dani@al.insper.edu.br", "diretor_projetos", "Diretor de Projetos", [], "ativo"),
     ("Gil Nunes", "gil@gmail.com", "gerente", "Gerente de Frente", ["Business"], "ativo"),
     ("Gabi Rocha", "gabi@al.insper.edu.br", "gerente", "Gerente de Frente", ["Tech"], "ativo"),
     ("Ana Souza", "ana@al.insper.edu.br", "coordenador", "Coordenador", ["Business"], "ativo"),
@@ -862,7 +862,7 @@ def executar():
         # script com UnicodeEncodeError DEPOIS do commit — o seed funciona mas
         # termina cuspindo traceback, e parece que falhou.
         print(f"\n  Login de qualquer usuário com a senha: {SENHA_PADRAO}")
-        print("    dani@al.insper.edu.br  -> diretor")
+        print("    dani@al.insper.edu.br  -> diretor de projetos")
         print("    gil@gmail.com          -> gerente (Business)")
         print("    ana@al.insper.edu.br   -> coordenador (Business)")
         print("    caio@icloud.com        -> consultor (Tech)")

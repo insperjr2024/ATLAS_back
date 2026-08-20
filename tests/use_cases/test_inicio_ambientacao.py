@@ -33,7 +33,7 @@ TER_DEPOIS_DO_KICKOFF = date(2026, 8, 25)
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
 BRUNO = SimpleNamespace(id=11, nome="Bruno Lima", posicao="coordenador")
 CAIO = SimpleNamespace(id=12, nome="Caio Reis", posicao="consultor")
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def corrigir(monkeypatch):
                 projeto.id,
                 UpdateInicioAmbientacaoRequest(data_inicio_ambientacao=nova_data),
                 quem,
-                eh_diretor=quem.posicao == "diretor",
+                eh_diretor_projetos=quem.posicao == "diretor_projetos",
             )
 
         return executar, estado

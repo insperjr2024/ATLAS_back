@@ -10,7 +10,14 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.usuario.get_usuario import serializar_usuario
 from src.utils.exceptions import RegraDeNegocioError
 
-Posicao = Literal["diretor", "gerente", "coordenador", "consultor"]
+Posicao = Literal[
+    "diretor_projetos",
+    "diretor_pessoas",
+    "diretor",
+    "gerente",
+    "coordenador",
+    "consultor",
+]
 StatusUsuario = Literal["ativo", "ex_membro", "desligado"]
 
 
@@ -31,24 +38,31 @@ class UpdateUsuarioUseCase:
         self.membro_repository = ProjetoMembroRepository(db)
 
     def _impedir_ficar_sem_diretoria(self, anterior, data: dict):
-        """🔒 A plataforma nunca pode ficar sem diretoria.
+        """🔒 A plataforma nunca pode ficar sem diretoria DE PROJETOS.
 
-        Só a diretoria edita cargos e permissões — rebaixar ou desativar o
-        último diretor trancaria a administração para sempre, sem ninguém
-        capaz de destrancar. Para a virada de gestão existe
-        `TransferirDiretoriaUseCase`, que promove antes de rebaixar.
+        Rebaixar ou desativar a última pessoa nesse cargo trancaria a
+        administração para sempre, sem ninguém capaz de destrancar. Para a
+        virada de gestão existe `TransferirDiretoriaUseCase`, que promove
+        antes de rebaixar.
+
+        ⚠ **A trava vale só para `diretor_projetos`**, e não para os três
+        cargos de diretoria. Depois da divisão (2026-08-20), ele é o único com
+        `pode_administrar_configuracoes` — os outros dois podem chegar a zero
+        sem trancar nada, e travá-los junto só impediria a diretoria de
+        reorganizar os próprios cargos.
         """
-        if anterior.posicao != "diretor":
+        CARGO = "diretor_projetos"
+        if anterior.posicao != CARGO:
             return
 
-        virou_outra_posicao = data.get("posicao", "diretor") != "diretor"
+        virou_outra_posicao = data.get("posicao", CARGO) != CARGO
         saiu_da_ativa = data.get("status", anterior.status) != "ativo"
         if not virou_outra_posicao and not saiu_da_ativa:
             return
 
         outros = [
             u
-            for u in self.repository.get_por_posicao("diretor")
+            for u in self.repository.get_por_posicao(CARGO)
             if u.id != anterior.id and u.status == "ativo"
         ]
         if not outros:

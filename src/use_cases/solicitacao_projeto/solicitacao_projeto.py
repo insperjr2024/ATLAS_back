@@ -41,6 +41,7 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.situacao_carga_repository import SituacaoCargaRepository, resolver
 from src.repositories.usuario_repository import UsuarioRepository
 from src.middlewares.authorization import (
+    eh_diretoria_de_projetos,
     aplicar_recorte_visao,
     frentes_do_usuario,
     pode_ver_projeto,
@@ -275,7 +276,7 @@ class SolicitacaoProjetoUseCase:
         """
         if not gestao:
             return False
-        if current_user.posicao == "diretor" or usuario_tem_permissao(
+        if eh_diretoria_de_projetos(current_user) or usuario_tem_permissao(
             current_user, self.db, "pode_ver_todos_projetos"
         ):
             return True

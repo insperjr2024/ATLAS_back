@@ -8,7 +8,7 @@ nenhum. Fila que ninguém sabe que existe é fila parada — foi assim que dois
 pedidos ficaram semanas represados sem ninguém notar.
 
 ⚠ **Nem toda ação restrita à diretoria é uma aprovação.** Criar formulário,
-configurar coluna do kanban e excluir usuário também exigem `require_diretor`,
+configurar coluna do kanban e excluir usuário também exigem `require_diretor_projetos`,
 e nenhuma delas entra aqui: são coisas que ela FAZ quando quer, não coisas que
 esperam por ela. O critério desta fila é ter alguém do outro lado bloqueado
 enquanto ela não responde.

@@ -1,7 +1,7 @@
 """Monitoramento da diretoria e gerência (§7).
 
 🔐 A maioria das rotas fica atrás de `require_gestao` (diretor + gerente);
-`/tarefas` é a exceção, `require_diretor` só — é o board macro de tarefas de
+`/tarefas` é a exceção, `require_diretor_projetos` só — é o board macro de tarefas de
 todos os projetos, mais informal que os números agregados das outras abas.
 Todo use case abre com `aplicar_recorte_visao`, que já é o §7.5 de graça: o
 gerente fica travado nas próprias frentes mesmo mandando outro `?frente_id=`.
@@ -17,7 +17,7 @@ from src.database.database import get_db
 from src.use_cases.monitoramento.graficos import MontarGraficoUseCase, listar_fontes
 from src.utils.exceptions import RegraDeNegocioError
 from src.middlewares.authorization import (
-    require_diretor,
+    require_diretor_projetos,
     require_gestao,
     require_pode_ver_monitoramento,
 )
@@ -138,7 +138,7 @@ def atrasos(
 
 
 @router.get("/aprovacoes")
-def aprovacoes(current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def aprovacoes(current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """⭐ Tudo que espera uma decisão da diretoria, num lugar só.
 
     Sem `frente_id`: a fila é dela, e ela enxerga a área inteira (§3). Filtrar
@@ -155,7 +155,7 @@ def tarefas(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     status: Optional[List[str]] = Depends(filtro_status),
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     return TarefasGeraisUseCase(db).execute(
@@ -199,7 +199,7 @@ def cronogramas(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     status: Optional[List[str]] = Depends(filtro_status),
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     return CronogramasGeraisUseCase(db).execute(

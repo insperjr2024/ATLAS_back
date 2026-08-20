@@ -2,6 +2,7 @@
 comparecer abre o pedido, qualquer consultor elegível confirma."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from src.middlewares.authorization import eh_diretoria_de_projetos
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -51,7 +52,7 @@ def cancelar_solicitacao_troca(
 ):
     try:
         return CancelarSolicitacaoTrocaUseCase(db).execute(
-            solicitacao_id, usuario_id=current_user.id, eh_diretor=current_user.posicao == "diretor"
+            solicitacao_id, usuario_id=current_user.id, eh_diretor_projetos=eh_diretoria_de_projetos(current_user)
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))

@@ -15,7 +15,15 @@ class UsuarioPosicaoHistoricoModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("usuario.id"), nullable=False, index=True)
     posicao = Column(
-        Enum("diretor", "gerente", "coordenador", "consultor", name="posicao_historico"),
+        Enum(
+            "diretor_projetos",
+            "diretor_pessoas",
+            "diretor",
+            "gerente",
+            "coordenador",
+            "consultor",
+            name="posicao_historico",
+        ),
         nullable=False,
     )
     semestre_id = Column(Integer, ForeignKey("semestre.id"), nullable=True)

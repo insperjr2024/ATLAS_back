@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    eh_diretoria_de_projetos,
     exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
-    require_diretor,
+    require_diretor_projetos,
     require_gestao,
     require_lideranca,
     require_pode_criar_projeto,
@@ -173,7 +174,7 @@ def update_inicio_ambientacao(
             projeto_id,
             request,
             current_user,
-            eh_diretor=current_user.posicao == "diretor",
+            eh_diretor_projetos=eh_diretoria_de_projetos(current_user),
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -328,7 +329,7 @@ def registrar_justificativa_atraso(
 ):
     """§7.4 — o porquê de um atraso, na palavra de quem conduz o projeto.
 
-    ⚠ **Era `require_diretor`.** A diretoria continua podendo registrar, mas
+    ⚠ **Era `require_diretor_projetos`.** A diretoria continua podendo registrar, mas
     quem SABE por que o escopo estourou a janela é o coordenador dele — e
     fazer a nota depender de a diretora perguntar primeiro deixava o atraso sem
     explicação justamente enquanto ele era recente. Agora o card "Escopos
@@ -390,7 +391,7 @@ def pedir_justificativa(
 def excluir_justificativa_atraso(
     projeto_id: int,
     justificativa_id: int,
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     """§7.4 — não é edição de rotina, é pra corrigir engano/teste."""
@@ -403,7 +404,7 @@ def excluir_justificativa_atraso(
 def excluir_remarcacao_banca(
     projeto_id: int,
     remarcacao_id: int,
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
     """§5.6 — mesma lógica: correção de engano/teste, não rotina."""
@@ -439,7 +440,7 @@ def desarquivar_projeto(projeto_id: int, current_user=Depends(require_gestao), d
 
 @router.delete("/projetos/{projeto_id}")
 def deletar_projeto_permanente(
-    projeto_id: int, current_user=Depends(require_diretor), db: Session = Depends(get_db)
+    projeto_id: int, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)
 ):
     """Apagar de vez — só um projeto já arquivado, e sem volta. Restrito à
     diretoria: mais pesado que arquivar, que já é diretor+gerente."""
@@ -571,7 +572,7 @@ def confirmar_entrega_escopo(
         result = ConfirmarEntregaEscopoUseCase(db).execute(
             escopo_id,
             current_user,
-            eh_diretor=current_user.posicao == "diretor",
+            eh_diretor_projetos=eh_diretoria_de_projetos(current_user),
             request=request,
         )
     except RegraDeNegocioError as e:
@@ -594,7 +595,7 @@ def registrar_entrega_escopo(escopo_id: int, request: RegistrarEntregaEscopoRequ
         return RegistrarEntregaEscopoUseCase(db).execute(
             escopo_id,
             request,
-            eh_diretor=getattr(current_user, "posicao", None) == "diretor",
+            eh_diretor_projetos=eh_diretoria_de_projetos(current_user),
             current_user=current_user,
         )
     except RegraDeNegocioError as e:
@@ -602,7 +603,7 @@ def registrar_entrega_escopo(escopo_id: int, request: RegistrarEntregaEscopoRequ
 
 
 @router.patch("/escopos-projeto/{escopo_id}/atraso-entrega")
-def classificar_atraso(escopo_id: int, request: ClassificarAtrasoEntregaRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def classificar_atraso(escopo_id: int, request: ClassificarAtrasoEntregaRequest, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """Interno x externo (§7.4) — só a diretoria classifica."""
     _projeto_do_escopo(escopo_id, current_user, db)
     try:

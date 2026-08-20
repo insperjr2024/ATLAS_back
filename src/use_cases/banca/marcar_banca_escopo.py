@@ -81,7 +81,7 @@ class MarcarBancaEscopoUseCase:
         self,
         escopo_id: int,
         request: MarcarBancaEscopoRequest,
-        eh_diretor: bool = False,
+        eh_diretor_projetos: bool = False,
         current_user=None,
         registrado_por: Optional[int] = None,
     ):
@@ -113,7 +113,7 @@ class MarcarBancaEscopoUseCase:
         )
         # ⭐ §9: o ÚNICO bloqueio duro do cronograma. Pintar além da janela
         # avisa (§15); marcar banca fora dela não passa sem a diretoria.
-        self._exigir_janela(escopos_cobertos, request, eh_diretor, eh_segunda_banca)
+        self._exigir_janela(escopos_cobertos, request, eh_diretor_projetos, eh_segunda_banca)
 
         if existente:
             data_anterior = existente.data_hora
@@ -145,7 +145,7 @@ class MarcarBancaEscopoUseCase:
                     # §9: remarcação nunca é silenciosa — justificativa SEMPRE,
                     # mesmo quando é livre. O que o §13 dispensa é a diretoria,
                     # não o registro.
-                    self._exigir_remarcacao_permitida(existente, request, eh_diretor)
+                    self._exigir_remarcacao_permitida(existente, request, eh_diretor_projetos)
 
             # ⚠ ANTES do update: `_campos_da_remarcacao` zera `realizado_em` e
             # `resultado`, e é justamente isso que a sessão precisa arquivar.
@@ -174,7 +174,7 @@ class MarcarBancaEscopoUseCase:
                         data_nova=banca.data_hora,
                         justificativa=(request.justificativa or "").strip(),
                         remarcado_por=getattr(current_user, "id", None) or banca.coordenador_id,
-                        autorizado_por=getattr(current_user, "id", None) if eh_diretor else None,
+                        autorizado_por=getattr(current_user, "id", None) if eh_diretor_projetos else None,
                     )
                 notificar_banca_remarcada(
                     self.db, projeto, banca.id, self._nome(escopo), data_anterior, banca.data_hora
@@ -420,7 +420,7 @@ class MarcarBancaEscopoUseCase:
         self,
         escopos_cobertos,
         request: MarcarBancaEscopoRequest,
-        eh_diretor: bool,
+        eh_diretor_projetos: bool,
         eh_segunda_banca: bool = False,
     ) -> None:
         """§9: a banca só cabe em dia dentro da janela do escopo.
@@ -439,14 +439,14 @@ class MarcarBancaEscopoUseCase:
         sozinho, na mesma chamada — pedido e decisão eram a mesma pessoa no
         mesmo clique. Agora quem marca PEDE (`fora_janela.SolicitarForaJanelaUseCase`)
         e a diretoria decide depois, em ato separado — mesmo desenho do pedido
-        de exceção de choque (§8). `eh_diretor` não basta mais aqui; o que
+        de exceção de choque (§8). `eh_diretor_projetos` não basta mais aqui; o que
         libera é uma autorização APROVADA para este par (escopo, data).
 
         ⭐ **A 2ª banca continua sendo a exceção, sem pedido nenhum.** Ela
         quase sempre cai fora da janela — é da natureza de uma reprovação
         empurrar o escopo para além do vendido —, e cobrar um pedido formal
         para algo que é consequência automática da reprovação seria pedir
-        carimbo por carimbo. Continua exigindo `eh_diretor`, só isso.
+        carimbo por carimbo. Continua exigindo `eh_diretor_projetos`, só isso.
         """
         from src.use_cases.banca.fora_janela import fora_janela_liberada
 
@@ -466,7 +466,7 @@ class MarcarBancaEscopoUseCase:
                 continue
 
             if eh_segunda_banca:
-                if not eh_diretor:
+                if not eh_diretor_projetos:
                     raise RegraDeNegocioError(
                         f"A banca de '{self._nome(alvo)}' foi reprovada e a nova data "
                         "passa da janela — só a diretoria pode marcar a segunda banca fora dela"
@@ -496,7 +496,7 @@ class MarcarBancaEscopoUseCase:
                 )
 
     def _exigir_remarcacao_permitida(
-        self, existente, request: MarcarBancaEscopoRequest, eh_diretor: bool
+        self, existente, request: MarcarBancaEscopoRequest, eh_diretor_projetos: bool
     ) -> None:
         """Os dois gates de remarcação do §13 — só para ADIAMENTO.
 
@@ -519,7 +519,7 @@ class MarcarBancaEscopoUseCase:
         dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
         folga = dias_uteis_ate_a_banca(existente.data_hora, dias_nao_letivos)
 
-        if folga is not None and folga <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS and not eh_diretor:
+        if folga is not None and folga <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS and not eh_diretor_projetos:
             raise RegraDeNegocioError(
                 f"Esta banca acontece em {folga} "
                 f"{'dia útil' if folga == 1 else 'dias úteis'} e os avaliadores já estão "
@@ -618,7 +618,7 @@ class RegistrarRealizacaoBancaUseCase:
         self,
         banca_id: int,
         request: RegistrarRealizacaoRequest,
-        eh_diretor: bool = False,
+        eh_diretor_projetos: bool = False,
     ):
         banca = self.repository.get_by_id(banca_id)
         if not banca:
@@ -626,7 +626,7 @@ class RegistrarRealizacaoBancaUseCase:
         if not banca.data_hora:
             raise RegraDeNegocioError("Uma banca sem data não pode ser marcada como realizada")
 
-        self._exigir_composicao(banca, request, eh_diretor)
+        self._exigir_composicao(banca, request, eh_diretor_projetos)
 
         realizado_em = request.realizado_em or banca.data_hora
         banca = self.repository.update(banca_id, realizado_em=realizado_em)
@@ -692,7 +692,7 @@ class RegistrarRealizacaoBancaUseCase:
             # traceback no log, e o job da madrugada refaz a conta.
             logger.exception("Banca %s registrada, mas o status não avançou", banca_id)
 
-    def _exigir_composicao(self, banca, request, eh_diretor: bool) -> None:
+    def _exigir_composicao(self, banca, request, eh_diretor_projetos: bool) -> None:
         """A banca não fecha com menos gente que o combinado (§8).
 
         📐 Só o TOTAL é exigido: a SOMA do `piso_banca` das frentes vinculadas
@@ -736,7 +736,7 @@ class RegistrarRealizacaoBancaUseCase:
                 "Só a diretoria pode registrá-la assim mesmo.",
                 codigo=CODIGO_BANCA_ABAIXO_DO_MINIMO,
             )
-        if not eh_diretor:
+        if not eh_diretor_projetos:
             raise RegraDeNegocioError(
                 "Apenas o Diretor de Projetos pode registrar uma banca abaixo do mínimo"
             )
@@ -776,7 +776,7 @@ class RegistrarResultadoBancaUseCase:
     para o caso que a apuração não resolve: banca realizada em que ninguém
     votou, e que ficaria travando a entrega para sempre.
 
-    Por isso o router a restringe a `require_diretor`: sobrescrever a maioria
+    Por isso o router a restringe a `require_diretor_projetos`: sobrescrever a maioria
     não é ação de rotina de quem conduz o cronograma.
     """
 

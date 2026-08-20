@@ -10,6 +10,7 @@ equipe; travar no autor faria o campo não servir para nada.
 """
 
 from typing import List, Optional
+from src.middlewares.authorization import eh_diretoria_de_projetos
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -38,7 +39,7 @@ def pode_editar_tarefa(tarefa, current_user) -> bool:
     Mover no kanban NÃO passa por aqui — só a edição de conteúdo.
     """
     return (
-        getattr(current_user, "posicao", None) == "diretor"
+        eh_diretoria_de_projetos(current_user)
         or tarefa.criado_por == current_user.id
     )
 
@@ -101,7 +102,7 @@ class DeleteComentarioUseCase:
         comentario = self.repository.get_by_id(comentario_id)
         if not comentario:
             return None
-        eh_diretor = getattr(current_user, "posicao", None) == "diretor"
-        if comentario.autor_id != current_user.id and not eh_diretor:
+        eh_diretor_projetos = eh_diretoria_de_projetos(current_user)
+        if comentario.autor_id != current_user.id and not eh_diretor_projetos:
             raise RegraDeNegocioError("Você só pode apagar os próprios comentários")
         return self.repository.delete(comentario_id)

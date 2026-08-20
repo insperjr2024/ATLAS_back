@@ -27,7 +27,7 @@ from src.use_cases.projeto.registrar_justificativa_atraso import (
 )
 from src.utils.exceptions import RegraDeNegocioError
 
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 @pytest.fixture

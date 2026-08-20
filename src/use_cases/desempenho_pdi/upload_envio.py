@@ -7,6 +7,7 @@ from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRep
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.validar_arquivo_pdi import validar_arquivo_pdi
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 
 def pode_enviar_pdi(pasta, mentorado_id: int, current_user, db: Session) -> bool:
@@ -15,7 +16,7 @@ def pode_enviar_pdi(pasta, mentorado_id: int, current_user, db: Session) -> bool
     tipo "encontro": o PDI inicial é upado exclusivamente pela diretoria.
     A checagem é por PASTA (não por item) — todo item de uma pasta segue a
     mesma regra de quem pode enviar."""
-    if current_user.posicao in ("diretor", "gerente"):
+    if current_user.posicao in (*DIRETORIA_DE_PESSOAS, "gerente"):
         return True
     if pasta.tipo != "encontro":
         return False

@@ -35,7 +35,7 @@ QUI_15_10 = date(2026, 10, 15)
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
 BRUNO = SimpleNamespace(id=11, nome="Bruno Lima", posicao="coordenador")
 CAIO = SimpleNamespace(id=12, nome="Caio Reis", posicao="consultor")
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 @pytest.fixture
@@ -129,7 +129,7 @@ def confirmar(monkeypatch):
             return uc.execute(
                 escopo.id,
                 quem,
-                eh_diretor=quem.posicao == "diretor",
+                eh_diretor_projetos=quem.posicao == "diretor_projetos",
                 request=ConfirmarEntregaEscopoRequest(data_entrega_real=dia),
             )
 

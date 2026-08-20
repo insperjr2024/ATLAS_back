@@ -26,7 +26,14 @@ class RegistrarRequest(BaseModel):
 
     nome: str
     email_insper: str
-    posicao: Literal["diretor", "gerente", "coordenador", "consultor"] = "consultor"
+    posicao: Literal[
+        "diretor_projetos",
+        "diretor_pessoas",
+        "diretor",
+        "gerente",
+        "coordenador",
+        "consultor",
+    ] = "consultor"
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 

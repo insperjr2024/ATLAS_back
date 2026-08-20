@@ -81,7 +81,7 @@ class TestDiretor:
         ]
 
     def test_onze_tarefas_viram_uma_linha(self):
-        itens = montar(self._onze_vencidas_em_quatro_projetos(), posicao="diretor", usuario_id=1)
+        itens = montar(self._onze_vencidas_em_quatro_projetos(), posicao="diretor_projetos", usuario_id=1)
         assert len(itens) == 1
         assert itens[0]["titulo"] == "11 tarefas vencidas"
         assert itens[0]["total"] == 11
@@ -94,14 +94,14 @@ class TestDiretor:
             condicao("kickoff_pendente", projeto_id=2),
             condicao("projeto_sem_reuniao", projeto_id=3),
         ]
-        itens = montar(condicoes, posicao="diretor", usuario_id=1)
+        itens = montar(condicoes, posicao="diretor_projetos", usuario_id=1)
         assert {i["titulo"] for i in itens} == {
             "2 projetos sem kickoff",
             "1 projeto sem reunião esta semana",
         }
 
     def test_singular_quando_e_um_so(self):
-        itens = montar([condicao("kickoff_pendente")], posicao="diretor", usuario_id=1)
+        itens = montar([condicao("kickoff_pendente")], posicao="diretor_projetos", usuario_id=1)
         assert itens[0]["titulo"] == "1 projeto sem kickoff"
 
     def test_individual_ganha_do_agregado(self):
@@ -112,7 +112,7 @@ class TestDiretor:
             condicao("kickoff_pendente", projeto_id=2, nome="Beta"),
             condicao("kickoff_pendente", projeto_id=3, nome="Gama"),
         ]
-        itens = montar(condicoes, papeis={1: "coordenador"}, posicao="diretor", usuario_id=1)
+        itens = montar(condicoes, papeis={1: "coordenador"}, posicao="diretor_projetos", usuario_id=1)
 
         individuais = [i for i in itens if i["total"] is None]
         agregados = [i for i in itens if i["total"] is not None]
@@ -123,7 +123,7 @@ class TestDiretor:
     def test_a_data_entra_na_chave_do_agregado(self):
         """Dispensar "11 tarefas vencidas" hoje não pode silenciar as 20 de
         amanhã — o resumo da liderança é sempre o estado de HOJE."""
-        itens = montar([condicao("kickoff_pendente")], posicao="diretor", usuario_id=1)
+        itens = montar([condicao("kickoff_pendente")], posicao="diretor_projetos", usuario_id=1)
         assert itens[0]["chave"] == "agregado:kickoff_pendente:2026-08-05"
 
 

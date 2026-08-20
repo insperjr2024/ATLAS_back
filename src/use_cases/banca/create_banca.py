@@ -18,7 +18,7 @@ class CreateBancaRequest(BaseModel):
     data_hora: datetime
     consultor_ids: List[int] = []
     frente_ids: List[int] = []
-    #: Só a diretoria define — ver `require_diretor` no use case.
+    #: Só a diretoria define — ver `require_diretor_projetos` no use case.
     piso_minimo_override: Optional[int] = None
 
 
@@ -31,7 +31,7 @@ class CreateBancaUseCase:
         self.usuario_repository = UsuarioRepository(db)
         self.frente_repository = FrenteRepository(db)
 
-    def execute(self, request: CreateBancaRequest, coordenador_id: int, eh_diretor: bool = False):
+    def execute(self, request: CreateBancaRequest, coordenador_id: int, eh_diretor_projetos: bool = False):
         for consultor_id in request.consultor_ids:
             if not self.usuario_repository.get_by_id(consultor_id):
                 raise RegraDeNegocioError(f"Usuário {consultor_id} não encontrado")
@@ -40,7 +40,7 @@ class CreateBancaUseCase:
             if not self.frente_repository.get_by_id(frente_id):
                 raise RegraDeNegocioError(f"Frente {frente_id} não encontrada")
 
-        if request.piso_minimo_override is not None and not eh_diretor:
+        if request.piso_minimo_override is not None and not eh_diretor_projetos:
             raise RegraDeNegocioError("Só a diretoria pode definir o piso mínimo de uma banca")
 
         # 🔒 §8: duas bancas no mesmo horário não passam — nem por esta porta.

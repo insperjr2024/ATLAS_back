@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    eh_diretoria_de_projetos,
     exigir_acesso_ao_projeto,
-    require_diretor,
+    require_diretor_projetos,
     require_pode_criar_tarefa,
     require_pode_mover_editar_tarefa,
 )
@@ -80,7 +81,7 @@ def list_colunas(projeto_id: int, current_user=Depends(get_current_user), db: Se
 
 
 @router.post("/projetos/{projeto_id}/tarefas-colunas")
-def create_coluna(projeto_id: int, request: CreateColunaRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def create_coluna(projeto_id: int, request: CreateColunaRequest, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         return CreateColunaUseCase(db).execute(projeto_id, request)
@@ -89,7 +90,7 @@ def create_coluna(projeto_id: int, request: CreateColunaRequest, current_user=De
 
 
 @router.put("/projetos/{projeto_id}/tarefas-colunas/ordem")
-def reordenar_colunas(projeto_id: int, request: ReordenarColunasRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def reordenar_colunas(projeto_id: int, request: ReordenarColunasRequest, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         return ReordenarColunasUseCase(db).execute(projeto_id, request)
@@ -98,7 +99,7 @@ def reordenar_colunas(projeto_id: int, request: ReordenarColunasRequest, current
 
 
 @router.patch("/projetos/{projeto_id}/tarefas-colunas/{coluna_id}")
-def update_coluna(projeto_id: int, coluna_id: int, request: UpdateColunaRequest, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def update_coluna(projeto_id: int, coluna_id: int, request: UpdateColunaRequest, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     _coluna_do_projeto(projeto_id, coluna_id, db)
     try:
@@ -111,7 +112,7 @@ def update_coluna(projeto_id: int, coluna_id: int, request: UpdateColunaRequest,
 
 
 @router.delete("/projetos/{projeto_id}/tarefas-colunas/{coluna_id}", status_code=204)
-def delete_coluna(projeto_id: int, coluna_id: int, mover_para: Optional[int] = None, current_user=Depends(require_diretor), db: Session = Depends(get_db)):
+def delete_coluna(projeto_id: int, coluna_id: int, mover_para: Optional[int] = None, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     """`?mover_para=` é obrigatório quando a coluna tem tarefas — elas nunca
     são apagadas junto."""
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
@@ -257,13 +258,13 @@ def update_reuniao(reuniao_id: int, request: ReuniaoRequest, current_user=Depend
     corrigir sobre qual escopo ela foi. A `data_inicio` do escopo acompanha.
 
     ⚠ Mover a reunião INICIAL **zera o cronograma do escopo**, e por isso é
-    decisão da diretoria: o `eh_diretor` abaixo é o que separa quem executa de
+    decisão da diretoria: o `eh_diretor_projetos` abaixo é o que separa quem executa de
     quem precisa pedir.
     """
     _acesso_pela_reuniao(reuniao_id, current_user, db)
     try:
         return UpdateReuniaoUseCase(db).execute(
-            reuniao_id, request, eh_diretor=current_user.posicao == "diretor"
+            reuniao_id, request, eh_diretor_projetos=eh_diretoria_de_projetos(current_user)
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))

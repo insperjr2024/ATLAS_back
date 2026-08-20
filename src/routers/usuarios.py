@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
-    require_diretor,
+    require_diretoria_de_pessoas,
     require_pode_gerir_membros,
     require_self_or_admin,
     usuario_tem_permissao,
@@ -113,7 +113,7 @@ def update_usuario(
 @router.post("/usuarios/transferir-diretoria")
 def transferir_diretoria(
     request: TransferirDiretoriaRequest,
-    current_user=Depends(require_diretor),
+    current_user=Depends(require_diretoria_de_pessoas),
     db: Session = Depends(get_db),
 ):
     """§10 — a passagem de bastão da virada de gestão, num passo só.
@@ -130,7 +130,7 @@ def transferir_diretoria(
 @router.post("/usuarios/{usuario_id}/senha-provisoria")
 def reenviar_senha_provisoria(
     usuario_id: int,
-    _=Depends(require_diretor),
+    _=Depends(require_diretoria_de_pessoas),
     db: Session = Depends(get_db),
 ):
     """Reemite a senha de primeiro acesso e manda de novo por e-mail.
@@ -163,7 +163,7 @@ def delete_usuario(usuario_id: int, _=Depends(require_pode_gerir_membros), db: S
 
 
 @router.delete("/usuarios/{usuario_id}/permanente")
-def delete_usuario_permanente(usuario_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def delete_usuario_permanente(usuario_id: int, _=Depends(require_diretoria_de_pessoas), db: Session = Depends(get_db)):
     """Apagar de vez — só um usuário já desligado, e sem volta. Restrito à
     diretoria: cascata bem mais pesada que a exclusão simples acima."""
     try:

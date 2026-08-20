@@ -5,6 +5,7 @@ from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRe
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.desempenho_mentoria.get_mentoria import serializar_mentoria
 from src.utils.exceptions import RegraDeNegocioError
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 
 class CreateMentoriaRequest(BaseModel):
@@ -15,7 +16,7 @@ class CreateMentoriaRequest(BaseModel):
 #: Quem pode ser mentor — liderança acima do consultor. Coordenador é o
 #: caso comum, mas gerente e diretor também assumem mentorado quando a
 #: diretoria decide (2026-08-06).
-POSICOES_ELEGIVEIS_MENTOR = ("coordenador", "gerente", "diretor")
+POSICOES_ELEGIVEIS_MENTOR = ("coordenador", "gerente", *DIRETORIA)
 
 
 class CreateMentoriaUseCase:
