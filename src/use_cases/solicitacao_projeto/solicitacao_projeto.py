@@ -522,15 +522,21 @@ class SolicitacaoProjetoUseCase:
             chave_dedup=f"solicitacao_projeto:{solicitacao.id}",
         )
 
-        # O coordenador continua sabendo quem quer entrar no time dele, com
-        # texto que não promete ação nenhuma. Fica de fora quando já recebeu
-        # como decisor (gerente ocupando a cadeira de coordenador), senão o
-        # mesmo pedido chegaria duas vezes com dois textos diferentes.
-        coordenador = next((v for v in vinculos if v.papel == "coordenador"), None)
-        if coordenador and coordenador.usuario_id not in decisores:
-            registrar(
+        # O(s) coordenador(es) continuam sabendo quem quer entrar no time
+        # deles, com texto que não promete ação nenhuma. Projeto pode ter
+        # mais de um (2026-08-20) — todos avisados, não só o primeiro. Fica
+        # de fora quem já recebeu como decisor (gerente ocupando a cadeira de
+        # coordenador), senão o mesmo pedido chegaria duas vezes com dois
+        # textos diferentes.
+        coordenadores_ids = [
+            v.usuario_id
+            for v in vinculos
+            if v.papel == "coordenador" and v.usuario_id not in decisores
+        ]
+        if coordenadores_ids:
+            registrar_varios(
                 self.db,
-                usuario_id=coordenador.usuario_id,
+                coordenadores_ids,
                 tipo="solicitacao_projeto",
                 titulo=(
                     f"{usuario.nome} pediu para entrar no {projeto.nome}, que você coordena. "

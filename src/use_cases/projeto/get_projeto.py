@@ -31,7 +31,7 @@ def serializar_projeto_resumo(
     """A forma enxuta, usada nos cards da lista (§6.2)."""
     frentes = frente_repo.get_by_projeto(projeto.id)
     membros = membro_repo.get_by_projeto(projeto.id, apenas_atuais=True)
-    coordenador = next((m for m in membros if m.papel == "coordenador"), None)
+    coordenadores = [m for m in membros if m.papel == "coordenador"]
 
     return {
         "id": projeto.id,
@@ -41,7 +41,12 @@ def serializar_projeto_resumo(
         "status": projeto.status,
         "frente_ids": [f.frente_id for f in frentes],
         "sinergico": len(frentes) > 1,
-        "coordenador_id": coordenador.usuario_id if coordenador else None,
+        # ⚠ `coordenador_id` (singular) é o PRIMEIRO da lista, mantido só
+        # pra quem ainda lê esse campo (card antigo, tela que só mostra um
+        # nome). Projeto pode ter mais de um coordenador (2026-08-20) — quem
+        # precisa da equipe inteira usa `coordenador_ids`.
+        "coordenador_id": coordenadores[0].usuario_id if coordenadores else None,
+        "coordenador_ids": [c.usuario_id for c in coordenadores],
         "consultor_ids": [m.usuario_id for m in membros if m.papel == "consultor"],
         # Teto de consultores: a tela de vagas compara com quantos já entraram.
         "max_consultores": projeto.max_consultores,

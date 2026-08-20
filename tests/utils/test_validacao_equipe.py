@@ -55,13 +55,14 @@ class TestEquipeIncompleta:
     def test_equipe_so_com_coordenador_e_aceita(self):
         validar_equipe([MembroFake(COORD.id, "coordenador")], REPO)
 
-    def test_equipe_com_dois_coordenadores_continua_recusada(self):
+    def test_equipe_com_dois_coordenadores_e_aceita(self):
+        """2026-08-20: projeto grande às vezes divide a coordenação entre
+        duas pessoas — deixou de ser erro."""
         equipe = [
             MembroFake(COORD.id, "coordenador"),
             MembroFake(OUTRO_COORD.id, "coordenador"),
         ]
-        with pytest.raises(RegraDeNegocioError, match="no máximo 1 coordenador"):
-            validar_equipe(equipe, REPO)
+        validar_equipe(equipe, REPO)
 
     def test_mesma_pessoa_nos_dois_papeis_e_recusada(self):
         equipe = [

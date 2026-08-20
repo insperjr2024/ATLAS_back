@@ -25,6 +25,11 @@ from typing import Optional
 import httpx
 
 from src.config.config import get_settings
+from src.utils.email_templates import (
+    get_notificacao_html,
+    get_recuperacao_senha_html,
+    get_senha_provisoria_html,
+)
 from src.utils.exceptions import RegraDeNegocioError
 
 RESEND_SEND_URL = "https://api.resend.com/emails"
@@ -92,16 +97,7 @@ def montar_email_senha_provisoria(nome: str, senha: str, link_login: str) -> tup
         f"Se você não esperava este e-mail, avise a diretoria.\n"
     )
 
-    html = (
-        f"<p>Olá, {nome}.</p>"
-        f"<p>A sua conta no ATLAS foi criada. Entre com esta senha provisória:</p>"
-        f'<p style="font-size:18px"><code>{senha}</code></p>'
-        f'<p><a href="{link_login}">Acessar o ATLAS</a></p>'
-        f"<p>Assim que entrar, o sistema vai pedir para você escolher a "
-        f"<strong>sua</strong> senha — a provisória deixa de valer nesse "
-        f"momento, e até lá o resto da plataforma fica bloqueado.</p>"
-        f"<p>Se você não esperava este e-mail, avise a diretoria.</p>"
-    )
+    html = get_senha_provisoria_html(nome, senha, link_login)
 
     return assunto, texto, html
 
@@ -135,15 +131,7 @@ def montar_email_notificacao(
         f"sino do ATLAS.\n"
     )
 
-    detalhe_html = f"<p>{corpo}</p>" if corpo else ""
-    html = (
-        f"<p>Olá, {nome}.</p>"
-        f"<p><strong>{titulo}</strong></p>"
-        f"{detalhe_html}"
-        f'<p><a href="{link}">Ver no ATLAS</a></p>'
-        f"<p style=\"color:#666;font-size:12px\">Você recebeu este e-mail porque "
-        f"esta notificação apareceu no seu sino do ATLAS.</p>"
-    )
+    html = get_notificacao_html(nome, titulo, corpo, link)
 
     return assunto, texto, html
 
@@ -166,13 +154,6 @@ def montar_email_recuperacao(nome: str, link: str, minutos: int) -> tuple[str, s
         f"continua valendo.\n"
     )
 
-    html = (
-        f"<p>Olá, {nome}.</p>"
-        f"<p>Recebemos um pedido para redefinir a sua senha no ATLAS.</p>"
-        f'<p><a href="{link}">Escolher uma nova senha</a></p>'
-        f"<p>O link vale por {minutos} minutos e só pode ser usado uma vez.</p>"
-        f"<p>Se não foi você que pediu, ignore este e-mail — a sua senha atual "
-        f"continua valendo.</p>"
-    )
+    html = get_recuperacao_senha_html(nome, link, minutos)
 
     return assunto, texto, html

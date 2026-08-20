@@ -27,9 +27,12 @@ obrigado a inventar nomes só para o formulário passar — nomes que depois
 ficavam no histórico de `projeto_membro` como se aquelas pessoas tivessem
 mesmo participado (§10 não deixa reescrever isso). O time é montado depois,
 em Vagas ou na Visão geral, e a mesma regra vale lá: dá para salvar só o
-coordenador, só consultores, ou ninguém. O que continua barrado é o que é
-erro de verdade — DOIS coordenadores, posição que não cabe no papel, e
-a mesma pessoa ocupando os dois papéis no mesmo projeto.
+coordenador, só consultores, ou ninguém.
+
+**Mais de um coordenador é permitido** (2026-08-20, pedido direto) — projeto
+grande às vezes divide a coordenação entre duas pessoas. O que continua
+barrado é o que é erro de verdade — posição que não cabe no papel, e a
+mesma pessoa ocupando os dois papéis no mesmo projeto.
 """
 
 from src.utils.exceptions import RegraDeNegocioError
@@ -55,8 +58,6 @@ def validar_equipe(equipe, usuario_repository, max_consultores=None):
     a docstring do módulo.
     """
     coordenadores = [m for m in equipe if m.papel == "coordenador"]
-    if len(coordenadores) > 1:
-        raise RegraDeNegocioError("O projeto pode ter no máximo 1 coordenador")
 
     # Teto de consultores: só entra se o chamador passar o número, porque
     # `create_projeto` grava `max_consultores` na mesma chamada em que valida
