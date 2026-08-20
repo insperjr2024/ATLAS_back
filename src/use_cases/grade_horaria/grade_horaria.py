@@ -76,9 +76,11 @@ def _teor(livres: int) -> tuple[str, str]:
 class GradeHorariaUseCase:
     """A grade de aulas do próprio membro (§11).
 
-    Cada um mexe só na sua: não há parâmetro de usuário em lugar nenhum, o id
-    vem sempre do token. Visão da diretoria sobre a grade dos outros é
-    funcionalidade à parte, e ainda não existe.
+    `listar` e `salvar` recebem `usuario_id` porque servem dois chamadores: a
+    rota de autoatendimento (sempre passa o id do próprio token) e a rota
+    administrativa em `/grade-horaria/{usuario_id}`, atrás de
+    `pode_gerir_membros`, para quem gerencia a equipe ver a grade de outra
+    pessoa.
     """
 
     def __init__(self, db: Session):

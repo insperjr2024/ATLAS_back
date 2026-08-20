@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
+from src.middlewares.authorization import require_pode_gerir_membros
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.grade_horaria.grade_horaria import (
     FAIXAS_INSPER,
@@ -14,8 +15,9 @@ from src.use_cases.grade_horaria.grade_horaria import (
 )
 from src.utils.exceptions import RegraDeNegocioError
 
-# Sem guarda de permissão: é área de todo mundo, sobre os próprios dados. O id do
-# usuário vem sempre do token — nenhuma rota aceita "grade de outra pessoa".
+# As rotas sem parâmetro de usuário são área de todo mundo, sobre os próprios
+# dados — o id vem sempre do token, nunca do path. A exceção é a rota com
+# `usuario_id` explícito lá embaixo, que por isso carrega sua própria guarda.
 router = APIRouter(tags=["grade-horaria"], dependencies=[Depends(get_current_user)])
 
 
@@ -78,5 +80,24 @@ def salvar_grade(
     """
     try:
         return GradeHorariaUseCase(db).salvar(current_user.id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/grade-horaria/{usuario_id}")
+def grade_de_usuario(
+    usuario_id: int,
+    semestre_id: Optional[int] = Query(None),
+    _=Depends(require_pode_gerir_membros),
+    db: Session = Depends(get_db),
+):
+    """A grade de um membro específico, para quem gerencia a equipe (§11).
+
+    Único lugar que expõe a grade individual de outra pessoa — atrás da
+    mesma permissão que já guarda a página de Membros inteira, não uma
+    caixinha nova para configurar.
+    """
+    try:
+        return GradeHorariaUseCase(db).listar(usuario_id, semestre_id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
