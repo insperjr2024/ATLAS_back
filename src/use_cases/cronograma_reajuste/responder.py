@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.middlewares.authorization import DIRETORIA_DE_PROJETOS
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
@@ -42,12 +43,10 @@ class ResponderReajusteUseCase:
         # Rechecado aqui, e não só na rota: quem pede é validado no use case
         # (`solicitar.py`), e deixar só o gate de rota do outro lado faria a
         # regra mais forte das duas depender de ninguém chamar isto por dentro.
-        # A permissão é a caixa de cargo `pode_aprovar_reajuste` — configurável
-        # pela diretoria, hoje marcada só para o diretor.
-        cargo = getattr(current_user, "cargo", None)
-        if cargo is not None and not getattr(cargo, "pode_aprovar_reajuste", False):
+        # Por POSIÇÃO, a única dimensão de permissão desde que `cargo` saiu.
+        if getattr(current_user, "posicao", None) not in DIRETORIA_DE_PROJETOS:
             raise RegraDeNegocioError(
-                "Só quem tem permissão de aprovar reajuste decide um pedido de dias (§8)"
+                "Só a diretoria de projetos decide um pedido de dias (§8)"
             )
 
         solicitacao = self.repository.get_by_id(solicitacao_id)

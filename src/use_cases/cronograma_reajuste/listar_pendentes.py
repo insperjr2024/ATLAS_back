@@ -11,7 +11,7 @@ from src.use_cases.cronograma_reajuste.solicitar import nome_do_escopo
 class ListarReajustesPendentesUseCase:
     """A fila de pedidos de DIAS DE AJUSTE (§8), só para a diretoria — o
     gerente não decide, e o router já restringe com
-    `require_pode_aprovar_reajuste`.
+    `require_diretor_projetos`.
 
     Traz `dias_solicitados` e a janela atual do escopo porque a decisão não faz
     sentido sem os dois: aprovar "+10" muda de significado conforme o escopo
