@@ -40,9 +40,23 @@ QUI_03_09 = date(2026, 9, 3)  # a reunião inicial
 TER_08_09 = date(2026, 9, 8)  # o 3º dia útil — último dia do prazo
 QUA_09_09 = date(2026, 9, 9)  # o 4º — acabou
 
+SEX_28_08 = date(2026, 8, 28)  # kickoff cuja ambientação de 5 dias fecha em 03/09
+QUI_27_08 = date(2026, 8, 27)  # kickoff cuja ambientação de 5 dias fechou em 02/09
+
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
 CAIO = SimpleNamespace(id=11, nome="Caio Ferreira", posicao="consultor")
 DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
+GIL = SimpleNamespace(id=2, nome="Gil Nunes", posicao="gerente")
+
+
+def projeto(status="em_andamento", data_kickoff=None, dias_ambientacao=5):
+    return SimpleNamespace(
+        id=3,
+        status=status,
+        data_kickoff=data_kickoff,
+        data_inicio_ambientacao=None,
+        dias_ambientacao=dias_ambientacao,
+    )
 
 
 def escopo(vendidos=20, ajustados=0, data_inicio=QUI_03_09):
@@ -61,8 +75,9 @@ def escopo(vendidos=20, ajustados=0, data_inicio=QUI_03_09):
 def pedir(monkeypatch):
     """Devolve `(executar, estado)` — `estado` mostra o que foi gravado."""
 
-    def _montar(alvo=None, *, hoje=QUI_03_09, equipe=None, pendente=None):
+    def _montar(alvo=None, *, hoje=QUI_03_09, equipe=None, pendente=None, dono=None):
         alvo = alvo if alvo is not None else escopo()
+        dono = dono if dono is not None else projeto()
         estado = SimpleNamespace(criados=[], notificados=[])
         equipe = equipe if equipe is not None else [
             SimpleNamespace(usuario_id=ANA.id, papel="coordenador"),
@@ -103,10 +118,16 @@ def pedir(monkeypatch):
         class DiaNaoLetivoFake:
             def __init__(self, db): pass
             def get_all(self):
-                return [SimpleNamespace(data=d) for d in CALENDARIO]
+                return [SimpleNamespace(data=d, frente_id=None) for d in CALENDARIO]
+
+        class ProjetoFake:
+            def __init__(self, db): pass
+            def get_by_id(self, projeto_id):
+                return dono if dono.id == projeto_id else None
 
         monkeypatch.setattr(solicitar, "CronogramaReajusteRepository", ReajusteFake)
         monkeypatch.setattr(solicitar, "ProjetoEscopoRepository", EscopoProjetoFake)
+        monkeypatch.setattr(solicitar, "ProjetoRepository", ProjetoFake)
         class HistoricoFake:
             """Projeto que nunca foi pausado — a janela não desloca.
 
@@ -137,6 +158,12 @@ def pedir(monkeypatch):
         monkeypatch.setattr(
             solicitar, "calcular_janela",
             lambda *a, **k: original(*a, **{**k, "referencia": hoje}),
+        )
+        # Mesmo atalho para a exceção da ambientação, pelo mesmo motivo.
+        original_amb = solicitar.ambientacao_em_curso
+        monkeypatch.setattr(
+            solicitar, "ambientacao_em_curso",
+            lambda *a, **k: original_amb(*a, **{**k, "referencia": hoje}),
         )
 
         uc = SolicitarReajusteUseCase.__new__(SolicitarReajusteUseCase)
@@ -209,6 +236,76 @@ class TestPrazo:
 
         with pytest.raises(RegraDeNegocioError, match="reunião inicial"):
             executar()
+
+
+class TestAmbientacao:
+    """A exceção do §8: enquanto o projeto está EM AMBIENTAÇÃO — e o último
+    dia dela ainda conta — o coordenador já pode pedir dias, mesmo que o
+    escopo não tenha reunião inicial. É na ambientação que a equipe descobre
+    que os dias vendidos não fecham; esperar a janela abrir para deixar pedir
+    era barrar o pedido exatamente quando ele nasce."""
+
+    def test_durante_a_ambientacao_pede_sem_reuniao_inicial(self, pedir):
+        executar, estado = pedir(
+            escopo(data_inicio=None),
+            dono=projeto(status="ambientacao", data_kickoff=SEX_28_08),
+            hoje=date(2026, 9, 1),
+        )
+
+        executar()
+
+        assert len(estado.criados) == 1
+
+    def test_no_ultimo_dia_da_ambientacao_ainda_da(self, pedir):
+        """Kickoff 28/08 + 5 dias úteis (o kickoff é o 1º) → o 5º é 03/09,
+        e nele o pedido ainda vale — a virada é só no dia seguinte."""
+        executar, estado = pedir(
+            escopo(data_inicio=None),
+            dono=projeto(status="ambientacao", data_kickoff=SEX_28_08),
+            hoje=QUI_03_09,
+        )
+
+        executar()
+
+        assert len(estado.criados) == 1
+
+    def test_status_atrasado_nao_reabre_depois_do_fim(self, pedir):
+        """A virada automática pode não ter rodado: o status ainda diz
+        Ambientação, mas a data diz que ela acabou em 02/09 — a data manda."""
+        executar, _ = pedir(
+            escopo(data_inicio=None),
+            dono=projeto(status="ambientacao", data_kickoff=QUI_27_08),
+            hoje=QUI_03_09,
+        )
+
+        with pytest.raises(RegraDeNegocioError, match="reunião inicial"):
+            executar()
+
+    def test_projeto_vendido_nao_pede(self, pedir):
+        """Antes da ambientação não há equipe em campo — nada para ajustar,
+        e o próprio kickoff ainda pode mudar."""
+        executar, _ = pedir(
+            escopo(data_inicio=None),
+            dono=projeto(status="vendido", data_kickoff=SEX_28_08),
+            hoje=date(2026, 9, 1),
+        )
+
+        with pytest.raises(RegraDeNegocioError, match="reunião inicial"):
+            executar()
+
+    def test_na_ambientacao_o_prazo_da_reuniao_nao_barra(self, pedir):
+        """Reunião inicial no 1º dia da ambientação: os 3 dias úteis dela
+        venceriam em 01/09, mas o projeto segue em ambientação até 03/09 —
+        e dentro dela o pedido continua aberto."""
+        executar, estado = pedir(
+            escopo(data_inicio=SEX_28_08),
+            dono=projeto(status="ambientacao", data_kickoff=SEX_28_08),
+            hoje=QUI_03_09,
+        )
+
+        executar()
+
+        assert len(estado.criados) == 1
 
 
 class TestValidacaoDoPedido:
@@ -285,9 +382,9 @@ def responder_pedido(monkeypatch):
         uc = ResponderReajusteUseCase.__new__(ResponderReajusteUseCase)
         uc.__init__(db=None)
 
-        def executar(justificativa="Faz sentido, o cliente travou a base"):
+        def executar(justificativa="Faz sentido, o cliente travou a base", quem=DANI):
             return uc.execute(
-                99, ResponderReajusteRequest(aprovado=aprovado, justificativa=justificativa), DANI
+                99, ResponderReajusteRequest(aprovado=aprovado, justificativa=justificativa), quem
             )
 
         return executar, estado, alvo
@@ -334,3 +431,14 @@ class TestDecisao:
 
         with pytest.raises(RegraDeNegocioError, match="justificativa"):
             executar(justificativa="  ")
+
+    def test_gerente_nao_decide(self, responder_pedido):
+        """O recheck do use case não pode depender só do gate da rota: quem
+        chega aqui por outro caminho também é barrado — e é por POSIÇÃO, a
+        única dimensão de permissão desde que `cargo` saiu."""
+        executar, estado, _ = responder_pedido()
+
+        with pytest.raises(RegraDeNegocioError, match="diretoria de projetos"):
+            executar(quem=GIL)
+
+        assert estado.atualizacoes == []

@@ -11,6 +11,8 @@ responder 403 num caso e 422 no outro para o mesmo problema:
 
 1. **Só o coordenador pede** — o papel NO PROJETO, não a posição na plataforma.
 2. **Só nos 3 primeiros dias úteis da janela**, e vale a data do PEDIDO (§20.1).
+   Exceção: projeto EM AMBIENTAÇÃO pede a qualquer momento dela, mesmo sem
+   reunião inicial — o último dia da ambientação ainda conta.
 3. **Quantos pedidos precisar** dentro do prazo — o total é a soma dos
    aprovados (+5 e depois +5 = 10 dias ajustados).
 4. **Um pendente por vez**, senão a diretora responderia dois pedidos que se
@@ -30,8 +32,10 @@ from src.repositories.projeto_status_historico_repository import (
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.eventos import notificar_reajuste_solicitado
+from src.utils.ambientacao import ambientacao_em_curso
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.janela_escopo import PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, calcular_janela
@@ -81,6 +85,7 @@ class SolicitarReajusteUseCase:
         self.membro_repository = ProjetoMembroRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
+        self.projeto_repository = ProjetoRepository(db)
 
     def execute(
         self, projeto_escopo_id: int, request: SolicitarReajusteRequest, current_user
@@ -139,12 +144,19 @@ class SolicitarReajusteUseCase:
             )
 
     def _exigir_prazo_aberto(self, escopo) -> None:
-        """Os 3 dias úteis do §8, contando a reunião inicial como dia 1.
+        """Os 3 dias úteis do §8, contando a reunião inicial como dia 1 —
+        com UMA exceção: o projeto em ambientação.
 
         Escopo sem reunião inicial não tem janela e portanto não tem prazo
         correndo — pedir dias antes de começar não faz sentido, o próprio
-        início ainda pode mudar.
+        início ainda pode mudar. MAS durante a ambientação (o último dia dela
+        conta) o pedido já vale mesmo sem reunião inicial: é ali que a equipe
+        conhece o projeto e descobre que os dias vendidos não fecham, e barrar
+        até a janela abrir era matar o pedido exatamente quando ele nasce.
         """
+        if self._em_ambientacao(escopo):
+            return
+
         janela = self._janela(escopo)
 
         if not janela.aberta:
@@ -158,6 +170,25 @@ class SolicitarReajusteUseCase:
                 f"{janela.prazo_pedido_ajuste.strftime('%d/%m/%Y')}. "
                 "A partir daqui, o que passar da janela é atraso do projeto."
             )
+
+    def _em_ambientacao(self, escopo) -> bool:
+        """A exceção da ambientação, com a MESMA régua da virada automática:
+        dias não letivos globais (`frente_id` nulo), porque a ambientação é do
+        projeto inteiro — ver `EncerrarAmbientacaoUseCase`."""
+        projeto = self.projeto_repository.get_by_id(escopo.projeto_id)
+        if not projeto:
+            return False
+        nao_letivos_globais = [
+            d.data
+            for d in self.dia_nao_letivo_repository.get_all()
+            if getattr(d, "frente_id", None) is None
+        ]
+        return ambientacao_em_curso(
+            projeto.status,
+            projeto.data_inicio_ambientacao or projeto.data_kickoff,
+            projeto.dias_ambientacao,
+            nao_letivos_globais,
+        )
 
     def _janela(self, escopo, referencia: Optional[object] = None):
         dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]

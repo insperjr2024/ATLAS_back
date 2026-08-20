@@ -24,8 +24,9 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.utils.ambientacao import ambientacao_em_curso
 from src.utils.banca_status import calcular_status_banca
-from src.utils.contagem_dias import calcular_contagem_projeto
+from src.utils.contagem_dias import calcular_contagem_projeto, derivar_janelas_pausa
 from src.utils.janela_escopo import calcular_janela
 
 
@@ -101,7 +102,8 @@ class ListEscoposProjetoUseCase:
         # Carrega o banco UMA vez e passa para as funções puras — é o contrato
         # que `dias_uteis.py` estabelece no docstring.
         historico = self.historico_repository.get_by_projeto(projeto_id)
-        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        dias_nao_letivos_registros = self.dia_nao_letivo_repository.get_all()
+        dias_nao_letivos = [d.data for d in dias_nao_letivos_registros]
         catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
         bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])
         # Uma banca pode cobrir vários escopos — a tela mostra isso em cada
@@ -135,6 +137,11 @@ class ListEscoposProjetoUseCase:
             # abre as correções (§11), não a tentativa corrente.
             sessoes_por_banca=sessoes_por_banca,
         )
+        # ⚠ Com as janelas de pausa, como no use case que DECIDE o pedido
+        # (`solicitar._janela`): sem elas, o prazo servido aqui vencia antes
+        # do prazo que o backend de fato aplica num projeto que já esteve
+        # ⏸ Pausado — o botão sumia da tela com o pedido ainda aberto.
+        janelas_pausa = derivar_janelas_pausa(historico)
         janelas = {
             e.id: calcular_janela(
                 e.data_inicio,
@@ -142,9 +149,25 @@ class ListEscoposProjetoUseCase:
                 e.dias_uteis_ajustados,
                 dias_nao_letivos,
                 referencia=referencia,
+                janelas_pausa=janelas_pausa,
             )
             for e in escopos
         }
+
+        # §8, exceção da ambientação: enquanto o projeto está nela (o último
+        # dia conta), o pedido de dias está aberto mesmo sem reunião inicial —
+        # mesma régua de `solicitar._em_ambientacao`, dias não letivos GLOBAIS.
+        em_ambientacao = bool(projeto) and ambientacao_em_curso(
+            projeto.status,
+            projeto.data_inicio_ambientacao or projeto.data_kickoff,
+            projeto.dias_ambientacao,
+            [
+                d.data
+                for d in dias_nao_letivos_registros
+                if getattr(d, "frente_id", None) is None
+            ],
+            referencia=referencia,
+        )
 
         # §8: pedido pendente do escopo, pra tela decidir entre "Pedir dias" e
         # "Aguardando a diretoria" sem precisar perguntar de novo.
@@ -175,6 +198,7 @@ class ListEscoposProjetoUseCase:
                 nomes_usuario,
                 janelas.get(e.id),
                 justificativas.get(e.id),
+                em_ambientacao,
             )
             for e in escopos
         ]
@@ -191,6 +215,7 @@ def serializar_escopo(
     nomes_usuario=None,
     janela=None,
     justificativa_atraso=None,
+    em_ambientacao=False,
 ) -> dict:
     return {
         "id": escopo.id,
@@ -240,7 +265,10 @@ def serializar_escopo(
         # quando avisar.
         "fim_janela": contagem.fim_janela_prevista,
         "prazo_pedido_ajuste": janela.prazo_pedido_ajuste if janela else None,
-        "pedido_ajuste_aberto": janela.pedido_ajuste_aberto if janela else False,
+        # Aberto pelo prazo do §8 OU pela exceção da ambientação — o mesmo OU
+        # que `solicitar._exigir_prazo_aberto` aplica ao decidir.
+        "pedido_ajuste_aberto": em_ambientacao
+        or (janela.pedido_ajuste_aberto if janela else False),
         # 🔒 A trava do §5.5 na forma que a tela precisa: o cadeado abre
         # quando a banca do escopo é APROVADA pelos avaliadores.
         "banca": (

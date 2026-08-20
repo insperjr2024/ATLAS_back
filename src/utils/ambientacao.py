@@ -42,6 +42,33 @@ def fim_da_ambientacao(
         return None
 
 
+def ambientacao_em_curso(
+    status_projeto: str,
+    data_kickoff: Optional[date],
+    dias_ambientacao: int,
+    dias_nao_letivos: Iterable[date],
+    referencia: Optional[date] = None,
+) -> bool:
+    """O projeto está NA ambientação em `referencia` — o último dia conta.
+
+    É o guarda da exceção do §8 ao prazo do pedido de dias: durante a
+    ambientação o coordenador já pode pedir dias de ajuste, mesmo que o
+    escopo ainda não tenha reunião inicial — é nela que a equipe descobre
+    que os dias vendidos não fecham.
+
+    O STATUS decide a entrada: projeto vendido, pausado ou já em andamento
+    não está em ambientação, qualquer que seja a data. A DATA segura a
+    saída: se a virada automática (`EncerrarAmbientacaoUseCase`) ainda não
+    rodou, o dia seguinte ao fim já não conta — o status atrasado não
+    reabre o pedido.
+    """
+    if status_projeto != "ambientacao":
+        return False
+    return not ambientacao_encerrada(
+        data_kickoff, dias_ambientacao, dias_nao_letivos, referencia
+    )
+
+
 def ambientacao_encerrada(
     data_kickoff: Optional[date],
     dias_ambientacao: int,
