@@ -51,6 +51,7 @@ from src.use_cases.cronograma.get_cronograma import GetCronogramaUseCase
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.banca_status import ABERTA, calcular_status_banca
 from src.utils.condicoes_alerta import (
+    AMBIENTACAO_SEM_BANCA,
     KICKOFF_PENDENTE,
     PROJETO_SEM_REUNIAO,
     TAREFA_VENCIDA,
@@ -149,6 +150,19 @@ class _BaseMonitoramento:
         semestre: dezenas de linhas, não milhares.
         """
         return [d.data for d in self.dia_nao_letivo_repository.get_all()]
+
+    def _calendario_global(self) -> List[date]:
+        """Só os dias não letivos que valem para TODAS as frentes.
+
+        É a régua da AMBIENTAÇÃO — a mesma de `encerrar_ambientacao` e de
+        `get_projeto._fim_ambientacao`. A ambientação é do projeto inteiro:
+        contar aqui um dia não letivo de uma frente só faria um projeto
+        sinérgico terminá-la em datas diferentes conforme a frente que se
+        olhasse, e o alerta discordaria da virada de status.
+        """
+        return [
+            d.data for d in self.dia_nao_letivo_repository.get_all() if d.frente_id is None
+        ]
 
     def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
         """O calendário do Insper no intervalo, carregado UMA vez.
@@ -767,6 +781,11 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             ),
             encerra_por_coluna=self._encerra_por_coluna(),
             projetos_com_reuniao={r.projeto_id for r in reunioes},
+            # O fim da ambientação cai no FUTURO para quem acabou de dar
+            # kickoff, então é o calendário inteiro (global) — o recorte
+            # `_dias_nao_letivos(…, hoje)` pararia antes do feriado que fecha a
+            # janela, e o alerta nasceria um dia cedo.
+            dias_nao_letivos=self._calendario_global(),
             hoje=hoje,
         )
         por_projeto = _agrupar(condicoes, "projeto_id")
@@ -792,6 +811,13 @@ class VisaoGeralUseCase(_BaseMonitoramento):
 
             if KICKOFF_PENDENTE in tipos:
                 itens.append(item(p, "kickoff", "kickoff não marcado"))
+
+            # §5.3: o prazo de cravar a banca é o fim da ambientação. Entra
+            # como `"banca"` — o tipo que a tela já agrupa — e não colide com o
+            # atraso logo abaixo: aquele só existe quando a banca TEM data e ela
+            # passou; este, só enquanto não tem data nenhuma.
+            if AMBIENTACAO_SEM_BANCA in tipos:
+                itens.append(item(p, "banca", "banca não marcada — a ambientação já terminou"))
 
             # `motivo.tipo` já é "banca" | "entrega_interna" | "entrega_externa"
             # — reaproveitado em vez de reclassificar pela descrição.

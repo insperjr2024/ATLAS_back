@@ -178,8 +178,9 @@ def rodar_lembrete_condicoes() -> None:
     uma vez só, natural.
 
     As demais condições (`kickoff_pendente`, `banca_nao_marcada`,
-    `projeto_sem_reuniao`) e os agregados da liderança ficam de fora de
-    propósito — só os dois tipos acima têm o "fixo" decidido em 2026-08-17.
+    `ambientacao_sem_banca`, `projeto_sem_reuniao`) e os agregados da liderança
+    ficam de fora de propósito — só os dois tipos acima têm o "fixo" decidido
+    em 2026-08-17.
     """
     db = SessionLocal()
     try:
@@ -201,6 +202,10 @@ def rodar_lembrete_condicoes() -> None:
             tarefas_por_projeto=_agrupar(base.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"),
             encerra_por_coluna=base._encerra_por_coluna(),
             projetos_com_reuniao={r.projeto_id for r in reunioes},
+            # Mesma régua do monitoramento (ver `listar_notificacoes`). Este job
+            # só manda `tarefa_vencida` e `banca_hoje`, então `ambientacao_sem_banca`
+            # é descartada logo abaixo — mas calculada certo enquanto existir.
+            dias_nao_letivos=base._calendario_global(),
             hoje=hoje,
         )
         relevantes = [c for c in condicoes if c.tipo in (TAREFA_VENCIDA, BANCA_HOJE)]

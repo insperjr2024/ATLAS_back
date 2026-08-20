@@ -14,6 +14,7 @@ from datetime import date, datetime
 from types import SimpleNamespace
 
 from src.utils.condicoes_alerta import (
+    AMBIENTACAO_SEM_BANCA,
     BANCA_HOJE,
     BANCA_NAO_MARCADA,
     KICKOFF_PENDENTE,
@@ -29,13 +30,24 @@ QUA_05 = date(2026, 8, 5)
 SEX_07 = date(2026, 8, 7)
 
 
-def projeto(id=1, nome="Projeto Alfa", kickoff=SEG_03, status="em_andamento", dia_reuniao=2):
+def projeto(
+    id=1,
+    nome="Projeto Alfa",
+    kickoff=SEG_03,
+    status="em_andamento",
+    dia_reuniao=2,
+    dias_ambientacao=5,
+):
     """⚠ `dia_reuniao` entrou em 2026-08-13 (terça, por padrão).
 
     A cobrança de reunião semanal passou a esperar o dia da reunião PASSAR —
     antes disparava a partir de segunda 00:00, e na manhã de segunda todos os
     projetos ativos apareciam sem reunião. Os testes desta classe usam quarta
     como "hoje", então terça é o dia que os mantém cobrando.
+
+    `dias_ambientacao` é o padrão do §5.3. Com o kickoff na segunda 03/08, a
+    janela fecha na SEXTA 07/08 — depois do QUA_05 que a maioria dos testes usa
+    como hoje, para `ambientacao_sem_banca` não entrar de carona neles.
     """
     return SimpleNamespace(
         id=id,
@@ -43,6 +55,7 @@ def projeto(id=1, nome="Projeto Alfa", kickoff=SEG_03, status="em_andamento", di
         data_kickoff=kickoff,
         status=status,
         dia_reuniao_padrao=dia_reuniao,
+        dias_ambientacao=dias_ambientacao,
     )
 
 
@@ -60,8 +73,17 @@ def banca(id=100, data_hora=None, realizado_em=None):
     return SimpleNamespace(id=id, data_hora=data_hora, realizado_em=realizado_em)
 
 
-def detectar(projetos, *, tarefas=None, escopos=None, bancas=None, com_reuniao=(), hoje=QUA_05):
-    """Só para não repetir os 7 parâmetros nomeados em cada teste."""
+def detectar(
+    projetos,
+    *,
+    tarefas=None,
+    escopos=None,
+    bancas=None,
+    com_reuniao=(),
+    nao_letivos=(),
+    hoje=QUA_05,
+):
+    """Só para não repetir os 8 parâmetros nomeados em cada teste."""
     return detectar_condicoes(
         projetos,
         escopos_por_projeto=escopos or {},
@@ -71,6 +93,7 @@ def detectar(projetos, *, tarefas=None, escopos=None, bancas=None, com_reuniao=(
         # Coluna 1 = aberta, coluna 9 = encerra a tarefa (kanban configurável).
         encerra_por_coluna={1: False, 9: True},
         projetos_com_reuniao=set(com_reuniao),
+        dias_nao_letivos=nao_letivos,
         hoje=hoje,
     )
 
@@ -229,6 +252,143 @@ class TestBanca:
             com_reuniao=[1],
         )
         assert len([c for c in condicoes if c.tipo == BANCA_HOJE]) == 1
+
+
+class TestAmbientacaoSemBanca:
+    """§5.3: *"Ao fim da ambientação, o coordenador crava o cronograma oficial
+    do escopo e a data e horário da banca."*
+
+    O buraco que esta condição fecha: `banca_nao_marcada` só cobra escopo que
+    já COMEÇOU, e quem começa o escopo é a reunião inicial — marcada, na
+    prática, junto com a banca. Quem não marcava nenhuma das duas não disparava
+    condição nenhuma, e o projeto saía da ambientação em silêncio.
+
+    Kickoff na segunda 03/08 + 5 dias úteis fecha na SEXTA 07/08 (SEX_07).
+    """
+
+    def test_no_ultimo_dia_sem_banca_gera(self):
+        condicoes = detectar(
+            [projeto()], escopos={1: [escopo(data_inicio=None)]}, com_reuniao=[1], hoje=SEX_07
+        )
+        assert AMBIENTACAO_SEM_BANCA in tipos(condicoes)
+
+    def test_antes_do_ultimo_dia_nao_gera(self):
+        """Na quarta a ambientação ainda está correndo — cobrar é cobrar o futuro."""
+        condicoes = detectar(
+            [projeto()], escopos={1: [escopo(data_inicio=None)]}, com_reuniao=[1], hoje=QUA_05
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_continua_cobrando_depois_da_janela(self):
+        """⭐ O alerta não expira com a ambientação: dura até a banca existir."""
+        condicoes = detectar(
+            [projeto()],
+            escopos={1: [escopo(data_inicio=None)]},
+            com_reuniao=[1],
+            hoje=date(2026, 9, 30),
+        )
+        assert AMBIENTACAO_SEM_BANCA in tipos(condicoes)
+
+    def test_some_quando_a_banca_e_marcada(self):
+        """A mesma propriedade do resto do módulo: nada apaga a notificação —
+        marcar a data já faz a leitura seguinte não detectar mais."""
+        marcada = banca(data_hora=datetime(2026, 9, 10, 14, 0))
+        condicoes = detectar(
+            [projeto()],
+            escopos={1: [escopo(data_inicio=None)]},
+            bancas={10: marcada},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_banca_de_um_escopo_so_ja_resolve(self):
+        """A cobrança do §5.3 é de UMA banca, a do fim da ambientação. Os
+        escopos seguintes são cobrados por `banca_nao_marcada`, quando começam."""
+        marcada = banca(data_hora=datetime(2026, 9, 10, 14, 0))
+        escopos = [escopo(id=10, data_inicio=None), escopo(id=11, data_inicio=None)]
+        condicoes = detectar(
+            [projeto()],
+            escopos={1: escopos},
+            bancas={10: marcada},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_escopo_cancelado_nao_conta_como_banca(self):
+        """Banca de escopo cancelado não é marco cumprido — o projeto continua
+        devendo a banca do que sobrou."""
+        marcada = banca(data_hora=datetime(2026, 9, 10, 14, 0))
+        escopos = [
+            escopo(id=10, status="cancelado", data_inicio=None),
+            escopo(id=11, data_inicio=None),
+        ]
+        condicoes = detectar(
+            [projeto()],
+            escopos={1: escopos},
+            bancas={10: marcada},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA in tipos(condicoes)
+
+    def test_projeto_sem_escopo_vivo_nao_gera(self):
+        """Não há banca para marcar — o alerta ficaria impossível de resolver."""
+        condicoes = detectar(
+            [projeto()],
+            escopos={1: [escopo(status="cancelado", data_inicio=None)]},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_sem_kickoff_nao_gera(self):
+        """Sem kickoff não há janela de onde contar — e o alerta de kickoff,
+        que é o passo anterior, já está lá."""
+        condicoes = detectar(
+            [projeto(kickoff=None)],
+            escopos={1: [escopo(data_inicio=None)]},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_sem_dias_de_ambientacao_nao_gera(self):
+        """Projeto que passou direto para a execução não tem janela para acabar
+        — mesma resposta de `fim_da_ambientacao`."""
+        condicoes = detectar(
+            [projeto(dias_ambientacao=0)],
+            escopos={1: [escopo(data_inicio=None)]},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_feriado_empurra_o_fim_da_janela(self):
+        """O calendário conta: com a quarta 05/08 não letiva, o 5º dia útil vai
+        para a segunda 10/08, e a sexta deixa de ser o último dia."""
+        args = dict(escopos={1: [escopo(data_inicio=None)]}, com_reuniao=[1], nao_letivos=[QUA_05])
+        assert AMBIENTACAO_SEM_BANCA not in tipos(detectar([projeto()], hoje=SEX_07, **args))
+        assert AMBIENTACAO_SEM_BANCA in tipos(detectar([projeto()], hoje=date(2026, 8, 10), **args))
+
+    def test_projeto_finalizado_nao_gera(self):
+        condicoes = detectar(
+            [projeto(status="finalizado")],
+            escopos={1: [escopo(data_inicio=None)]},
+            com_reuniao=[1],
+            hoje=SEX_07,
+        )
+        assert AMBIENTACAO_SEM_BANCA not in tipos(condicoes)
+
+    def test_aponta_para_o_cronograma(self):
+        """É onde a banca se marca (§6.5) — a aba abre já no lugar de resolver."""
+        condicoes = detectar(
+            [projeto()], escopos={1: [escopo(data_inicio=None)]}, com_reuniao=[1], hoje=SEX_07
+        )
+        alerta = next(c for c in condicoes if c.tipo == AMBIENTACAO_SEM_BANCA)
+        assert alerta.rota == "/projetos/1/cronograma"
+        assert alerta.chave_dedup == "ambientacao_sem_banca:projeto=1"
 
 
 class TestParaPapel:
