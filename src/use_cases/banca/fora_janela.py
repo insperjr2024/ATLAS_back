@@ -38,6 +38,7 @@ from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.janela_escopo import calcular_janela, dentro_da_janela
 from src.utils.notificar import notificar
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 
 class SolicitarForaJanelaRequest(BaseModel):
@@ -130,7 +131,7 @@ class SolicitarForaJanelaUseCase:
             f"{nome} pediu autorização para marcar banca fora da janela, em "
             f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M}."
         )
-        for diretor in self.usuario_repository.get_por_posicao("diretor"):
+        for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
             notificar(self.db, diretor.id, mensagem, banca_id=pedido.banca_id)
 
     def _serializar(self, pedido):
@@ -144,7 +145,7 @@ class SolicitarForaJanelaUseCase:
 
 
 class DecidirForaJanelaUseCase:
-    """Só a diretoria decide (§13) — a rota cobra com `require_diretor`."""
+    """Só a diretoria decide (§13) — a rota cobra com `require_diretor_projetos`."""
 
     def __init__(self, db: Session):
         self.db = db

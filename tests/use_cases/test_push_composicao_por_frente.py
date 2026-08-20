@@ -234,7 +234,7 @@ class TestLiderancaNoPush:
             frente_ids=[1],
             frentes={1: frente(1, "Business", 1)},
             por_frente={1: [11]},
-            usuarios=[usuario(11), usuario(99, "diretor")],
+            usuarios=[usuario(11), usuario(99, "diretor_projetos")],
             lideranca_minima=1,
             teto=5,
         )

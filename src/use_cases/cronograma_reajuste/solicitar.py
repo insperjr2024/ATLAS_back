@@ -35,6 +35,7 @@ from src.use_cases.notificacao.eventos import notificar_reajuste_solicitado
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.janela_escopo import PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, calcular_janela
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 #: Teto por pedido. Não é regra do briefing — é uma trava contra o dedo
 #: escorregando no teclado ("+300 dias"), que a diretora aprovaria sem
@@ -114,7 +115,7 @@ class SolicitarReajusteUseCase:
         )
 
         nome_escopo = nome_do_escopo(escopo, self.catalogo_repository)
-        for diretor in self.usuario_repository.get_por_posicao("diretor"):
+        for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
             notificar_reajuste_solicitado(
                 self.db, diretor.id, escopo.projeto_id, escopo.id, nome_escopo, current_user.nome
             )

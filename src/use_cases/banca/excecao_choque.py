@@ -24,6 +24,7 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar import notificar
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 
 class SolicitarExcecaoChoqueRequest(BaseModel):
@@ -108,7 +109,7 @@ class SolicitarExcecaoChoqueUseCase:
             f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M}, que já tem a banca de "
             f"{conflitante.nome_projeto}."
         )
-        for diretor in self.usuario_repository.get_por_posicao("diretor"):
+        for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
             notificar(self.db, diretor.id, mensagem, banca_id=pedido.banca_id)
 
     def _serializar(self, pedido):
@@ -122,7 +123,7 @@ class SolicitarExcecaoChoqueUseCase:
 
 
 class DecidirExcecaoChoqueUseCase:
-    """Só a diretoria decide (§8) — a rota cobra com `require_diretor`."""
+    """Só a diretoria decide (§8) — a rota cobra com `require_diretor_projetos`."""
 
     def __init__(self, db: Session):
         self.db = db

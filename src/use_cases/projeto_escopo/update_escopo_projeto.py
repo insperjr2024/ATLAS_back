@@ -120,7 +120,7 @@ class RegistrarEntregaEscopoUseCase:
         self,
         escopo_id: int,
         request: RegistrarEntregaEscopoRequest,
-        eh_diretor: bool = False,
+        eh_diretor_projetos: bool = False,
         current_user=None,
     ):
         escopo = self.repository.get_by_id(escopo_id)
@@ -146,7 +146,7 @@ class RegistrarEntregaEscopoUseCase:
             )
 
         data_antiga = escopo.data_entrega_real
-        self._exigir_alteracao_permitida(data_antiga, request, eh_diretor)
+        self._exigir_alteracao_permitida(data_antiga, request, eh_diretor_projetos)
 
         # 🔒 A trava do §5.5: nada vai ao cliente sem a banca APROVAR.
         #
@@ -216,7 +216,7 @@ class RegistrarEntregaEscopoUseCase:
                 # autorização que nunca foi pedida.
                 autorizado_por=(
                     getattr(current_user, "id", None)
-                    if eh_diretor and data_antiga is not None
+                    if eh_diretor_projetos and data_antiga is not None
                     else None
                 ),
             )
@@ -275,7 +275,7 @@ class RegistrarEntregaEscopoUseCase:
         }
 
     def _exigir_alteracao_permitida(
-        self, data_antiga: Optional[date], request: RegistrarEntregaEscopoRequest, eh_diretor: bool
+        self, data_antiga: Optional[date], request: RegistrarEntregaEscopoRequest, eh_diretor_projetos: bool
     ) -> None:
         """§13: mudar uma entrega JÁ REGISTRADA é decisão da diretoria.
 
@@ -289,7 +289,7 @@ class RegistrarEntregaEscopoUseCase:
         """
         if data_antiga is None or data_antiga == request.data_entrega_real:
             return
-        if not eh_diretor:
+        if not eh_diretor_projetos:
             raise RegraDeNegocioError(
                 f"Este escopo já foi entregue em {data_antiga.strftime('%d/%m/%Y')}. "
                 "Mudar uma data de entrega já registrada é decisão da diretoria (§13)"
@@ -388,7 +388,7 @@ class ConfirmarEntregaEscopoUseCase:
         self,
         escopo_id: int,
         current_user,
-        eh_diretor: bool = False,
+        eh_diretor_projetos: bool = False,
         request: Optional["ConfirmarEntregaEscopoRequest"] = None,
     ):
         escopo = self.repository.get_by_id(escopo_id)
@@ -400,10 +400,10 @@ class ConfirmarEntregaEscopoUseCase:
         if escopo.status == "cancelado":
             raise RegraDeNegocioError("Este escopo foi cancelado")
 
-        self._exigir_quem_pode(escopo, current_user, eh_diretor)
+        self._exigir_quem_pode(escopo, current_user, eh_diretor_projetos)
         self._exigir_banca_aprovada(escopo_id)
 
-        escopo = self._garantir_data(escopo, request, current_user, eh_diretor)
+        escopo = self._garantir_data(escopo, request, current_user, eh_diretor_projetos)
 
         atualizado = self.repository.update(
             escopo_id,
@@ -431,7 +431,7 @@ class ConfirmarEntregaEscopoUseCase:
             "entrega_confirmada_em": atualizado.entrega_confirmada_em,
         }
 
-    def _garantir_data(self, escopo, request, current_user, eh_diretor: bool):
+    def _garantir_data(self, escopo, request, current_user, eh_diretor_projetos: bool):
         """⚠ Confirma-se uma entrega que TEM data — senão o escopo apareceria
         entregue sem dizer quando.
 
@@ -456,13 +456,13 @@ class ConfirmarEntregaEscopoUseCase:
         RegistrarEntregaEscopoUseCase(self.db).execute(
             escopo.id,
             RegistrarEntregaEscopoRequest(data_entrega_real=dia),
-            eh_diretor=eh_diretor,
+            eh_diretor_projetos=eh_diretor_projetos,
             current_user=current_user,
         )
         return self.repository.get_by_id(escopo.id)
 
-    def _exigir_quem_pode(self, escopo, current_user, eh_diretor: bool) -> None:
-        if eh_diretor:
+    def _exigir_quem_pode(self, escopo, current_user, eh_diretor_projetos: bool) -> None:
+        if eh_diretor_projetos:
             return
         membros = self.membro_repository.get_by_projeto(escopo.projeto_id, apenas_atuais=True)
         usuario_id = getattr(current_user, "id", None)

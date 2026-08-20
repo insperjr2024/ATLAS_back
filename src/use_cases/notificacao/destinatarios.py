@@ -30,6 +30,7 @@ from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 
 def equipe_do_projeto(db: Session, projeto_id: int) -> List[int]:
@@ -60,7 +61,7 @@ def lideranca_do_projeto(db: Session, projeto_id: int) -> List[int]:
         f.frente_id for f in ProjetoFrenteRepository(db).get_by_projeto(projeto_id)
     }
 
-    destinatarios = [u.id for u in usuario_repository.get_por_posicao("diretor") if u.ativo]
+    destinatarios = [u.id for u in usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS) if u.ativo]
 
     vinculo_repository = UsuarioFrenteRepository(db)
     for gerente in usuario_repository.get_por_posicao("gerente"):

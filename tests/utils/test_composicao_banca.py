@@ -105,7 +105,7 @@ class TestLideranca:
 
     def test_diretor_cobre_lideranca_de_qualquer_frente(self):
         por_frente = {1: [11, 12], 2: [21, 22]}
-        usuarios = [usuario(11), usuario(12), usuario(21), usuario(22), usuario(99, "diretor")]
+        usuarios = [usuario(11), usuario(12), usuario(21), usuario(22), usuario(99, "diretor_projetos")]
         checker, banca = montar(por_frente, usuarios)
         frentes = [frente(1, "Business", 2), frente(2, "Tech", 2)]
 

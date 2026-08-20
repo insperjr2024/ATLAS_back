@@ -9,7 +9,7 @@ class CancelarSolicitacaoTrocaUseCase:
     def __init__(self, db: Session):
         self.repository = SolicitacaoTrocaRepository(db)
 
-    def execute(self, solicitacao_id: int, usuario_id: int, eh_diretor: bool = False):
+    def execute(self, solicitacao_id: int, usuario_id: int, eh_diretor_projetos: bool = False):
         solicitacao = self.repository.get_by_id(solicitacao_id)
         if not solicitacao:
             raise RegraDeNegocioError("Solicitação de troca não encontrada")
@@ -17,7 +17,7 @@ class CancelarSolicitacaoTrocaUseCase:
         if solicitacao.status != "pendente":
             raise RegraDeNegocioError("Esta solicitação de troca já foi resolvida")
 
-        if solicitacao.usuario_original_id != usuario_id and not eh_diretor:
+        if solicitacao.usuario_original_id != usuario_id and not eh_diretor_projetos:
             raise RegraDeNegocioError("Só quem abriu o pedido (ou a diretoria) pode cancelá-lo")
 
         solicitacao = self.repository.update(solicitacao_id, status="cancelada")

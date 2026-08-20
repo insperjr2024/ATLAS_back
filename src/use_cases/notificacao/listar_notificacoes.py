@@ -32,10 +32,11 @@ from src.utils.condicoes_alerta import (
     para_papel,
 )
 from src.utils.tarefa_status import janela_semana
+from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 #: Quem vê projeto que não é seu — e por isso recebe agregado em vez de item a
 #: item. Mesma fronteira de `aplicar_recorte_visao`.
-POSICOES_LIDERANCA = ("diretor", "gerente")
+POSICOES_LIDERANCA = (*DIRETORIA, "gerente")
 
 #: O texto de cada agregado. Sem isto o front teria que montar a frase a partir
 #: do `tipo`, e o e-mail da fase 2 montaria outra.

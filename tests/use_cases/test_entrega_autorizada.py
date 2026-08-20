@@ -35,7 +35,7 @@ QUI_15_10 = date(2026, 10, 15)
 QUI_22_10 = date(2026, 10, 22)
 
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ def entregar_escopo(monkeypatch):
                 RegistrarEntregaEscopoRequest(
                     data_entrega_real=data, justificativa=justificativa
                 ),
-                eh_diretor=quem.posicao == "diretor",
+                eh_diretor_projetos=quem.posicao == "diretor_projetos",
                 current_user=quem,
             )
 

@@ -5,10 +5,17 @@ edições soltas na tela de Membros — promover a pessoa nova e rebaixar a
 antiga. Entre uma e outra a plataforma podia ficar com dois diretores ou com
 nenhum, e nada garantia que o histórico registrasse a troca.
 
-Aqui é um passo só, com a garantia que importa: nunca sobra zero diretor.
+Aqui é um passo só, com a garantia que importa: nunca sobra zero na diretoria
+que está sendo passada.
+
+⭐ **`posicao` é escolhida por quem chama** desde a divisão em três cargos
+(2026-08-20). Antes a rota só sabia passar `diretor`, que era o cargo único.
+Agora cada diretoria troca de mão pelo mesmo caminho, com a mesma garantia —
+e a virada anual, em que as três costumam trocar juntas, são três chamadas
+independentes em vez de uma edição solta por pessoa na tela de Membros.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -18,10 +25,22 @@ from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
 
+#: Só para a mensagem de erro. O rótulo bonito da tela mora no front; aqui é o
+#: mínimo para a recusa dizer de qual diretoria ela está falando.
+ROTULO = {
+    "diretor_projetos": "a diretoria de projetos",
+    "diretor_pessoas": "a diretoria de gestão de pessoas",
+    "diretor": "a diretoria",
+}
+
 
 class TransferirDiretoriaRequest(BaseModel):
     novo_diretor_id: int
     diretor_atual_id: int
+    #: Qual diretoria está sendo passada. Sem padrão de propósito: adivinhar
+    #: aqui seria passar o cargo errado em silêncio, e a operação não tem
+    #: desfazer — ela desativa a pessoa que sai.
+    posicao: Literal["diretor_projetos", "diretor_pessoas", "diretor"]
 
 
 class TransferirDiretoriaUseCase:
@@ -56,13 +75,15 @@ class TransferirDiretoriaUseCase:
         atual = self.repository.get_by_id(request.diretor_atual_id)
         if not atual:
             raise RegraDeNegocioError("Diretor(a) atual não encontrado")
-        if atual.posicao != "diretor":
-            raise RegraDeNegocioError(f"{atual.nome} não é diretor(a) hoje")
+        if atual.posicao != request.posicao:
+            raise RegraDeNegocioError(
+                f"{atual.nome} não ocupa {ROTULO[request.posicao]} hoje"
+            )
 
         # A pessoa que entra vira diretora ANTES de a que sai ser desligada,
         # para nenhum instante da transação existir sem diretoria.
-        self.repository.update(novo.id, posicao="diretor")
-        self._registrar(novo.id, "diretor", alterado_por)
+        self.repository.update(novo.id, posicao=request.posicao)
+        self._registrar(novo.id, request.posicao, alterado_por)
 
         # Quem sai vira ex-membro: é exatamente o caso de "fim de gestão" do
         # §10 — perde o acesso, mantém o histórico. A `posicao` continua

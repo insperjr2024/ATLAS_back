@@ -42,7 +42,7 @@ QUA_09_09 = date(2026, 9, 9)  # o 4º — acabou
 
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
 CAIO = SimpleNamespace(id=11, nome="Caio Ferreira", posicao="consultor")
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 def escopo(vendidos=20, ajustados=0, data_inicio=QUI_03_09):
@@ -91,7 +91,9 @@ def pedir(monkeypatch):
         class UsuarioFake:
             def __init__(self, db): pass
             def get_por_posicao(self, posicao):
-                return [DANI] if posicao == "diretor" else []
+                return [DANI] if posicao == "diretor_projetos" else []
+            def get_por_posicoes(self, *posicoes):
+                return [DANI] if "diretor_projetos" in posicoes else []
 
         class MembroFake:
             def __init__(self, db): pass

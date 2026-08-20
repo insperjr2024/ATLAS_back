@@ -38,7 +38,7 @@ DENTRO = datetime(2026, 9, 25, 14, 0)  # 15º dia útil — dentro dos 20 vendid
 FORA = datetime(2026, 10, 20, 14, 0)  # bem depois do fim da janela
 
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 def escopo(id=7, inicio=QUI_03_09, vendidos=20, ajustados=0):
@@ -225,7 +225,7 @@ def marcar(monkeypatch):
                 MarcarBancaEscopoRequest(
                     data_hora=data_hora, justificativa=justificativa, escopo_ids=escopo_ids
                 ),
-                eh_diretor=quem.posicao == "diretor",
+                eh_diretor_projetos=quem.posicao == "diretor_projetos",
                 current_user=quem,
             )
 

@@ -43,6 +43,8 @@ POSICOES_ELEGIVEIS_CONSULTOR = ("consultor", "coordenador", "gerente")
 POSICOES_ELEGIVEIS_COORDENADOR = ("coordenador", "gerente")
 
 ROTULO_POSICAO = {
+    "diretor_projetos": "diretor(a) de projetos",
+    "diretor_pessoas": "diretor(a) de gestão de pessoas",
     "diretor": "diretor(a)",
     "gerente": "gerente de frente",
     "coordenador": "coordenador(a)",

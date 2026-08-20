@@ -54,6 +54,8 @@ def montar(monkeypatch):
             def __init__(self, db): pass
             def get_por_posicao(self, posicao):
                 return [u for u in banco.usuarios if u.posicao == posicao]
+            def get_por_posicoes(self, *posicoes):
+                return [u for u in banco.usuarios if u.posicao in posicoes]
 
         class UsuarioFrenteFake:
             def __init__(self, db): pass
@@ -83,7 +85,7 @@ def montar(monkeypatch):
 
 
 # Frentes: 1 = Business, 2 = Tech, 3 = Direito.
-DIRETORA = usuario(1, "diretor")
+DIRETORA = usuario(1, "diretor_projetos")
 GERENTE_BUSINESS = usuario(2, "gerente")
 GERENTE_TECH = usuario(3, "gerente")
 GERENTE_DIREITO = usuario(4, "gerente")

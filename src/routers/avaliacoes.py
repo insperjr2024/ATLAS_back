@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
+    eh_diretoria_de_projetos,
     require_pode_definir_cronograma,
-    require_diretor,
+    require_diretor_projetos,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.avaliacao.create_avaliacao import CreateAvaliacaoUseCase, CreateAvaliacaoRequest
@@ -59,7 +60,7 @@ def get_formulario_ativo(db: Session = Depends(get_db)):
 
 
 @router.post("/formularios/nova-versao")
-def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     try:
         return CreateNovaVersaoFormularioUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -80,7 +81,7 @@ def get_formulario(formulario_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/formularios/{formulario_id}")
-def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     result = UpdateFormularioUseCase(db).execute(formulario_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
@@ -88,7 +89,7 @@ def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=De
 
 
 @router.delete("/formularios/{formulario_id}", status_code=204)
-def delete_formulario(formulario_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def delete_formulario(formulario_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     try:
         deleted = DeleteFormularioUseCase(db).execute(formulario_id)
     except ResourceInUseError:
@@ -114,7 +115,7 @@ def get_pergunta(pergunta_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/perguntas/{pergunta_id}")
-def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     result = UpdatePerguntaUseCase(db).execute(pergunta_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Pergunta não encontrada")
@@ -122,7 +123,7 @@ def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(
 
 
 @router.delete("/perguntas/{pergunta_id}", status_code=204)
-def delete_pergunta(pergunta_id: int, _=Depends(require_diretor), db: Session = Depends(get_db)):
+def delete_pergunta(pergunta_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
     try:
         deleted = DeletePerguntaUseCase(db).execute(pergunta_id)
     except ResourceInUseError:
@@ -191,7 +192,7 @@ def update_avaliacao(avaliacao_id: int, request: UpdateAvaliacaoRequest, current
     existente = GetAvaliacaoUseCase(db).execute(avaliacao_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-    if existente["avaliador_id"] != current_user.id and not current_user.posicao == "diretor":
+    if existente["avaliador_id"] != current_user.id and not eh_diretoria_de_projetos(current_user):
         raise HTTPException(status_code=403, detail="Você só pode editar suas próprias avaliações")
     # ⚠ A SUBMISSÃO tem porta própria (`POST /avaliacoes/{id}/submeter`), que
     # exige o voto e dispara a apuração. Deixar esta rota genérica virar o
@@ -236,7 +237,7 @@ def delete_avaliacao(avaliacao_id: int, current_user=Depends(get_current_user), 
     existente = GetAvaliacaoUseCase(db).execute(avaliacao_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-    if existente["avaliador_id"] != current_user.id and not current_user.posicao == "diretor":
+    if existente["avaliador_id"] != current_user.id and not eh_diretoria_de_projetos(current_user):
         raise HTTPException(status_code=403, detail="Você só pode remover suas próprias avaliações")
     try:
         deleted = DeleteAvaliacaoUseCase(db).execute(avaliacao_id)
@@ -254,7 +255,7 @@ def create_avaliacao_nota(request: CreateAvaliacaoNotaRequest, current_user=Depe
     avaliacao = GetAvaliacaoUseCase(db).execute(request.avaliacao_id)
     if not avaliacao:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-    if avaliacao["avaliador_id"] != current_user.id and not current_user.posicao == "diretor":
+    if avaliacao["avaliador_id"] != current_user.id and not eh_diretoria_de_projetos(current_user):
         raise HTTPException(status_code=403, detail="Você só pode adicionar notas às suas próprias avaliações")
     try:
         return CreateAvaliacaoNotaUseCase(db).execute(request)
@@ -281,7 +282,7 @@ def update_avaliacao_nota(avaliacao_nota_id: int, request: UpdateAvaliacaoNotaRe
     if not nota_existente:
         raise HTTPException(status_code=404, detail="Nota de avaliação não encontrada")
     avaliacao = GetAvaliacaoUseCase(db).execute(nota_existente["avaliacao_id"])
-    if not avaliacao or (avaliacao["avaliador_id"] != current_user.id and not current_user.posicao == "diretor"):
+    if not avaliacao or (avaliacao["avaliador_id"] != current_user.id and not eh_diretoria_de_projetos(current_user)):
         raise HTTPException(status_code=403, detail="Você só pode editar notas das suas próprias avaliações")
     try:
         result = UpdateAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id, request)
@@ -298,7 +299,7 @@ def delete_avaliacao_nota(avaliacao_nota_id: int, current_user=Depends(get_curre
     if not nota_existente:
         raise HTTPException(status_code=404, detail="Nota de avaliação não encontrada")
     avaliacao = GetAvaliacaoUseCase(db).execute(nota_existente["avaliacao_id"])
-    if not avaliacao or (avaliacao["avaliador_id"] != current_user.id and not current_user.posicao == "diretor"):
+    if not avaliacao or (avaliacao["avaliador_id"] != current_user.id and not eh_diretoria_de_projetos(current_user)):
         raise HTTPException(status_code=403, detail="Você só pode remover notas das suas próprias avaliações")
     try:
         deleted = DeleteAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id)

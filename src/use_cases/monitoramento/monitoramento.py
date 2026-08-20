@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from src.middlewares.authorization import aplicar_recorte_visao
+from src.middlewares.authorization import DIRETORIA, aplicar_recorte_visao, eh_diretoria_de_projetos
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
@@ -1276,7 +1276,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # quando 10 deles estão lotados em frentes que ele não vê — pior que
         # não mostrar nada. Um gerente vê quem está nos projetos dele; a
         # diretoria, que enxerga tudo, vê o núcleo inteiro.
-        ve_tudo = getattr(current_user, "posicao", None) == "diretor" and sem_filtro
+        ve_tudo = eh_diretoria_de_projetos(current_user) and sem_filtro
         na_visao = set(carga.keys())
 
         # Com filtro (de frente, escopo ou status), a POPULAÇÃO é quem trabalha
@@ -1306,7 +1306,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
         coordenadores = [
             linha(u, "coordenador")
             for u in usuarios.values()
-            if entra(u, "coordenador") and u.posicao in ("coordenador", "gerente", "diretor")
+            if entra(u, "coordenador") and u.posicao in ("coordenador", "gerente", *DIRETORIA)
         ]
         consultores = [
             linha(u, "consultor")
@@ -1599,7 +1599,7 @@ class AtrasosUseCase(_BaseMonitoramento):
 class TarefasGeraisUseCase(_BaseMonitoramento):
     """Todas as tarefas de todos os projetos visíveis, num board só.
 
-    🔒 Só a diretoria (o router usa `require_diretor`, não `require_gestao`):
+    🔒 Só a diretoria (o router usa `require_diretor_projetos`, não `require_gestao`):
     é uma visão de leitura mesmo, sem arrastar — clicar num card leva pro
     board de verdade do projeto, onde a ação existe de fato.
 

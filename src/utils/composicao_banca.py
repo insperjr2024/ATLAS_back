@@ -9,7 +9,9 @@ pessoas de Business e ZERO de Tech, porque nada conferia por frente. Aqui:
    frente — não pelo total misturado.
 2. Cada frente vinculada também precisa de liderança própria: pelo menos
    `lideranca_minima_por_frente` pessoas com `posicao` gerente DAQUELA frente,
-   ou diretor (que cobre qualquer frente, por já enxergar todas — §3).
+   ou alguém da diretoria (que cobre qualquer frente, por já enxergar todas —
+   §3). Os TRÊS cargos de diretoria contam: o critério aqui é enxergar todas
+   as frentes, e isso os três compartilham.
 3. Só depois de 1 e 2 cumpridos é que o resto das vagas (até o teto de
    `configuracao.vagas_por_banca`) pode vir de QUALQUER frente.
 4. O coordenador do PRÓPRIO projeto (e o resto da equipe dele) nunca conta
@@ -26,8 +28,11 @@ from sqlalchemy.orm import Session
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.middlewares.authorization import DIRETORIA
 
-LIDERANCA_POSICOES = ("gerente", "diretor")
+#: ⚠ Constante sem uso hoje — mantida em dia com o resto do módulo para
+#: não virar armadilha se alguém voltar a lê-la.
+LIDERANCA_POSICOES = ("gerente", *DIRETORIA)
 
 
 @dataclass
@@ -73,7 +78,7 @@ class ComposicaoBancaChecker:
         diretores_presentes = {
             uid
             for uid in candidato_ids
-            if uid not in excluidos and usuarios_por_id.get(uid) and usuarios_por_id[uid].posicao == "diretor"
+            if uid not in excluidos and usuarios_por_id.get(uid) and usuarios_por_id[uid].posicao in DIRETORIA
         }
 
         deficits: List[DeficitFrente] = []

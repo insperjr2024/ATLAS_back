@@ -1,7 +1,7 @@
 """⭐ O pedido de autorização para marcar banca fora da janela do escopo (§13).
 
 Antes, marcar fora da janela era um atalho de um ato só: só quem tinha
-`posicao == "diretor"` conseguia, e fazia sozinho, na mesma chamada que
+`posicao == "diretor_projetos"` conseguia, e fazia sozinho, na mesma chamada que
 gravava a data. Este arquivo prende o desenho novo — dois atos separados,
 mesmo idioma do pedido de exceção de choque e do pedido de dias de ajuste:
 
@@ -35,7 +35,7 @@ DENTRO = datetime(2026, 9, 25, 14, 0)  # dentro dos 20 vendidos
 FORA = datetime(2026, 10, 20, 14, 0)  # bem depois do fim da janela
 
 ANA = SimpleNamespace(id=10, nome="Ana Souza", posicao="coordenador")
-DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor")
+DANI = SimpleNamespace(id=1, nome="Dani Alves", posicao="diretor_projetos")
 
 
 def escopo(id=7, vendidos=20, ajustados=0, data_inicio=QUI_03_09):
@@ -93,7 +93,9 @@ def pedir(monkeypatch):
         class UsuarioFake:
             def __init__(self, db): pass
             def get_por_posicao(self, posicao):
-                return [DANI] if posicao == "diretor" else []
+                return [DANI] if posicao == "diretor_projetos" else []
+            def get_por_posicoes(self, *posicoes):
+                return [DANI] if "diretor_projetos" in posicoes else []
 
         class DiaNaoLetivoFake:
             def __init__(self, db): pass

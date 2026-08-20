@@ -44,13 +44,13 @@ class UpdateInicioAmbientacaoUseCase:
         projeto_id: int,
         request: UpdateInicioAmbientacaoRequest,
         current_user,
-        eh_diretor: bool = False,
+        eh_diretor_projetos: bool = False,
     ):
         projeto = self.repository.get_by_id(projeto_id)
         if not projeto:
             return None
 
-        self._exigir_quem_pode(projeto_id, current_user, eh_diretor)
+        self._exigir_quem_pode(projeto_id, current_user, eh_diretor_projetos)
 
         nova_data = request.data_inicio_ambientacao
         if nova_data is not None:
@@ -69,8 +69,8 @@ class UpdateInicioAmbientacaoUseCase:
             "status": atualizado.status,
         }
 
-    def _exigir_quem_pode(self, projeto_id: int, current_user, eh_diretor: bool) -> None:
-        if eh_diretor:
+    def _exigir_quem_pode(self, projeto_id: int, current_user, eh_diretor_projetos: bool) -> None:
+        if eh_diretor_projetos:
             return
         membros = self.membro_repository.get_by_projeto(projeto_id, apenas_atuais=True)
         usuario_id = getattr(current_user, "id", None)
