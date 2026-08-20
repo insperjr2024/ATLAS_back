@@ -175,7 +175,11 @@ class _BaseMonitoramento:
         return [d.data for d in self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)]
 
     def _projetos_visiveis(
-        self, current_user, frente_id: Optional[int], escopo_id: Optional[int] = None
+        self,
+        current_user,
+        frente_id: Optional[int],
+        escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ) -> List[ProjetoModel]:
         # Projeto arquivado é histórico (§12) — não deve inflar nenhum KPI,
         # tabela ou cronograma do monitoramento da gestão atual.
@@ -193,6 +197,18 @@ class _BaseMonitoramento:
                     )
                 )
             )
+        # ⭐ O filtro de ETAPA do ciclo de vida (§4). Chega como LISTA porque o
+        # seletor é de marcar vários: "Ambientação + Em andamento" é uma
+        # pergunta só ("o que está tocando agora?"), e responder isso com duas
+        # consultas obrigaria a tela a somar KPI de dois payloads — o placar de
+        # gestão e os percentuais não somam assim (são médias sobre bases
+        # diferentes), então a união tem que acontecer aqui, no banco.
+        #
+        # Lista vazia é tratada como "sem filtro" pelo `if`: `in_([])` devolve
+        # zero projeto, e a tela ficaria vazia sem ninguém ter escolhido nada.
+        # Quem valida os valores é a rota (`filtro_status`), não este método.
+        if status:
+            query = query.filter(ProjetoModel.status.in_(status))
         return query.all()
 
     def _encerra_por_coluna(self) -> Dict[int, bool]:
@@ -313,9 +329,10 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         frente_id: Optional[int] = None,
         referencia: Optional[date] = None,
         escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         semestre = self.semestre_repository.get_ativo()
@@ -874,9 +891,10 @@ class ExecucaoUseCase(_BaseMonitoramento):
         frente_id: Optional[int] = None,
         referencia: Optional[date] = None,
         escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         ids = [p.id for p in projetos]
         inicio, fim = janela_semana(hoje)
 
@@ -1165,6 +1183,7 @@ class AlocacaoUseCase(_BaseMonitoramento):
         frente_id: Optional[int] = None,
         referencia: Optional[date] = None,
         escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ):
         # ⭐ **O filtro (de frente ou de escopo) escolhe QUEM APARECE, não como
         # a carga é medida.** São duas listas de propósito:
@@ -1182,8 +1201,13 @@ class AlocacaoUseCase(_BaseMonitoramento):
         #
         # Capacidade e sobrecarga são propriedades da PESSOA. Quem carrega 3
         # projetos está cheio venha de onde vier o terceiro.
-        sem_filtro = frente_id is None and escopo_id is None
-        do_recorte = self._projetos_visiveis(current_user, frente_id, escopo_id)
+        # ⚠ `status` entra aqui pelo MESMO motivo que frente e escopo: ele
+        # também estreita a população. Filtrar "Em andamento" e medir a carga
+        # só nesses projetos daria a alguém que coordena um Em andamento e dois
+        # Aguardando bancas duas vagas livres que não existem — o mesmo bug de
+        # capacidade inflada que o filtro de frente causava.
+        sem_filtro = frente_id is None and escopo_id is None and not status
+        do_recorte = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         projetos = (
             do_recorte if sem_filtro else self._projetos_visiveis(current_user, None, None)
         )
@@ -1255,10 +1279,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
         ve_tudo = getattr(current_user, "posicao", None) == "diretor" and sem_filtro
         na_visao = set(carga.keys())
 
-        # Com filtro (de frente ou de escopo), a POPULAÇÃO é quem trabalha
+        # Com filtro (de frente, escopo ou status), a POPULAÇÃO é quem trabalha
         # nele. A carga de cada um continua vindo de todos os projetos dela
         # (ver o topo deste método) — filtro escolhe quem aparece, não como
         # se mede.
+        #
+        # ⚠ O `in ativos` faz o filtro de status por `finalizado` ou `pausado`
+        # devolver tabela VAZIA, e está certo: nenhum dos dois gera carga (ver
+        # `ativos` acima). Quem só coordena projeto pausado tem as vagas
+        # LIVRES — listá-lo aqui com carga 0 diria o contrário do card.
         ids_recorte = {p.id for p in do_recorte}
         no_recorte: Dict[str, set] = defaultdict(set)
         for m in membros:
@@ -1325,6 +1354,7 @@ class AtrasosUseCase(_BaseMonitoramento):
         frente_id: Optional[int] = None,
         referencia: Optional[date] = None,
         escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ):
         hoje = referencia or date.today()
         # ⭐ **Só projeto EM CURSO.** `_projetos_visiveis` só tira arquivado, e a
@@ -1335,9 +1365,14 @@ class AtrasosUseCase(_BaseMonitoramento):
         # Era o "aparecem projetos que não deveriam aparecer": o caso mais
         # visível era um projeto FINALIZADO, com escopo entregue e banca
         # aprovada, cobrado por 4 dias de atraso.
+        #
+        # ⚠ Este recorte vem DEPOIS do filtro de status e vence dele: pedir
+        # `?status=finalizado` aqui devolve vazio de propósito. Esta aba é a
+        # fila de cobrança, e não há o que cobrar de quem já terminou ou está
+        # ⏸ Pausado por decisão de gestão.
         projetos = [
             p
-            for p in self._projetos_visiveis(current_user, frente_id, escopo_id)
+            for p in self._projetos_visiveis(current_user, frente_id, escopo_id, status)
             if p.status not in ("finalizado", "pausado")
         ]
         ctx = self._contexto(projetos)
@@ -1583,9 +1618,10 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
         frente_id: Optional[int] = None,
         referencia: Optional[date] = None,
         escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         ids = [p.id for p in projetos]
         nomes_projeto = {p.id: p.nome for p in projetos}
         clientes_projeto = {p.id: p.cliente for p in projetos}
@@ -1652,9 +1688,10 @@ class CronogramasGeraisUseCase(_BaseMonitoramento):
         frente_id: Optional[int] = None,
         referencia: Optional[date] = None,
         escopo_id: Optional[int] = None,
+        status: Optional[List[str]] = None,
     ):
         referencia = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id)
+        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
 
         itens = []
         for projeto in projetos:

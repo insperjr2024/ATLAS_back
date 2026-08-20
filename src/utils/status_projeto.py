@@ -40,6 +40,15 @@ STATUS_ORDEM = [
 # Tudo que não é Vendido transita livremente entre si, nos dois sentidos.
 STATUS_ATIVOS = set(STATUS_ORDEM[1:])
 
+#: ⭐ TODOS os status que uma linha de `projeto` pode ter — a fila do ciclo
+#: mais Pausado, que é estado à parte e por isso não está em `STATUS_ORDEM`.
+#:
+#: Espelha o Enum da coluna `projeto.status`. É a lista que o filtro de status
+#: do Monitoramento valida contra: sem ela, um `?status=em_progresso` (que não
+#: existe) devolveria zero projeto e a tela pareceria vazia de verdade, em vez
+#: de acusar o parâmetro errado.
+STATUS_VALIDOS = tuple(STATUS_ORDEM) + ("pausado",)
+
 STATUS_PAUSAVEIS = {"ambientacao", "em_andamento", "validacao_bancas", "envio_tep", "periodo_ajustes"}
 
 

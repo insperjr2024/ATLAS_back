@@ -34,12 +34,27 @@ class ProjetosAtivosUseCase:
         self.banca_repo = BancaRepository(db)
         self.usuario_repo = UsuarioRepository(db)
 
-    def execute(self, current_user, frente_id: Optional[int] = None) -> list[dict]:
+    def execute(
+        self,
+        current_user,
+        frente_id: Optional[int] = None,
+        status: Optional[list[str]] = None,
+    ) -> list[dict]:
         hoje = date.today()
 
         query = aplicar_recorte_visao(
             self.db.query(ProjetoModel), current_user, self.db, frente_id
         )
+        # O filtro de etapa do ciclo (§4), irmão do `?frente_id=`. Chega como
+        # lista porque o seletor é de marcar vários; lista vazia é "sem
+        # filtro", nunca `in_([])`, que zeraria a tabela sem ninguém pedir.
+        #
+        # ⚠ `finalizado` é aceito no parâmetro mas some no recorte de baixo —
+        # esta aba é, por definição, o que ainda está ABERTO. Quem quer os
+        # finalizados tem a tabela irmã, o Portfólio encerrado, logo abaixo na
+        # mesma página. Quem monta o seletor (o front) já omite a opção.
+        if status:
+            query = query.filter(ProjetoModel.status.in_(status))
         # Ativo = ainda aberto: nem finalizado, nem arquivado. O `!=` cobre
         # todos os status do ciclo (vendido → período de ajustes) e o pausado.
         projetos = [
