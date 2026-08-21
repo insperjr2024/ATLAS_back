@@ -482,9 +482,20 @@ class MarcarBancaEscopoUseCase:
                     f"{janela.data_inicio.strftime('%d/%m/%Y')} a "
                     f"{janela.fim.strftime('%d/%m/%Y')} "
                     f"({janela.dias_vendidos} vendidos + {janela.dias_ajustados} ajustados). "
-                    "Marcar fora dela exige autorização da diretoria — peça em Monitoramento → "
-                    "Aprovações e volte para marcar depois que ela decidir. Os dias além da "
-                    "janela entram como atraso do projeto (§13)"
+                    # ⚠ **A frase mandava a pessoa para o lugar errado.** Ela
+                    # dizia "peça em Monitoramento → Aprovações e volte para
+                    # marcar depois" — mas o pedido se faz no BOTÃO logo abaixo
+                    # desta mensagem, no próprio modal, e desde que a aprovação
+                    # passou a marcar a banca sozinha ninguém precisa voltar.
+                    # Mandar quem pede para uma tela que é da DIRETORA (e que
+                    # ele nem enxerga, `require_diretor_projetos`) era um beco.
+                    #
+                    # ⚠ O trecho "exige autorização da diretoria" é casado por
+                    # texto em `MarcarBancaModal` para revelar o botão de
+                    # pedido — mexer nele some com o botão. Ver o comentário lá.
+                    "Marcar fora dela exige autorização da diretoria — use o botão "
+                    "\"Pedir autorização à diretoria\" logo abaixo. Assim que ela "
+                    "autorizar, a banca é marcada nesta data automaticamente."
                 )
             # Liberada a autorização, a justificativa continua obrigatória —
             # vale também na primeira marcação, sem isso o Histórico
