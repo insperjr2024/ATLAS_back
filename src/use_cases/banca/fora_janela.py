@@ -11,6 +11,19 @@ Agora são dois atos separados, como no pedido de exceção de choque (§8) e
 no pedido de dias de ajuste (§8): **quem marca pede**, com justificativa,
 **a diretoria decide** depois, na aba Aprovações.
 
+⭐ **Aprovar MARCA a banca**, não apenas libera. Antes a aprovação só abria a
+porta e quem pediu tinha de voltar ao cronograma e repetir o gesto — e enquanto
+não voltasse, a autorização ficava parada valendo para uma data que se
+aproximava sozinha. Duas coisas davam errado nesse vão: o pedido aprovado
+vencia sem nunca virar banca, e a data pretendida podia ser ocupada por outra
+banca no meio do caminho. Como o pedido já carrega tudo o que a marcação
+precisa (escopo, data/hora e justificativa), não havia o que esperar da pessoa.
+
+⚠ **Se a marcação falhar, o pedido VOLTA a pendente.** Um choque de horário que
+nasceu depois do pedido, ou a banca tendo acontecido no meio tempo, derruba a
+marcação — e carimbar "aprovada" mesmo assim daria uma autorização que não
+produziu banca nenhuma e sumiria da fila sem ninguém notar.
+
 ⚠ **Não mexe em `dias_uteis_ajustados`.** Isso é o pedido de dias de ajuste
 (`cronograma_reajuste_solicitacao`), que só cabe nos 3 primeiros dias úteis
 da janela (§8) — praticamente nunca o caso de uma banca que precisa de data
@@ -171,20 +184,92 @@ class DecidirForaJanelaUseCase:
             respondido_por=respondido_por,
             respondido_em=datetime.now(),
         )
-        self._avisar_quem_pediu(atualizado)
+
+        # ⚠ **A ordem importa e não é livre.** `_exigir_janela` da marcação
+        # pergunta a `fora_janela_liberada` se existe autorização APROVADA para
+        # este par (escopo, data) — então o status precisa já estar gravado
+        # quando a marcação roda. Marcar antes de aprovar cairia na própria
+        # trava que este pedido existe para destravar.
+        banca = None
+        if request.aprovar:
+            try:
+                banca = self._marcar_a_banca(atualizado, respondido_por)
+            except RegraDeNegocioError:
+                # Volta para a fila em vez de ficar aprovado sem banca —
+                # ver a docstring do módulo.
+                self.repository.update(
+                    pedido_id,
+                    status="pendente",
+                    resposta=None,
+                    respondido_por=None,
+                    respondido_em=None,
+                )
+                raise
+
+        self._avisar_quem_pediu(atualizado, banca)
         return {
             "id": atualizado.id,
             "status": atualizado.status,
             "resposta": atualizado.resposta,
+            # A tela da diretora confirma o que a decisão produziu — aprovar
+            # sem dizer que a banca foi marcada parece não ter feito nada.
+            "banca_marcada_em": banca.get("data_hora") if banca else None,
+            "banca_id": banca.get("id") if banca else None,
         }
 
-    def _avisar_quem_pediu(self, pedido) -> None:
-        # ⚠ Aprovado, o pedido não marca a banca sozinho — quem pediu precisa
-        # voltar e marcar. Sem o aviso, uma aprovação ficaria parada esperando
-        # alguém adivinhar, mesmo motivo do pedido de choque.
+    def _marcar_a_banca(self, pedido, respondido_por: int) -> dict:
+        """Grava a banca na data autorizada, no MESMO caminho que o cronograma
+        usa (`MarcarBancaEscopoUseCase`).
+
+        📐 Reusar o use case inteiro, e não escrever em `banca` direto, é o que
+        mantém a marcação completa: choque de horário, vínculos de escopo,
+        frentes, sessão da banca, histórico de remarcação e o aviso a quem foi
+        escalado. Uma gravação "simples" aqui pularia os seis.
+
+        ⚠ **`escopo_ids` vai `None` de propósito**: significa "não mexer nos
+        vínculos atuais". O pedido guarda um escopo só, e forçar a lista faria
+        a aprovação DESVINCULAR os outros escopos que a banca já cobrisse.
+        """
+        # Import local: `marcar_banca_escopo` importa `fora_janela_liberada`
+        # deste módulo. No topo, os dois se fechariam num ciclo.
+        from src.use_cases.banca.marcar_banca_escopo import (
+            MarcarBancaEscopoRequest,
+            MarcarBancaEscopoUseCase,
+        )
+
+        resultado = MarcarBancaEscopoUseCase(self.db).execute(
+            pedido.projeto_escopo_id,
+            MarcarBancaEscopoRequest(
+                data_hora=pedido.data_hora_pretendida,
+                # A mesma justificativa do pedido: é o texto que o §13 quer no
+                # histórico, e cobrar outro da diretora seria pedir que ela
+                # reescrevesse o motivo de quem pediu.
+                justificativa=pedido.justificativa,
+                escopo_ids=None,
+            ),
+            eh_diretor_projetos=True,
+            registrado_por=respondido_por,
+        )
+        if not resultado:
+            raise RegraDeNegocioError(
+                "O escopo deste pedido não existe mais — recuse o pedido para "
+                "tirá-lo da fila."
+            )
+        # ⭐ Amarra o pedido à banca que ele produziu. Nascendo antes da banca,
+        # `banca_id` costuma ser nulo; sem isto o vínculo nunca se fecharia.
+        if resultado.get("id") and not pedido.banca_id:
+            self.repository.update(pedido.id, banca_id=resultado["id"])
+        return resultado
+
+    def _avisar_quem_pediu(self, pedido, banca=None) -> None:
+        # ⚠ O aviso mudou junto com a decisão. Enquanto aprovar só liberava, ele
+        # dizia "você já pode marcar a banca nessa data" — e era essa frase que
+        # segurava o fluxo, porque a marcação dependia de alguém voltar. Agora a
+        # aprovação já marca, e repetir a frase antiga faria a pessoa voltar ao
+        # cronograma para refazer um gesto que produziria um "nada mudou".
         veredito = "aprovada" if pedido.status == "aprovada" else "recusada"
         complemento = (
-            " Você já pode marcar a banca nessa data."
+            " A banca já foi marcada nesta data — confira no cronograma do projeto."
             if pedido.status == "aprovada"
             else ""
         )
