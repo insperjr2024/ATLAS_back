@@ -87,6 +87,11 @@ class GetBancaUseCase:
 class ListBancasUseCase:
     def __init__(self, db: Session):
         self.repository = BancaRepository(db)
+        # ⚠ Este arquivo tem DUAS classes, e as duas chamam `membros_da_banca`.
+        # Quando o vendedor entrou no §8 (2026-08-20), o repositório foi
+        # acrescentado só no `__init__` da primeira — esta ficou usando um
+        # atributo que nunca existiu, e `GET /bancas` passou a devolver 500.
+        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
