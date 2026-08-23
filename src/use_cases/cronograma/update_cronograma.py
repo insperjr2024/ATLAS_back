@@ -88,7 +88,9 @@ def _exigir_dentro_da_janela(db: Session, escopo, data_inicio: date, data_fim: d
     if banca and banca.realizado_em:
         return
 
-    dias_nao_letivos = [d.data for d in DiaNaoLetivoRepository(db).get_all()]
+    dias_nao_letivos = [
+        d.data for d in DiaNaoLetivoRepository(db).get_do_projeto(escopo.projeto_id)
+    ]
     janelas_pausa = derivar_janelas_pausa(
         ProjetoStatusHistoricoRepository(db).get_by_projeto(escopo.projeto_id)
     )

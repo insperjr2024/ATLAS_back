@@ -9,6 +9,10 @@ class UpdateFrenteRequest(BaseModel):
     nome: Optional[str] = None
     ativa: Optional[bool] = None
     piso_banca: Optional[int] = Field(default=None, ge=0)
+    #: Qual calendário da frente vale para um projeto que não escolheu o dele.
+    #: Como o use case usa `exclude_unset`, mandar `null` explicitamente é o que
+    #: devolve a frente ao calendário único; omitir o campo não mexe nele.
+    calendario_padrao: Optional[str] = Field(default=None, max_length=30)
 
 
 class UpdateFrenteUseCase:

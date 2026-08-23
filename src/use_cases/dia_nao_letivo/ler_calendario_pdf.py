@@ -21,7 +21,13 @@ class LerCalendarioPdfUseCase:
     def __init__(self, db: Session):
         self.semestre_repository = SemestreRepository(db)
 
-    def execute(self, semestre_id: int, arquivo: BinaryIO, frente_id: Optional[int] = None):
+    def execute(
+        self,
+        semestre_id: int,
+        arquivo: BinaryIO,
+        frente_id: Optional[int] = None,
+        variante: Optional[str] = None,
+    ):
         semestre = self.semestre_repository.get_by_id(semestre_id)
         if not semestre:
             raise RegraDeNegocioError("Semestre não encontrado")
@@ -42,6 +48,10 @@ class LerCalendarioPdfUseCase:
         return {
             "semestre_id": semestre_id,
             "frente_id": frente_id,
+            # Volta como veio: a leitura não depende do calendário, mas a tela
+            # devolve isto no POST de gravação, e é o que garante que o PDF de
+            # um curso não caia no calendário do outro.
+            "variante": (variante or "").strip() or None,
             "dias": [
                 {
                     "data": d.data,

@@ -145,7 +145,9 @@ class MarcarBancaEscopoUseCase:
                     # §9: remarcação nunca é silenciosa — justificativa SEMPRE,
                     # mesmo quando é livre. O que o §13 dispensa é a diretoria,
                     # não o registro.
-                    self._exigir_remarcacao_permitida(existente, request, eh_diretor_projetos)
+                    self._exigir_remarcacao_permitida(
+                        existente, request, eh_diretor_projetos, escopo.projeto_id
+                    )
 
             # ⚠ ANTES do update: `_campos_da_remarcacao` zera `realizado_em` e
             # `resultado`, e é justamente isso que a sessão precisa arquivar.
@@ -401,7 +403,9 @@ class MarcarBancaEscopoUseCase:
             self.banca_frente_repository.create(banca_id=banca_id, frente_id=frente_id)
 
     def _janela_do_escopo(self, escopo):
-        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        dias_nao_letivos = [
+            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(escopo.projeto_id)
+        ]
         # A janela precisa enxergar as pausas do projeto — senão a banca de um
         # projeto que ficou ⏸ Pausado é barrada por uma data que já não é o fim
         # da janela dele.
@@ -507,7 +511,11 @@ class MarcarBancaEscopoUseCase:
                 )
 
     def _exigir_remarcacao_permitida(
-        self, existente, request: MarcarBancaEscopoRequest, eh_diretor_projetos: bool
+        self,
+        existente,
+        request: MarcarBancaEscopoRequest,
+        eh_diretor_projetos: bool,
+        projeto_id: int,
     ) -> None:
         """Os dois gates de remarcação do §13 — só para ADIAMENTO.
 
@@ -527,7 +535,12 @@ class MarcarBancaEscopoUseCase:
         if not (request.justificativa or "").strip():
             raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
 
-        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        # A folga é contada no calendário DESTE projeto: cinco dias úteis para
+        # um time de Ciência da Computação não são os mesmos cinco de um das
+        # engenharias quando a semana de provas de um cai no meio.
+        dias_nao_letivos = [
+            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(projeto_id)
+        ]
         folga = dias_uteis_ate_a_banca(existente.data_hora, dias_nao_letivos)
 
         if folga is not None and folga <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS and not eh_diretor_projetos:

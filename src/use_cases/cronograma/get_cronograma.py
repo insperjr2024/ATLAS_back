@@ -17,6 +17,7 @@ from src.repositories.cronograma_repository import (
     CronogramaMarcoRepository,
 )
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
+from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import (
@@ -25,6 +26,7 @@ from src.repositories.projeto_status_historico_repository import (
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
+from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.dias_uteis import somar_dias_uteis
 from src.utils.janela_escopo import calcular_janela
@@ -41,6 +43,7 @@ class GetCronogramaUseCase:
         self.etapa_repository = CronogramaEtapaRepository(db)
         self.marco_repository = CronogramaMarcoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
+        self.frente_repository = FrenteRepository(db)
         self.banca_repository = BancaRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
@@ -65,6 +68,14 @@ class GetCronogramaUseCase:
         inicio, fim = self._janela(projeto, escopos, etapas, marcos, bancas, referencia)
         semestre = self.semestre_repository.get_ativo()
         dias_nao_letivos = self.dia_nao_letivo_repository.get_por_intervalo(inicio, fim)
+        # O corte por calendário de curso acontece AQUI, e não no front. As seis
+        # derivações de `dias_nao_uteis` no `ProjetoCronograma.tsx` filtram por
+        # frente; ensinar as seis a filtrar também por curso seria repetir a
+        # regra em TypeScript, que é o que este endpoint existe para evitar.
+        dias_nao_letivos = filtrar_variante(
+            dias_nao_letivos,
+            escolha_por_frente(self.frente_repository.get_all(), projeto.calendario),
+        )
 
         etapas_por_escopo = {}
         for etapa in etapas:
@@ -152,6 +163,10 @@ class GetCronogramaUseCase:
             # Vem tudo numa lista só, e não agrupado por frente, porque o
             # projeto sinérgico precisa enxergar as duas frentes ao mesmo tempo
             # para avisar quando uma etapa pisa no dia não útil da outra.
+            #
+            # O curso já veio resolvido lá em cima: o que chega aqui é o
+            # calendário DESTE projeto, e por isso não há campo de variante na
+            # resposta — o front não tem escolha a fazer.
             "dias_nao_uteis": [
                 {
                     "data": d.data,

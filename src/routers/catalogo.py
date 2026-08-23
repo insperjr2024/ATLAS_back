@@ -2,7 +2,7 @@
 diretoria mantém e que todo o resto referencia."""
 
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -20,9 +20,14 @@ from src.use_cases.dia_nao_letivo.delete_dia_nao_letivo import (
 )
 from src.use_cases.dia_nao_letivo.get_dia_nao_letivo import (
     GetDiasNaoUteisUseCase,
+    ListCalendariosDaFrenteUseCase,
     ListDiasNaoLetivosUseCase,
 )
 from src.use_cases.dia_nao_letivo.ler_calendario_pdf import LerCalendarioPdfUseCase
+from src.use_cases.dia_nao_letivo.renomear_calendario import (
+    RenomearCalendarioRequest,
+    RenomearCalendarioUseCase,
+)
 from src.use_cases.calendario.get_eventos import GetEventosCalendarioUseCase
 from src.use_cases.semestre.get_semestre import GetSemestreAtivoUseCase
 from src.utils.exceptions import RegraDeNegocioError
@@ -228,9 +233,55 @@ def list_dias_nao_letivos(
     semestre_id: int,
     frente_id: Optional[int] = Query(None, description="Calendário base desta frente"),
     apenas_da_frente: bool = Query(False, description="Corta os dias globais da resposta"),
+    variante: Optional[List[str]] = Query(
+        None,
+        description=(
+            "Quais calendários da frente entram. Pode repetir o parâmetro para "
+            "ver mais de um ao mesmo tempo; cada dia volta marcado com o dono."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
-    return ListDiasNaoLetivosUseCase(db).execute(semestre_id, frente_id, apenas_da_frente)
+    return ListDiasNaoLetivosUseCase(db).execute(
+        semestre_id, frente_id, apenas_da_frente, variante
+    )
+
+
+@router.get("/semestres/{semestre_id}/calendarios")
+def list_calendarios_da_frente(
+    semestre_id: int,
+    frente_id: int = Query(..., description="A frente cujos calendários se quer listar"),
+    db: Session = Depends(get_db),
+):
+    """Os calendários que existem dentro de uma frente, e qual é o padrão.
+
+    A frente com um calendário só devolve lista vazia — é o caso normal, e a
+    tela nem mostra o seletor. A Tech devolve os dois cursos que não seguem o
+    mesmo calendário acadêmico.
+    """
+    try:
+        return ListCalendariosDaFrenteUseCase(db).execute(semestre_id, frente_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.patch("/semestres/{semestre_id}/calendarios/{atual}")
+def renomear_calendario(
+    semestre_id: int,
+    atual: str,
+    request: RenomearCalendarioRequest,
+    _=Depends(require_pode_administrar_configuracoes),
+    db: Session = Depends(get_db),
+):
+    """Renomear é UPDATE em três tabelas, porque o rótulo é a chave.
+
+    Ver o docstring de `renomear_calendario.py`: `dia_nao_letivo.variante`,
+    `frente.calendario_padrao` e `projeto.calendario` guardam a mesma string.
+    """
+    try:
+        return RenomearCalendarioUseCase(db).execute(semestre_id, atual, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.post("/semestres/{semestre_id}/dias-nao-letivos/ler-pdf")
@@ -238,6 +289,9 @@ async def ler_calendario_pdf(
     semestre_id: int,
     arquivo: UploadFile = File(..., description="Calendário acadêmico do Insper em PDF"),
     frente_id: Optional[int] = Query(None),
+    variante: Optional[str] = Query(
+        None, description="Em qual calendário da frente este PDF vai cair"
+    ),
     _=Depends(require_pode_administrar_configuracoes),
     db: Session = Depends(get_db),
 ):
@@ -250,7 +304,9 @@ async def ler_calendario_pdf(
     if not (arquivo.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=422, detail="Envie o calendário em PDF")
     try:
-        return LerCalendarioPdfUseCase(db).execute(semestre_id, arquivo.file, frente_id)
+        return LerCalendarioPdfUseCase(db).execute(
+            semestre_id, arquivo.file, frente_id, variante
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -294,12 +350,19 @@ def get_eventos_calendario(
 def get_dias_nao_uteis(
     inicio: date = Query(..., description="Primeiro dia do intervalo"),
     fim: date = Query(..., description="Último dia do intervalo"),
+    projeto_id: Optional[int] = Query(
+        None, description="Resolve o calendário do curso que este projeto segue"
+    ),
     db: Session = Depends(get_db),
 ):
-    """Os dias que o cronograma pinta de cinza: fim de semana + calendário do Insper."""
+    """Os dias que o cronograma pinta de cinza: fim de semana + calendário do Insper.
+
+    Sem `projeto_id`, cada frente responde com o calendário padrão dela — que é
+    o comportamento de sempre, e o certo para quem pergunta sem contexto.
+    """
     if fim < inicio:
         raise HTTPException(status_code=422, detail="O fim do intervalo não pode ser anterior ao início")
-    return GetDiasNaoUteisUseCase(db).execute(inicio, fim)
+    return GetDiasNaoUteisUseCase(db).execute(inicio, fim, projeto_id)
 
 
 # ---------------------------------------------------------------- configuração

@@ -8,6 +8,9 @@ def serializar_frente(frente):
         "nome": frente.nome,
         "ativa": frente.ativa,
         "piso_banca": frente.piso_banca,
+        # Qual dos calendários da frente vale para quem não escolheu. Nulo na
+        # frente que tem um calendário só, que é o caso de três das quatro.
+        "calendario_padrao": frente.calendario_padrao,
     }
 
 
