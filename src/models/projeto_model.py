@@ -54,6 +54,18 @@ class ProjetoModel(Base):
     #: `dias_ambientacao` dias úteis antes dele — o kickoff nunca fica fora
     #: da própria janela de ambientação que ele mesmo abriu.
     data_inicio_ambientacao = Column(Date, nullable=True)
+    #: Qual calendário acadêmico este projeto segue, quando a frente dele tem
+    #: mais de um (ver `frente.calendario_padrao`).
+    #:
+    #: `NULL` = segue o padrão da frente, e é o caso da esmagadora maioria. O
+    #: campo existe porque a Tech cobre engenharias e Ciência da Computação, e
+    #: as datas de prova das duas não batem — um time de CC parado na semana de
+    #: provas das engenharias contaria dia útil que ninguém teve.
+    #:
+    #: Guarda o rótulo, igual a `dia_nao_letivo.variante`. Num projeto
+    #: sinérgico vale só para a frente que tem aquele calendário; as outras
+    #: seguem o padrão delas.
+    calendario = Column(String(30), nullable=True)
     #: ⚠ **Não é lida em lugar nenhum desde a reformulação do cronograma.**
     #: "Entrega ao cliente" virou DERIVADA — é a do último escopo entregue
     #: (ver `serializar_projeto_completo`). A coluna fica porque apagá-la
