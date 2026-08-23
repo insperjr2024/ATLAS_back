@@ -191,7 +191,9 @@ class SolicitarReajusteUseCase:
         )
 
     def _janela(self, escopo, referencia: Optional[object] = None):
-        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        dias_nao_letivos = [
+            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(escopo.projeto_id)
+        ]
         # ⚠ **A pausa desloca o prazo do pedido, não só o fim da janela.**
         #
         # O prazo é de 3 dias úteis a partir da reunião inicial. Sem as janelas

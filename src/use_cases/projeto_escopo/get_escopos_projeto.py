@@ -17,6 +17,7 @@ from src.repositories.cronograma_repository import CronogramaEtapaRepository
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_justificativa_atraso_repository import (
     ProjetoJustificativaAtrasoRepository,
@@ -26,6 +27,7 @@ from src.repositories.projeto_status_historico_repository import ProjetoStatusHi
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.ambientacao import ambientacao_em_curso
 from src.utils.banca_status import calcular_status_banca
+from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
 from src.utils.contagem_dias import calcular_contagem_projeto, derivar_janelas_pausa
 from src.utils.janela_escopo import calcular_janela
 
@@ -72,6 +74,7 @@ class ListEscoposProjetoUseCase:
         self.projeto_repository = ProjetoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
+        self.frente_repository = FrenteRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.banca_repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
@@ -103,6 +106,14 @@ class ListEscoposProjetoUseCase:
         # que `dias_uteis.py` estabelece no docstring.
         historico = self.historico_repository.get_by_projeto(projeto_id)
         dias_nao_letivos_registros = self.dia_nao_letivo_repository.get_all()
+        # Uma frente pode ter mais de um calendário, e este projeto segue um
+        # só. Sem o corte, um time de Ciência da Computação contaria como
+        # parada a semana de provas das engenharias, que está na mesma frente.
+        escolhidos = escolha_por_frente(
+            self.frente_repository.get_all(),
+            getattr(projeto, "calendario", None) if projeto else None,
+        )
+        dias_nao_letivos_registros = filtrar_variante(dias_nao_letivos_registros, escolhidos)
         dias_nao_letivos = [d.data for d in dias_nao_letivos_registros]
         catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
         bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])

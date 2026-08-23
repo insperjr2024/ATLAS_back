@@ -4,11 +4,13 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
+from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.semestre_repository import SemestreRepository
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -91,6 +93,62 @@ class UpdateMaxConsultoresUseCase:
 
         atualizado = self.repository.update(projeto_id, max_consultores=request.max_consultores)
         return {"id": atualizado.id, "max_consultores": atualizado.max_consultores}
+
+
+class UpdateCalendarioRequest(BaseModel):
+    #: O rótulo de um calendário existente na frente do projeto, ou `None` para
+    #: seguir o padrão dela. Ver `dia_nao_letivo.variante`.
+    calendario: Optional[str] = Field(default=None, max_length=30)
+
+
+class UpdateCalendarioUseCase:
+    """Qual calendário acadêmico este projeto segue (§5.4).
+
+    Uma frente pode cobrir cursos com calendários diferentes — dentro da Tech,
+    Ciência da Computação não tem as semanas de avaliação das engenharias. O
+    calendário escolhido aqui é o que a contagem de dias úteis do projeto usa:
+    janela de escopo, atraso, ambientação e o cinza do cronograma.
+
+    Só aceita nome de calendário que EXISTA em alguma frente do projeto. Um
+    rótulo digitado errado não daria erro nenhum na hora — simplesmente não
+    casaria com dia algum, e o projeto passaria a contar a semana de provas de
+    ninguém.
+    """
+
+    def __init__(self, db: Session):
+        self.repository = ProjetoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
+        self.semestre_repository = SemestreRepository(db)
+
+    def execute(self, projeto_id: int, request: UpdateCalendarioRequest):
+        projeto = self.repository.get_by_id(projeto_id)
+        if not projeto:
+            return None
+
+        escolhido = (request.calendario or "").strip() or None
+        if escolhido:
+            semestre = self.semestre_repository.get_ativo()
+            if not semestre:
+                raise RegraDeNegocioError(
+                    "Não há gestão ativa, então ainda não existe calendário para escolher"
+                )
+            frentes = {e.frente_id for e in self.escopo_repository.get_by_projeto(projeto_id)}
+            disponiveis = {
+                nome
+                for frente_id in frentes
+                for nome in self.dia_nao_letivo_repository.listar_variantes(
+                    semestre.id, frente_id
+                )
+            }
+            if escolhido not in disponiveis:
+                raise RegraDeNegocioError(
+                    f"Nenhuma frente deste projeto tem um calendário chamado {escolhido}. "
+                    "Carregue o calendário em Calendários base antes de apontar para ele."
+                )
+
+        atualizado = self.repository.update(projeto_id, calendario=escolhido)
+        return {"id": atualizado.id, "calendario": atualizado.calendario}
 
 
 class UpdateEntregaPrevistaClienteRequest(BaseModel):
