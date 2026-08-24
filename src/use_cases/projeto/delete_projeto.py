@@ -2,8 +2,11 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from src.models.banca_escopo_model import BancaEscopoModel
+from src.models.banca_excecao_choque_model import BancaExcecaoChoqueModel
+from src.models.banca_fora_janela_solicitacao_model import BancaForaJanelaSolicitacaoModel
 from src.models.banca_model import BancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
+from src.models.cronograma_reajuste_solicitacao_model import CronogramaReajusteSolicitacaoModel
 from src.models.desempenho_lote_projeto_model import DesempenhoLoteProjetoModel
 from src.models.justificativa_pedido_model import JustificativaPedidoModel
 from src.models.notificacao_model import NotificacaoModel
@@ -108,6 +111,26 @@ class DeleteProjetoPermanenteUseCase:
         self.db.execute(delete(ProjetoMembroModel).where(ProjetoMembroModel.projeto_id == projeto_id))
         self.db.execute(delete(ProjetoFrenteModel).where(ProjetoFrenteModel.projeto_id == projeto_id))
         self.db.execute(delete(TarefaColunaModel).where(TarefaColunaModel.projeto_id == projeto_id))
+
+        # Pedidos de aprovação do §13 (fora da janela, exceção de choque) e do
+        # reajuste de cronograma: todos guardam `projeto_escopo_id` obrigatório
+        # e sem cascade, então seguram a exclusão do escopo do mesmo jeito que
+        # `projeto_remarcacao_banca` segurava a da banca lá em cima.
+        if escopo_ids:
+            self.db.execute(
+                delete(BancaForaJanelaSolicitacaoModel).where(
+                    BancaForaJanelaSolicitacaoModel.projeto_escopo_id.in_(escopo_ids)
+                )
+            )
+            self.db.execute(
+                delete(BancaExcecaoChoqueModel).where(BancaExcecaoChoqueModel.projeto_escopo_id.in_(escopo_ids))
+            )
+            self.db.execute(
+                delete(CronogramaReajusteSolicitacaoModel).where(
+                    CronogramaReajusteSolicitacaoModel.projeto_escopo_id.in_(escopo_ids)
+                )
+            )
+
         self.db.execute(delete(ProjetoEscopoModel).where(ProjetoEscopoModel.projeto_id == projeto_id))
 
         nome = projeto.nome
