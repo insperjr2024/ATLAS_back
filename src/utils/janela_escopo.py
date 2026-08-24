@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable, Optional, Set, Tuple, Union
 
+from src.utils.ambientacao import fim_da_ambientacao
 from src.utils.dias_uteis import (
     DOMINGO,
     SABADO,
@@ -36,8 +37,21 @@ from src.utils.dias_uteis import (
     somar_dias_uteis,
 )
 
-#: §8: o coordenador tem 3 dias úteis a partir da reunião inicial para pedir
-#: dias de ajuste. A data da reunião é o dia 1 (§20.2).
+#: §8: o prazo para PEDIR dias de ajuste tem **duas réguas**, e qual delas vale
+#: depende da posição do escopo na lista *Escopos vendidos* do projeto:
+#:
+#: - o **primeiro escopo** vale até o ÚLTIMO DIA DA AMBIENTAÇÃO — o "kickoff".
+#:   É nela que a equipe conhece o projeto e descobre que os dias vendidos não
+#:   fecham, então é ali que a conversa com a diretoria tem que caber, antes de
+#:   a largada abrir a janela. Ver `prazo_pelo_kickoff`.
+#: - os **demais escopos** entram num projeto que já rodou a ambientação (ela é
+#:   do projeto, e acontece uma vez só): para eles continuam valendo estes 3
+#:   dias úteis, contados da reunião inicial do próprio escopo, que é o dia 1
+#:   (§20.2).
+#:
+#: ⚠ Isto mudou em 2026-08-23. Antes os 3 dias úteis valiam para todo escopo, e
+#: a ambientação era uma EXCEÇÃO que apenas antecipava o pedido; hoje ela é a
+#: régua do primeiro escopo, e o prazo dele fecha junto com ela.
 PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS = 3
 
 #: §13: remarcar uma banca que acontece dentro desta folga exige diretoria,
@@ -126,6 +140,63 @@ class JanelaEscopo:
         return self.dias_vendidos + self.dias_ajustados
 
 
+def primeiro_escopo_id(escopos: Iterable) -> Optional[int]:
+    """⭐ Qual escopo é o PRIMEIRO do projeto — a régua que escolhe o prazo.
+
+    "Primeiro" é a posição na lista *Escopos vendidos* do cadastro, a mesma que
+    as setinhas reordenam: `ordem`, com `id` desempatando quem nunca foi
+    reordenado (todo mundo nasce com `ordem` 0). É a mesma ordenação de
+    `ProjetoEscopoRepository.get_by_projeto`, escrita aqui como função pura
+    porque quem decide o prazo nem sempre tem a lista vindo de lá — a fila da
+    diretoria carrega os escopos de todos os projetos de uma vez.
+
+    ⚠ Escopo **cancelado continua contando**: a lista é a que está na tela, e
+    quem quiser passar a vez reordena. Um filtro invisível aqui mudaria o prazo
+    de um escopo sem nada ter mudado na tela de quem o lê.
+    """
+    escopos = list(escopos)
+    if not escopos:
+        return None
+    return min(escopos, key=lambda e: (getattr(e, "ordem", 0) or 0, e.id)).id
+
+
+def prazo_pelo_kickoff(
+    status_projeto: Optional[str],
+    inicio_da_ambientacao: Optional[date],
+    dias_ambientacao: int,
+    dias_nao_letivos_globais: Iterable[date],
+) -> Optional[date]:
+    """O último dia da ambientação, quando é ELE o prazo do pedido (§8).
+
+    Serve só o PRIMEIRO escopo — quem chama já sabe disso e passa `None` para
+    os demais (`primeiro_escopo_id`). Para o primeiro, o prazo fecha junto com
+    a ambientação: é ela que existe para a equipe conhecer o projeto, e é lá
+    que se descobre que os dias vendidos não fecham. Depois dela a largada já
+    aconteceu, o time está produzindo, e o que passar da janela é atraso.
+
+    `None` = este escopo cai na régua dos 3 dias úteis da reunião inicial, e
+    são dois os motivos:
+
+    - **o projeto não tem ambientação** (sem kickoff, ou zero dias): não existe
+      "último dia" de coisa nenhuma para servir de prazo;
+    - **o projeto ainda está Vendido**: antes da ambientação não há equipe em
+      campo para descobrir que os dias não fecham, e o próprio kickoff ainda
+      pode mudar de lugar. O STATUS decide a entrada e a DATA segura a saída —
+      a mesma convenção de `ambientacao_em_curso`, e o motivo pelo qual um
+      status atrasado (a virada automática que ainda não rodou) não reabre o
+      prazo.
+
+    ⚠ Dias não letivos **globais** (`frente_id` nulo), como em
+    `EncerrarAmbientacaoUseCase`: a ambientação é do projeto inteiro, e um
+    recesso de uma frente só não pode esticá-la para as outras.
+    """
+    if status_projeto == "vendido":
+        return None
+    return fim_da_ambientacao(
+        inicio_da_ambientacao, dias_ambientacao, dias_nao_letivos_globais
+    )
+
+
 def calcular_janela(
     data_inicio: Optional[date],
     dias_uteis_vendidos: int,
@@ -133,6 +204,7 @@ def calcular_janela(
     dias_nao_letivos: Iterable[date],
     referencia: Optional[date] = None,
     janelas_pausa: Iterable[JanelaPausa] = (),
+    prazo_do_kickoff: Optional[date] = None,
 ) -> JanelaEscopo:
     """A janela do escopo e o prazo de pedido, numa estrutura só.
 
@@ -148,17 +220,27 @@ def calcular_janela(
     `janelas_pausa` desloca o fim **e** o prazo do pedido: enquanto o projeto
     está ⏸ Pausado ninguém deveria estar trabalhando, então nem a janela corre
     nem os 3 dias úteis para perceber que os dias vendidos não fecham.
+
+    ⭐ `prazo_do_kickoff` (o último dia da ambientação, vindo de
+    `prazo_pelo_kickoff`) SUBSTITUI os 3 dias úteis quando informado — é o
+    prazo do primeiro escopo. Repare que ele vale **mesmo sem reunião
+    inicial**: o pedido do primeiro escopo nasce justamente antes da largada, e
+    é por isso que a janela fechada abaixo ainda devolve prazo.
     """
     referencia = referencia or date.today()
 
     if data_inicio is None:
+        # Sem reunião inicial não há JANELA — mas pode haver PRAZO, e é o caso
+        # normal do primeiro escopo durante a ambientação.
         return JanelaEscopo(
             data_inicio=None,
             dias_vendidos=dias_uteis_vendidos,
             dias_ajustados=dias_uteis_ajustados,
             fim=None,
-            prazo_pedido_ajuste=None,
-            pedido_ajuste_aberto=False,
+            prazo_pedido_ajuste=prazo_do_kickoff,
+            pedido_ajuste_aberto=(
+                prazo_do_kickoff is not None and referencia <= prazo_do_kickoff
+            ),
         )
 
     total = dias_uteis_vendidos + dias_uteis_ajustados
@@ -166,18 +248,22 @@ def calcular_janela(
         fim = _somar_dias_uteis_fora_da_pausa(
             data_inicio, total, dias_nao_letivos, janelas_pausa
         )
-        prazo = _somar_dias_uteis_fora_da_pausa(
-            data_inicio, PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, dias_nao_letivos, janelas_pausa
-        )
     except ValueError:
-        return JanelaEscopo(
-            data_inicio=data_inicio,
-            dias_vendidos=dias_uteis_vendidos,
-            dias_ajustados=dias_uteis_ajustados,
-            fim=None,
-            prazo_pedido_ajuste=None,
-            pedido_ajuste_aberto=False,
-        )
+        fim = None
+
+    if prazo_do_kickoff is not None:
+        prazo = prazo_do_kickoff
+    else:
+        try:
+            prazo = _somar_dias_uteis_fora_da_pausa(
+                data_inicio, PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, dias_nao_letivos, janelas_pausa
+            )
+        except ValueError:
+            # Calendário impossível: some o prazo, não a tela. As duas contas
+            # são independentes de propósito — a do fim caminha *vendidos +
+            # ajustados* dias e é a que estoura primeiro num calendário ruim,
+            # e não há motivo para ela levar o prazo junto.
+            prazo = None
 
     return JanelaEscopo(
         data_inicio=data_inicio,
@@ -186,9 +272,9 @@ def calcular_janela(
         fim=fim,
         prazo_pedido_ajuste=prazo,
         # ⭐ `<=`: o próprio dia do prazo ainda vale. Vale a data do PEDIDO,
-        # não a da decisão (§20.1) — pedir no 3º dia e a diretoria responder no
-        # 6º continua sendo ajuste.
-        pedido_ajuste_aberto=referencia <= prazo,
+        # não a da decisão (§20.1) — pedir no último dia e a diretoria
+        # responder três dias depois continua sendo ajuste.
+        pedido_ajuste_aberto=prazo is not None and referencia <= prazo,
     )
 
 

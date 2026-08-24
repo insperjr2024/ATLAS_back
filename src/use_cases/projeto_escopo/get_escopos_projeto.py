@@ -25,11 +25,18 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.repositories.usuario_repository import UsuarioRepository
-from src.utils.ambientacao import ambientacao_em_curso
 from src.utils.banca_status import calcular_status_banca
-from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
+from src.utils.calendario_variante import (
+    apenas_globais,
+    escolha_por_frente,
+    filtrar_variante,
+)
 from src.utils.contagem_dias import calcular_contagem_projeto, derivar_janelas_pausa
-from src.utils.janela_escopo import calcular_janela
+from src.utils.janela_escopo import (
+    calcular_janela,
+    prazo_pelo_kickoff,
+    primeiro_escopo_id,
+)
 
 
 def nome_do_escopo(escopo, catalogo_por_id: Dict[int, object]) -> str:
@@ -153,6 +160,24 @@ class ListEscoposProjetoUseCase:
         # do prazo que o backend de fato aplica num projeto que já esteve
         # ⏸ Pausado — o botão sumia da tela com o pedido ainda aberto.
         janelas_pausa = derivar_janelas_pausa(historico)
+
+        # ⭐ §8: o PRIMEIRO escopo vendido pede dias até o último dia da
+        # ambientação (o kickoff); os demais, nos 3 dias úteis da reunião
+        # inicial deles. Mesma decisão de `solicitar._prazo_do_kickoff` — aqui
+        # ela só é servida à tela, que é quem some com o botão.
+        primeiro_id = primeiro_escopo_id(escopos)
+        prazo_kickoff = (
+            prazo_pelo_kickoff(
+                projeto.status,
+                projeto.data_inicio_ambientacao or projeto.data_kickoff,
+                projeto.dias_ambientacao,
+                # O recorte GLOBAL: a ambientação é do projeto inteiro, e dia
+                # global não pertence a frente nem a calendário de curso.
+                [d.data for d in apenas_globais(dias_nao_letivos_registros)],
+            )
+            if projeto
+            else None
+        )
         janelas = {
             e.id: calcular_janela(
                 e.data_inicio,
@@ -161,24 +186,10 @@ class ListEscoposProjetoUseCase:
                 dias_nao_letivos,
                 referencia=referencia,
                 janelas_pausa=janelas_pausa,
+                prazo_do_kickoff=prazo_kickoff if e.id == primeiro_id else None,
             )
             for e in escopos
         }
-
-        # §8, exceção da ambientação: enquanto o projeto está nela (o último
-        # dia conta), o pedido de dias está aberto mesmo sem reunião inicial —
-        # mesma régua de `solicitar._em_ambientacao`, dias não letivos GLOBAIS.
-        em_ambientacao = bool(projeto) and ambientacao_em_curso(
-            projeto.status,
-            projeto.data_inicio_ambientacao or projeto.data_kickoff,
-            projeto.dias_ambientacao,
-            [
-                d.data
-                for d in dias_nao_letivos_registros
-                if getattr(d, "frente_id", None) is None
-            ],
-            referencia=referencia,
-        )
 
         # §8: pedido pendente do escopo, pra tela decidir entre "Pedir dias" e
         # "Aguardando a diretoria" sem precisar perguntar de novo.
@@ -209,7 +220,6 @@ class ListEscoposProjetoUseCase:
                 nomes_usuario,
                 janelas.get(e.id),
                 justificativas.get(e.id),
-                em_ambientacao,
             )
             for e in escopos
         ]
@@ -226,7 +236,6 @@ def serializar_escopo(
     nomes_usuario=None,
     janela=None,
     justificativa_atraso=None,
-    em_ambientacao=False,
 ) -> dict:
     return {
         "id": escopo.id,
@@ -275,11 +284,13 @@ def serializar_escopo(
         # A janela do §5, para o calendário desenhar a faixa e o banner saber
         # quando avisar.
         "fim_janela": contagem.fim_janela_prevista,
+        # ⭐ O prazo do §8 já vem decidido pela `janela`: último dia da
+        # ambientação no primeiro escopo, 3 dias úteis da reunião inicial nos
+        # demais. Não há mais um OU com a ambientação aqui — a exceção virou a
+        # própria régua, e duplicá-la era o que fazia a tela e
+        # `solicitar._exigir_prazo_aberto` discordarem sobre o mesmo escopo.
         "prazo_pedido_ajuste": janela.prazo_pedido_ajuste if janela else None,
-        # Aberto pelo prazo do §8 OU pela exceção da ambientação — o mesmo OU
-        # que `solicitar._exigir_prazo_aberto` aplica ao decidir.
-        "pedido_ajuste_aberto": em_ambientacao
-        or (janela.pedido_ajuste_aberto if janela else False),
+        "pedido_ajuste_aberto": janela.pedido_ajuste_aberto if janela else False,
         # 🔒 A trava do §5.5 na forma que a tela precisa: o cadeado abre
         # quando a banca do escopo é APROVADA pelos avaliadores.
         "banca": (
