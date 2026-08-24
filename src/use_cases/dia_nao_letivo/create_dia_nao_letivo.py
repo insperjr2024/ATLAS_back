@@ -23,11 +23,16 @@ class CreateDiasNaoLetivosRequest(BaseModel):
     `frente_id` nulo grava o calendário GLOBAL, que vale para todas as frentes
     — é onde mora o feriado nacional. Com frente, grava o calendário base
     daquela frente, que vem do PDF do curso dela.
+
+    `variante` grava dentro de UM calendário da frente ("Ciência da
+    Computação"), quando ela tem mais de um. Nula, grava o que vale para a
+    frente inteira — que é o caso de toda frente com um curso só.
     """
 
     dias: List[DiaNaoLetivoItem]
     substituir: bool = False
     frente_id: Optional[int] = None
+    variante: Optional[str] = None
 
 
 class CreateDiasNaoLetivosUseCase:
@@ -40,15 +45,28 @@ class CreateDiasNaoLetivosUseCase:
         if not semestre:
             raise RegraDeNegocioError("Semestre não encontrado")
 
-        # Substituir apaga só o calendário DESTA frente: recarregar o PDF de
-        # Business não pode derrubar o que já foi conferido em Tech.
+        # Um calendário de curso mora DENTRO de uma frente. Sem frente ele
+        # seria um feriado nacional que só vale para alguns cursos, que é uma
+        # contradição — e, pior, ficaria invisível: a resolução por projeto só
+        # procura variante dentro da frente.
+        variante = (request.variante or "").strip() or None
+        if variante and request.frente_id is None:
+            raise RegraDeNegocioError(
+                "Um calendário de curso precisa de uma frente: quem vale para todas "
+                "é o calendário global, que não tem curso."
+            )
+
+        # Substituir apaga só o calendário DESTA frente, e dentro dela só ESTA
+        # variante: recarregar o PDF de Business não pode derrubar o que já foi
+        # conferido em Tech, nem o de Ciência da Computação apagar o das
+        # engenharias, que está na mesma frente.
         if request.substituir:
-            self.repository.delete_da_frente(semestre_id, request.frente_id)
+            self.repository.delete_da_frente(semestre_id, request.frente_id, variante)
 
         existentes = {
             d.data
             for d in self.repository.get_by_semestre(semestre_id)
-            if d.frente_id == request.frente_id
+            if d.frente_id == request.frente_id and d.variante == variante
         }
 
         criados, ignorados = [], []
@@ -78,6 +96,7 @@ class CreateDiasNaoLetivosUseCase:
             registro = self.repository.create(
                 semestre_id=semestre_id,
                 frente_id=request.frente_id,
+                variante=variante,
                 data=item.data,
                 tipo=item.tipo,
                 descricao=item.descricao,
@@ -88,6 +107,7 @@ class CreateDiasNaoLetivosUseCase:
         return {
             "semestre_id": semestre_id,
             "frente_id": request.frente_id,
+            "variante": variante,
             "criados": len(criados),
             "ignorados": len(ignorados),
             "dias": [

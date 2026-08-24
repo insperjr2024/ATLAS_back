@@ -38,6 +38,7 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.eventos import notificar_reajuste_solicitado
+from src.utils.calendario_variante import apenas_globais
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.janela_escopo import (
@@ -207,9 +208,7 @@ class SolicitarReajusteUseCase:
         if primeiro_escopo_id(escopos) != escopo.id:
             return None
         nao_letivos_globais = [
-            d.data
-            for d in self.dia_nao_letivo_repository.get_all()
-            if getattr(d, "frente_id", None) is None
+            d.data for d in apenas_globais(self.dia_nao_letivo_repository.get_all())
         ]
         return prazo_pelo_kickoff(
             projeto.status,
@@ -219,7 +218,9 @@ class SolicitarReajusteUseCase:
         )
 
     def _janela(self, escopo, referencia: Optional[object] = None, prazo_do_kickoff=None):
-        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        dias_nao_letivos = [
+            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(escopo.projeto_id)
+        ]
         # ⚠ **A pausa desloca o prazo do pedido, não só o fim da janela.**
         #
         # O prazo é de 3 dias úteis a partir da reunião inicial. Sem as janelas

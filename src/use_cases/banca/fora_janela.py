@@ -72,7 +72,9 @@ def _janela_do_escopo(db: Session, escopo):
     """Mesmo cálculo de `MarcarBancaEscopoUseCase._janela_do_escopo` — duas
     cópias porque importar a classe inteira aqui só por este método criaria
     um acoplamento maior do que o ganho de não repetir 8 linhas."""
-    dias_nao_letivos = [d.data for d in DiaNaoLetivoRepository(db).get_all()]
+    dias_nao_letivos = [
+        d.data for d in DiaNaoLetivoRepository(db).get_do_projeto(escopo.projeto_id)
+    ]
     janelas_pausa = derivar_janelas_pausa(
         ProjetoStatusHistoricoRepository(db).get_by_projeto(escopo.projeto_id)
     )

@@ -16,3 +16,9 @@ class FrenteModel(Base):
     nome = Column(String(50), nullable=False)
     ativa = Column(Boolean, nullable=False, default=True, server_default="1")
     piso_banca = Column(Integer, nullable=False, default=1, server_default="1")
+    #: Qual calendário da frente vale para um projeto que não escolheu o dele.
+    #:
+    #: `NULL` = a frente tem um calendário só, o de `dia_nao_letivo.variante`
+    #: nulo. É o caso de Business, Processos e Direito. A Tech aponta para
+    #: "Engenharias", que é o que a maioria dos cursos dela segue.
+    calendario_padrao = Column(String(30), nullable=True)

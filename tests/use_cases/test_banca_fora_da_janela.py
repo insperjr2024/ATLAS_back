@@ -110,6 +110,9 @@ def pedir(monkeypatch):
         class DiaNaoLetivoFake:
             def __init__(self, db): pass
             def get_all(self): return []
+            # O calendário deste projeto. Sem variantes no fake, é o mesmo
+            # `get_all()` — o que muda na produção é só o corte por curso.
+            def get_do_projeto(self, _projeto_id): return self.get_all()
 
         class HistoricoFake:
             def __init__(self, db): pass

@@ -48,6 +48,7 @@ from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.cronograma.get_cronograma import GetCronogramaUseCase
+from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.banca_status import ABERTA, calcular_status_banca
 from src.utils.condicoes_alerta import (
@@ -148,8 +149,27 @@ class _BaseMonitoramento:
         é o que mantém o número do Monitoramento igual ao da tela do projeto —
         que é a razão de existir desta seção. O calendário é o acadêmico do
         semestre: dezenas de linhas, não milhares.
+
+        Devolve os REGISTROS, e não as datas: uma frente pode ter mais de um
+        calendário de curso, e escolher entre eles depende do projeto. Quem
+        varre a carteira passa cada projeto por `_calendario_do_projeto`
+        dentro do laço.
         """
-        return [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        return self.dia_nao_letivo_repository.get_all()
+
+    def _calendario_do_projeto(self, registros, projeto) -> List[date]:
+        """As datas de `registros` que valem para ESTE projeto.
+
+        As frentes são lidas uma vez e guardadas: isto roda dentro do laço de
+        projetos, e uma query por projeto aqui é exatamente o que o docstring
+        de `_dias_nao_letivos` existe para evitar.
+        """
+        if getattr(self, "_frentes_do_calendario", None) is None:
+            self._frentes_do_calendario = self.frente_repository.get_all()
+        escolhidos = escolha_por_frente(
+            self._frentes_do_calendario, getattr(projeto, "calendario", None)
+        )
+        return [d.data for d in filtrar_variante(registros, escolhidos)]
 
     def _calendario_global(self) -> List[date]:
         """Só os dias não letivos que valem para TODAS as frentes.
@@ -164,15 +184,19 @@ class _BaseMonitoramento:
             d.data for d in self.dia_nao_letivo_repository.get_all() if d.frente_id is None
         ]
 
-    def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List[date]:
+    def _dias_nao_letivos(self, desde: Optional[date], ate: date) -> List:
         """O calendário do Insper no intervalo, carregado UMA vez.
 
         `dias_uteis.py` pede o conjunto pronto de propósito — consultar dentro
         do laço de projetos faria uma query por projeto.
+
+        Como `_calendario_de_janela`, devolve os REGISTROS: a escolha entre os
+        calendários de curso de uma frente é por projeto, e só quem está dentro
+        do laço sabe de qual projeto se trata.
         """
         if desde is None or desde > ate:
             desde = ate
-        return [d.data for d in self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)]
+        return self.dia_nao_letivo_repository.get_por_intervalo(desde, ate)
 
     def _projetos_visiveis(
         self,
@@ -274,7 +298,7 @@ class _BaseMonitoramento:
                 ctx["bancas_por_escopo"],
                 ctx["nomes_escopo"],
                 referencia,
-                nao_letivos,
+                self._calendario_do_projeto(nao_letivos, p),
                 janelas_pausa=derivar_janelas_pausa(historico.get(p.id, [])),
             )
             for p in projetos
@@ -448,10 +472,14 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         for projeto in projetos:
             do_projeto = ctx["escopos_por_projeto"].get(projeto.id, [])
             ajustados = sum(e.dias_uteis_ajustados for e in do_projeto)
+            # O calendário deste projeto, resolvido dentro do laço: a frente
+            # dele pode ter mais de um curso, e as datas de prova de um não são
+            # as do outro.
+            do_calendario = self._calendario_do_projeto(nao_letivos, projeto)
             contagens = calcular_contagem_projeto(
                 do_projeto,
                 historico_por_projeto.get(projeto.id, []),
-                nao_letivos,
+                do_calendario,
                 referencia=hoje,
                 bancas_por_escopo=ctx["bancas_por_escopo"],
                 sessoes_por_banca=ctx["sessoes_por_banca"],
@@ -518,7 +546,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                             reunioes_por_projeto,
                             ctx["bancas_por_escopo"],
                         ),
-                        nao_letivos,
+                        do_calendario,
                         referencia=hoje,
                     ),
                 }
@@ -913,6 +941,10 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
         tarefas = []
         for p in projetos:
+            # Resolvido por projeto: "3 dias úteis sem tarefa" tem de ser
+            # medido no calendário do curso do time, e não no de outro curso da
+            # mesma frente.
+            do_calendario = self._calendario_do_projeto(nao_letivos, p)
             todas_do_projeto = tarefas_por_projeto.get(p.id, [])
             # ⚠ Tudo que responde "como estava naquela semana" olha só as
             # tarefas que JÁ EXISTIAM até o fim dela. Sem esse corte, olhar 12
@@ -977,7 +1009,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
                     "sem_tarefas": len(do_projeto) == 0,
                     "sem_tarefas_ativas": len(do_projeto) > 0 and len(ativas) == 0,
                     "dias_uteis_sem_tarefa": self._dias_uteis_sem_tarefa(
-                        marco, hoje, nao_letivos
+                        marco, hoje, do_calendario
                     ),
                     # De onde a contagem acima parte. Sem isto o front não tem
                     # como escrever o motivo sem adivinhar — ver
@@ -988,7 +1020,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
                     # ordenar: 1 tarefa parada há 10 dias úteis pesa mais que
                     # 5 que venceram ontem.
                     "atraso_maximo_dias_uteis": max(
-                        (dias_uteis_de_atraso(t.prazo, hoje, nao_letivos) for t in vencidas),
+                        (dias_uteis_de_atraso(t.prazo, hoje, do_calendario) for t in vencidas),
                         default=0,
                     ),
                     "ultima_movimentacao": max(movimentacoes) if movimentacoes else None,
@@ -1510,7 +1542,7 @@ class AtrasosUseCase(_BaseMonitoramento):
             contagens = calcular_contagem_projeto(
                 do_projeto,
                 historico_por_projeto.get(projeto.id, []),
-                nao_letivos,
+                self._calendario_do_projeto(nao_letivos, projeto),
                 referencia=referencia,
                 bancas_por_escopo=ctx["bancas_por_escopo"],
                 # ⚠ **Faltava, e era o erro mais caro da tela.** Sem as
