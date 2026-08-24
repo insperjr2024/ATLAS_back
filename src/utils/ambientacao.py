@@ -5,8 +5,17 @@ informada no cadastro do projeto (por padrão 5)."*
 
 📐 A janela é **kickoff + N dias úteis, contando o kickoff como o 1º** — a
 mesma régua de `somar_dias_uteis`, a mesma que pinta a faixa cinza do
-cronograma. Aqui ela ganha um nome só, porque agora duas coisas dependem dela:
-a faixa e a virada automática de status.
+cronograma. Aqui ela ganha um nome só, porque três coisas dependem dela: a
+faixa, a virada automática de status e o **prazo do pedido de dias do primeiro
+escopo** (§8), que é justamente o último dia desta janela — ver
+`janela_escopo.prazo_pelo_kickoff`.
+
+⚠ Havia aqui um `ambientacao_em_curso`, que respondia "o projeto está NA
+ambientação agora?" para a antiga EXCEÇÃO do §8 (durante a ambientação o
+pedido de dias já valia, e os 3 dias úteis depois da largada continuavam
+correndo por cima). A exceção virou a régua do primeiro escopo em 2026-08-23 e
+a pergunta mudou de forma: hoje o que importa é a DATA do último dia, não um
+booleano do agora.
 
 Função pura, como o resto de `utils/`: quem chama carrega os dias não letivos
 uma vez e passa. `referencia` é injetável para os testes não congelarem o
@@ -40,33 +49,6 @@ def fim_da_ambientacao(
         return somar_dias_uteis(data_kickoff, dias_ambientacao, dias_nao_letivos)
     except ValueError:
         return None
-
-
-def ambientacao_em_curso(
-    status_projeto: str,
-    data_kickoff: Optional[date],
-    dias_ambientacao: int,
-    dias_nao_letivos: Iterable[date],
-    referencia: Optional[date] = None,
-) -> bool:
-    """O projeto está NA ambientação em `referencia` — o último dia conta.
-
-    É o guarda da exceção do §8 ao prazo do pedido de dias: durante a
-    ambientação o coordenador já pode pedir dias de ajuste, mesmo que o
-    escopo ainda não tenha reunião inicial — é nela que a equipe descobre
-    que os dias vendidos não fecham.
-
-    O STATUS decide a entrada: projeto vendido, pausado ou já em andamento
-    não está em ambientação, qualquer que seja a data. A DATA segura a
-    saída: se a virada automática (`EncerrarAmbientacaoUseCase`) ainda não
-    rodou, o dia seguinte ao fim já não conta — o status atrasado não
-    reabre o pedido.
-    """
-    if status_projeto != "ambientacao":
-        return False
-    return not ambientacao_encerrada(
-        data_kickoff, dias_ambientacao, dias_nao_letivos, referencia
-    )
 
 
 def ambientacao_encerrada(

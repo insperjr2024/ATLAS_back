@@ -25,6 +25,8 @@ from datetime import date, datetime, timedelta
 from src.utils.janela_escopo import (
     calcular_janela,
     dentro_da_janela,
+    prazo_pelo_kickoff,
+    primeiro_escopo_id,
     dias_de_atraso,
     dias_de_correcao,
     marco_das_correcoes,
@@ -107,6 +109,85 @@ class TestPrazoDoPedido:
     def test_escopo_nao_iniciado_nao_tem_prazo_correndo(self):
         j = calcular_janela(None, 20, 0, CALENDARIO, referencia=QUI_03_09)
         assert j.pedido_ajuste_aberto is False
+
+
+class TestPrazoPeloKickoff:
+    """⭐ A régua do PRIMEIRO escopo: o prazo é o último dia da ambientação.
+
+    Quem decide que ela se aplica é quem chama (`primeiro_escopo_id`); aqui se
+    mede o efeito dela na janela — inclusive o caso que a régua antiga não
+    sabia representar, o de um prazo que existe ANTES de a janela abrir.
+    """
+
+    def test_substitui_os_3_dias_uteis_da_reuniao_inicial(self):
+        """Mesmo escopo do exemplo, mas ele é o primeiro do projeto: o prazo
+        deixa de ser 08/09 e passa a ser o fim da ambientação, 02/09."""
+        j = calcular_janela(
+            QUI_03_09, 20, 0, CALENDARIO,
+            referencia=QUI_03_09,
+            prazo_do_kickoff=date(2026, 9, 2),
+        )
+
+        assert j.prazo_pedido_ajuste == date(2026, 9, 2)
+        assert j.pedido_ajuste_aberto is False
+        # A JANELA não muda — o prazo do pedido é outra conta.
+        assert j.fim == QUI_08_10
+
+    def test_ha_prazo_mesmo_sem_reuniao_inicial(self):
+        """⭐ O caso normal do primeiro escopo: o pedido nasce na ambientação,
+        antes de a largada abrir a janela dele."""
+        j = calcular_janela(
+            None, 20, 0, CALENDARIO,
+            referencia=date(2026, 9, 1),
+            prazo_do_kickoff=date(2026, 9, 2),
+        )
+
+        assert j.aberta is False
+        assert j.prazo_pedido_ajuste == date(2026, 9, 2)
+        assert j.pedido_ajuste_aberto is True
+
+    def test_o_ultimo_dia_da_ambientacao_ainda_vale(self):
+        j = calcular_janela(
+            None, 20, 0, CALENDARIO,
+            referencia=date(2026, 9, 2),
+            prazo_do_kickoff=date(2026, 9, 2),
+        )
+
+        assert j.pedido_ajuste_aberto is True
+
+    def test_projeto_vendido_nao_tem_prazo_pelo_kickoff(self):
+        """O STATUS decide a entrada: antes da ambientação não há equipe em
+        campo, e o kickoff ainda pode mudar de lugar."""
+        assert prazo_pelo_kickoff("vendido", date(2026, 8, 28), 5, CALENDARIO) is None
+
+    def test_ambientacao_de_5_dias_conta_o_kickoff_como_o_1o(self):
+        assert prazo_pelo_kickoff("ambientacao", date(2026, 8, 28), 5, CALENDARIO) == QUI_03_09
+
+    def test_projeto_sem_ambientacao_cai_nos_3_dias_uteis(self):
+        """Sem kickoff, ou com zero dias, não há "último dia" nenhum — e quem
+        chama recebe `None`, que é o sinal de usar a régua da reunião inicial."""
+        assert prazo_pelo_kickoff("em_andamento", None, 5, CALENDARIO) is None
+        assert prazo_pelo_kickoff("em_andamento", date(2026, 8, 28), 0, CALENDARIO) is None
+
+
+class TestPrimeiroEscopo:
+    """Qual escopo é o primeiro da lista *Escopos vendidos* — a mesma ordem
+    que as setinhas do cadastro definem."""
+
+    def _escopo(self, id, ordem):
+        return type("E", (), {"id": id, "ordem": ordem})()
+
+    def test_ordem_manda_sobre_o_id(self):
+        escopos = [self._escopo(7, 1), self._escopo(9, 0)]
+        assert primeiro_escopo_id(escopos) == 9
+
+    def test_id_desempata_quem_nunca_foi_reordenado(self):
+        """Todo mundo nasce com `ordem` 0: aí vale a ordem de criação."""
+        escopos = [self._escopo(9, 0), self._escopo(7, 0)]
+        assert primeiro_escopo_id(escopos) == 7
+
+    def test_projeto_sem_escopo_nao_tem_primeiro(self):
+        assert primeiro_escopo_id([]) is None
 
 
 class TestDentroDaJanela:

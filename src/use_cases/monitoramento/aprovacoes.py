@@ -63,7 +63,12 @@ from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
-from src.utils.janela_escopo import calcular_janela
+from src.utils.fuso import para_hora_local
+from src.utils.janela_escopo import (
+    calcular_janela,
+    prazo_pelo_kickoff,
+    primeiro_escopo_id,
+)
 
 
 def _agrupar_por(linhas, campo: str) -> dict:
@@ -72,6 +77,29 @@ def _agrupar_por(linhas, campo: str) -> dict:
     for linha in linhas:
         mapa.setdefault(getattr(linha, campo), []).append(linha)
     return mapa
+
+
+def pedido_fora_do_prazo(criado_em, prazo: Optional[date]) -> bool:
+    """§20.1: **vale a data do PEDIDO**, não a de hoje nem a da decisão.
+
+    ⚠ Foi assim que a pílula "pedido fora do prazo" acusava quem pediu no
+    prazo: ela comparava o prazo com HOJE, então bastava a diretoria demorar
+    para responder que um pedido legítimo aparecia marcado como atrasado — e é
+    esta fila que ela lê antes de aprovar ou negar. Com o prazo do primeiro
+    escopo fechando junto com a ambientação, o erro passou a ser o caso comum:
+    quase todo pedido é respondido depois do prazo dele.
+
+    ⏱ `criado_em` é UTC (vem do `now()` do banco, que roda em UTC), e o prazo é
+    uma data de trabalho local — daí o `para_hora_local`. Sem ele, um pedido
+    feito às 21h do último dia já nasceria "fora do prazo", porque em UTC ele
+    caiu no dia seguinte.
+
+    Sem prazo (escopo que nunca teve régua correndo) devolve `False`: não dá
+    para afirmar que alguém perdeu um prazo que não existia.
+    """
+    if criado_em is None or prazo is None:
+        return False
+    return para_hora_local(criado_em).date() > prazo
 
 
 def _pedido_do_motivo(pedidos, motivo):
@@ -126,9 +154,19 @@ class ListarAprovacoesPendentesUseCase:
 
         # Uma vez, para as filas que medem dia útil (§5.4). Sem isto a
         # projeção do pedido de dias contaria feriado como dia de trabalho.
-        dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
+        dias_nao_letivos_registros = self.dia_nao_letivo_repository.get_all()
+        dias_nao_letivos = [d.data for d in dias_nao_letivos_registros]
+        # Só os GLOBAIS para a ambientação, que é do projeto inteiro — a mesma
+        # régua de `EncerrarAmbientacaoUseCase` e de `solicitar`.
+        nao_letivos_globais = [
+            d.data
+            for d in dias_nao_letivos_registros
+            if getattr(d, "frente_id", None) is None
+        ]
 
-        dias = self._dias_de_ajuste(escopos, por_id, nomes_escopo, nomes_usuario, dias_nao_letivos)
+        dias = self._dias_de_ajuste(
+            escopos, por_id, nomes_escopo, nomes_usuario, dias_nao_letivos, nao_letivos_globais
+        )
         atrasos = self._atrasos_sem_justificativa(
             projetos, escopos, nomes_escopo, hoje, dias_nao_letivos
         )
@@ -283,7 +321,13 @@ class ListarAprovacoesPendentesUseCase:
         return sorted(linhas, key=lambda x: x["realizado_em"])
 
     def _dias_de_ajuste(
-        self, escopos, por_id, nomes_escopo, nomes_usuario, dias_nao_letivos
+        self,
+        escopos,
+        por_id,
+        nomes_escopo,
+        nomes_usuario,
+        dias_nao_letivos,
+        nao_letivos_globais,
     ) -> List[dict]:
         """§8: o coordenador pediu, a janela não cresce até ela responder.
 
@@ -298,17 +342,36 @@ class ListarAprovacoesPendentesUseCase:
         laço antigo fazia N consultas para achar, em geral, um pedido só.
         """
         pendentes = {p.projeto_escopo_id: p for p in self.reajuste_repository.get_pendentes()}
+        # §8: qual escopo é o primeiro de cada projeto — é ele, e só ele, que
+        # tem o prazo do kickoff (o último dia da ambientação). Sem isto a
+        # pílula "pedido fora do prazo" desta fila contradiria o prazo que o
+        # coordenador viu na tela do projeto.
+        primeiros = {
+            projeto_id: primeiro_escopo_id(lista)
+            for projeto_id, lista in _agrupar_por(escopos, "projeto_id").items()
+        }
         linhas = []
         for escopo in escopos:
             pendente = pendentes.get(escopo.id)
             if not pendente:
                 continue
             projeto = por_id.get(escopo.projeto_id)
+            prazo_do_kickoff = (
+                prazo_pelo_kickoff(
+                    projeto.status,
+                    projeto.data_inicio_ambientacao or projeto.data_kickoff,
+                    projeto.dias_ambientacao,
+                    nao_letivos_globais,
+                )
+                if projeto and primeiros.get(escopo.projeto_id) == escopo.id
+                else None
+            )
             janela_hoje = calcular_janela(
                 escopo.data_inicio,
                 escopo.dias_uteis_vendidos,
                 escopo.dias_uteis_ajustados,
                 dias_nao_letivos,
+                prazo_do_kickoff=prazo_do_kickoff,
             )
             janela_se_aprovar = calcular_janela(
                 escopo.data_inicio,
@@ -334,6 +397,12 @@ class ListarAprovacoesPendentesUseCase:
                     "fim_janela": janela_hoje.fim,
                     "fim_se_aprovar": janela_se_aprovar.fim,
                     "prazo_pedido_ajuste": janela_hoje.prazo_pedido_ajuste,
+                    # ⭐ Derivado aqui, e não na tela: é regra (§20.1), e a
+                    # comparação certa é com a data do PEDIDO. A tela só pinta
+                    # a pílula.
+                    "fora_do_prazo": pedido_fora_do_prazo(
+                        pendente.criado_em, janela_hoje.prazo_pedido_ajuste
+                    ),
                 }
             )
         return sorted(linhas, key=lambda x: x["criado_em"])

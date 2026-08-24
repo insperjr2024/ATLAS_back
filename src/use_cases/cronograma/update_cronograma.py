@@ -33,12 +33,17 @@ from src.repositories.cronograma_repository import (
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import (
     ProjetoStatusHistoricoRepository,
 )
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.janela_escopo import PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, calcular_janela
+from src.utils.janela_escopo import (
+    calcular_janela,
+    prazo_pelo_kickoff,
+    primeiro_escopo_id,
+)
 
 
 class EtapaRequest(BaseModel):
@@ -88,9 +93,34 @@ def _exigir_dentro_da_janela(db: Session, escopo, data_inicio: date, data_fim: d
     if banca and banca.realizado_em:
         return
 
-    dias_nao_letivos = [d.data for d in DiaNaoLetivoRepository(db).get_all()]
+    dias_nao_letivos_registros = DiaNaoLetivoRepository(db).get_all()
+    dias_nao_letivos = [d.data for d in dias_nao_letivos_registros]
     janelas_pausa = derivar_janelas_pausa(
         ProjetoStatusHistoricoRepository(db).get_by_projeto(escopo.projeto_id)
+    )
+    # §8: o prazo do pedido é o que a mensagem abaixo promete, e ele tem duas
+    # réguas — o primeiro escopo pede até o fim da ambientação, os demais nos 3
+    # dias úteis da reunião inicial. Calcular só a régua dos 3 dias aqui fazia
+    # a parede dizer "peça dias" a quem o `solicitar` já ia recusar (e o
+    # contrário, "o prazo venceu", a quem ainda podia pedir).
+    projeto = ProjetoRepository(db).get_by_id(escopo.projeto_id)
+    eh_primeiro = (
+        primeiro_escopo_id(ProjetoEscopoRepository(db).get_by_projeto(escopo.projeto_id))
+        == escopo.id
+    )
+    prazo_do_kickoff = (
+        prazo_pelo_kickoff(
+            projeto.status,
+            projeto.data_inicio_ambientacao or projeto.data_kickoff,
+            projeto.dias_ambientacao,
+            [
+                d.data
+                for d in dias_nao_letivos_registros
+                if getattr(d, "frente_id", None) is None
+            ],
+        )
+        if projeto and eh_primeiro
+        else None
     )
     janela = calcular_janela(
         escopo.data_inicio,
@@ -98,6 +128,7 @@ def _exigir_dentro_da_janela(db: Session, escopo, data_inicio: date, data_fim: d
         escopo.dias_uteis_ajustados,
         dias_nao_letivos,
         janelas_pausa=janelas_pausa,
+        prazo_do_kickoff=prazo_do_kickoff,
     )
 
     if not janela.aberta:
@@ -114,8 +145,7 @@ def _exigir_dentro_da_janela(db: Session, escopo, data_inicio: date, data_fim: d
         f"{janela.prazo_pedido_ajuste.strftime('%d/%m/%Y')}."
         if janela.pedido_ajuste_aberto
         else (
-            f"O prazo para pedir dias de ajuste era de {PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS} "
-            "dias úteis a partir da reunião inicial e já venceu — a janela deste "
+            "O prazo para pedir dias de ajuste já venceu — a janela deste "
             "escopo não muda mais."
         )
     )

@@ -10,9 +10,12 @@ formam UMA regra de negócio ("o pedido é válido?") e espalhá-las faria a rot
 responder 403 num caso e 422 no outro para o mesmo problema:
 
 1. **Só o coordenador pede** — o papel NO PROJETO, não a posição na plataforma.
-2. **Só nos 3 primeiros dias úteis da janela**, e vale a data do PEDIDO (§20.1).
-   Exceção: projeto EM AMBIENTAÇÃO pede a qualquer momento dela, mesmo sem
-   reunião inicial — o último dia da ambientação ainda conta.
+2. **Só dentro do prazo**, e vale a data do PEDIDO (§20.1). O prazo tem duas
+   réguas, conforme a posição do escopo na lista *Escopos vendidos*:
+   o **primeiro escopo** pede até o último dia da ambientação (o kickoff),
+   mesmo sem reunião inicial; **os demais**, nos 3 primeiros dias úteis da
+   reunião inicial deles, porque não existe ambientação para um segundo
+   escopo. Ver `utils/janela_escopo.py`.
 3. **Quantos pedidos precisar** dentro do prazo — o total é a soma dos
    aprovados (+5 e depois +5 = 10 dias ajustados).
 4. **Um pendente por vez**, senão a diretora responderia dois pedidos que se
@@ -35,10 +38,14 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.eventos import notificar_reajuste_solicitado
-from src.utils.ambientacao import ambientacao_em_curso
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.janela_escopo import PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS, calcular_janela
+from src.utils.janela_escopo import (
+    PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS,
+    calcular_janela,
+    prazo_pelo_kickoff,
+    primeiro_escopo_id,
+)
 from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
 #: Teto por pedido. Não é regra do briefing — é uma trava contra o dedo
@@ -144,53 +151,74 @@ class SolicitarReajusteUseCase:
             )
 
     def _exigir_prazo_aberto(self, escopo) -> None:
-        """Os 3 dias úteis do §8, contando a reunião inicial como dia 1 —
-        com UMA exceção: o projeto em ambientação.
+        """O prazo do §8, nas suas duas réguas.
 
-        Escopo sem reunião inicial não tem janela e portanto não tem prazo
-        correndo — pedir dias antes de começar não faz sentido, o próprio
-        início ainda pode mudar. MAS durante a ambientação (o último dia dela
-        conta) o pedido já vale mesmo sem reunião inicial: é ali que a equipe
-        conhece o projeto e descobre que os dias vendidos não fecham, e barrar
-        até a janela abrir era matar o pedido exatamente quando ele nasce.
+        - **Primeiro escopo vendido**: vale até o ÚLTIMO DIA DA AMBIENTAÇÃO, e
+          vale mesmo sem reunião inicial. É na ambientação que a equipe conhece
+          o projeto e descobre que os dias vendidos não fecham; exigir a
+          largada para deixar pedir era matar o pedido exatamente quando ele
+          nasce, e deixar o prazo correr DEPOIS dela era negociar prazo com o
+          time já produzindo.
+        - **Os demais**: 3 dias úteis contados da reunião inicial deles. Um
+          segundo escopo entra num projeto cuja ambientação já aconteceu
+          semanas atrás — pendurar o prazo dele naquela data seria nascer
+          vencido —, e sem reunião inicial ele não tem prazo correndo: pedir
+          dias antes de começar não faz sentido, o próprio início ainda pode
+          mudar.
         """
-        if self._em_ambientacao(escopo):
+        prazo_do_kickoff = self._prazo_do_kickoff(escopo)
+        janela = self._janela(escopo, prazo_do_kickoff=prazo_do_kickoff)
+
+        if janela.pedido_ajuste_aberto:
             return
 
-        janela = self._janela(escopo)
-
-        if not janela.aberta:
+        if janela.prazo_pedido_ajuste is None:
             raise RegraDeNegocioError(
                 "Este escopo ainda não teve reunião inicial — a janela dele nem começou"
             )
-        if not janela.pedido_ajuste_aberto:
+        vencido_em = janela.prazo_pedido_ajuste.strftime("%d/%m/%Y")
+        if prazo_do_kickoff is not None:
             raise RegraDeNegocioError(
-                f"O prazo para pedir dias de ajuste era de {PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS} "
-                f"dias úteis a partir da reunião inicial e venceu em "
-                f"{janela.prazo_pedido_ajuste.strftime('%d/%m/%Y')}. "
+                "O prazo para pedir dias de ajuste do primeiro escopo ia até o "
+                f"último dia da ambientação e venceu em {vencido_em}. "
                 "A partir daqui, o que passar da janela é atraso do projeto."
             )
+        raise RegraDeNegocioError(
+            f"O prazo para pedir dias de ajuste era de {PRAZO_PEDIDO_AJUSTE_DIAS_UTEIS} "
+            f"dias úteis a partir da reunião inicial e venceu em {vencido_em}. "
+            "A partir daqui, o que passar da janela é atraso do projeto."
+        )
 
-    def _em_ambientacao(self, escopo) -> bool:
-        """A exceção da ambientação, com a MESMA régua da virada automática:
-        dias não letivos globais (`frente_id` nulo), porque a ambientação é do
-        projeto inteiro — ver `EncerrarAmbientacaoUseCase`."""
+    def _prazo_do_kickoff(self, escopo):
+        """O último dia da ambientação, quando é ELE o prazo deste escopo.
+
+        `None` = o escopo não é o primeiro da lista *Escopos vendidos*, ou o
+        projeto não tem ambientação para servir de prazo — nos dois casos
+        valem os 3 dias úteis da reunião inicial.
+
+        Dias não letivos GLOBAIS (`frente_id` nulo), a mesma régua da virada
+        automática: a ambientação é do projeto inteiro, não de uma frente
+        (ver `EncerrarAmbientacaoUseCase`).
+        """
         projeto = self.projeto_repository.get_by_id(escopo.projeto_id)
         if not projeto:
-            return False
+            return None
+        escopos = self.escopo_repository.get_by_projeto(escopo.projeto_id)
+        if primeiro_escopo_id(escopos) != escopo.id:
+            return None
         nao_letivos_globais = [
             d.data
             for d in self.dia_nao_letivo_repository.get_all()
             if getattr(d, "frente_id", None) is None
         ]
-        return ambientacao_em_curso(
+        return prazo_pelo_kickoff(
             projeto.status,
             projeto.data_inicio_ambientacao or projeto.data_kickoff,
             projeto.dias_ambientacao,
             nao_letivos_globais,
         )
 
-    def _janela(self, escopo, referencia: Optional[object] = None):
+    def _janela(self, escopo, referencia: Optional[object] = None, prazo_do_kickoff=None):
         dias_nao_letivos = [d.data for d in self.dia_nao_letivo_repository.get_all()]
         # ⚠ **A pausa desloca o prazo do pedido, não só o fim da janela.**
         #
@@ -202,6 +230,10 @@ class SolicitarReajusteUseCase:
         # Além disso, `calcular_contagem_escopo` já desconta a pausa: a mesma
         # resposta trazia duas janelas do mesmo escopo calculadas com
         # calendários diferentes. Mesmo padrão de `marcar_banca_escopo._janela`.
+        #
+        # ⚠ Vale para os 3 dias úteis; o prazo do primeiro escopo é uma DATA
+        # (o fim da ambientação) e a pausa não a desloca — pelo mesmo motivo
+        # que não desloca a virada automática de status.
         janelas_pausa = derivar_janelas_pausa(
             self.historico_repository.get_by_projeto(escopo.projeto_id)
         )
@@ -212,4 +244,5 @@ class SolicitarReajusteUseCase:
             dias_nao_letivos,
             referencia=referencia,
             janelas_pausa=janelas_pausa,
+            prazo_do_kickoff=prazo_do_kickoff,
         )

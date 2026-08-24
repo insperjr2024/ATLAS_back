@@ -5,10 +5,11 @@ o calendário era planejamento livre e o estouro virava atraso. A diretoria
 fechou o contrário — o calendário do escopo é o tempo que foi vendido, e
 esticar o trabalho para fora dele é renegociar prazo.
 
-A porta de saída continua sendo o pedido de dias de ajuste, e ela só está
-aberta nos **3 primeiros dias úteis** depois da largada (§5.4). Por isso a
-mensagem de recusa precisa dizer as três coisas: onde a janela termina, que o
-caminho é pedir dias, e se esse caminho ainda existe.
+A porta de saída continua sendo o pedido de dias de ajuste, e ela tem prazo
+(§5.4): até o último dia da ambientação para o PRIMEIRO escopo vendido, e 3
+dias úteis a partir da largada para os demais. Por isso a mensagem de recusa
+precisa dizer as três coisas: onde a janela termina, que o caminho é pedir
+dias, e se esse caminho ainda existe.
 
 ⚠ Exceção: depois da BANCA REALIZADA, qualquer mudança no cronograma daquele
 escopo é entendida como **ajustes** — e ajuste nasce fora da janela por
@@ -40,6 +41,7 @@ def escopo(entregue=None, ajustados=0, banca=None):
     return SimpleNamespace(
         id=7,
         projeto_id=3,
+        ordem=0,
         data_inicio=QUI_03_09,
         dias_uteis_vendidos=20,
         dias_uteis_ajustados=ajustados,
@@ -48,12 +50,25 @@ def escopo(entregue=None, ajustados=0, banca=None):
     )
 
 
+def projeto(status="em_andamento", data_kickoff=None, dias_ambientacao=5):
+    """Sem kickoff por padrão: o prazo do pedido cai na régua dos 3 dias úteis
+    da largada, que é a que a maioria destes testes mede."""
+    return SimpleNamespace(
+        id=3,
+        status=status,
+        data_kickoff=data_kickoff,
+        data_inicio_ambientacao=None,
+        dias_ambientacao=dias_ambientacao,
+    )
+
+
 @pytest.fixture
 def cronograma(monkeypatch):
     """`(criar, mover, estado)` com os repositórios trocados por dublês."""
 
-    def _montar(alvo=None):
+    def _montar(alvo=None, dono=None):
         alvo = alvo if alvo is not None else escopo()
+        dono = dono if dono is not None else projeto()
         estado = SimpleNamespace(criadas=[], movidas=[])
 
         class EtapaFake:
@@ -71,6 +86,13 @@ def cronograma(monkeypatch):
         class EscopoFake:
             def __init__(self, db): pass
             def get_by_id(self, _id): return alvo
+            # A lista do projeto: é ela que diz se `alvo` é o PRIMEIRO escopo
+            # vendido e, portanto, se o prazo do pedido é o do kickoff.
+            def get_by_projeto(self, _id): return [alvo]
+
+        class ProjetoFake:
+            def __init__(self, db): pass
+            def get_by_id(self, _id): return dono
 
         class BancaFake:
             def __init__(self, db): pass
@@ -88,6 +110,7 @@ def cronograma(monkeypatch):
         for nome, fake in [
             ("CronogramaEtapaRepository", EtapaFake),
             ("ProjetoEscopoRepository", EscopoFake),
+            ("ProjetoRepository", ProjetoFake),
             ("BancaRepository", BancaFake),
             ("DiaNaoLetivoRepository", DiaNaoLetivoFake),
             ("ProjetoStatusHistoricoRepository", HistoricoFake),
@@ -176,6 +199,20 @@ class TestForaDaJanela:
         with pytest.raises(RegraDeNegocioError, match="Peça dias de ajuste"):
             # `referencia` do prazo é hoje; com a largada em 2026 o prazo ainda
             # não começou, e o §20.1 diz que antes dele o pedido está aberto.
+            criar(date(2026, 10, 5), date(2026, 10, 6))
+
+    def test_primeiro_escopo_com_ambientacao_vencida_nao_ganha_a_oferta(self, cronograma):
+        """⭐ A mensagem segue a régua do escopo, não uma régua só.
+
+        Este escopo é o primeiro da lista, e o prazo dele acabou junto com a
+        ambientação (kickoff em 2020, muito antes de hoje). Oferecer "peça
+        dias" aqui mandaria o coordenador a um pedido que `solicitar` recusa.
+        """
+        criar, _, _ = cronograma(
+            dono=projeto(data_kickoff=date(2020, 1, 6))
+        )
+
+        with pytest.raises(RegraDeNegocioError, match="já venceu"):
             criar(date(2026, 10, 5), date(2026, 10, 6))
 
 

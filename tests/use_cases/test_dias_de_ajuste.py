@@ -6,8 +6,10 @@ que "vendidos" continue significando o que foi vendido.
 
 - **Só o coordenador pede**, e é o papel NO PROJETO que vale — não a posição
   na plataforma nem uma caixa de `cargo`.
-- **Só nos 3 primeiros dias úteis**, contando a reunião inicial como dia 1.
-  Depois disso acabou: o que passar da janela é atraso, sem autorização.
+- **Só dentro do prazo**, e ele tem duas réguas: o PRIMEIRO escopo vendido
+  pede até o último dia da ambientação (o kickoff); os demais, nos 3 primeiros
+  dias úteis da reunião inicial deles, contando a reunião como o dia 1. Depois
+  disso acabou: o que passar da janela é atraso, sem autorização.
 - **Aprovar SOMA** em `dias_uteis_ajustados` e **nunca toca no vendido**.
 - **Negar não fecha a porta** — dentro do prazo dá para pedir de novo.
 
@@ -16,7 +18,7 @@ módulo via `monkeypatch`, porque os use cases as instanciam por dentro —
 mesmo idioma de `test_destinatarios_notificacao.py`.
 """
 
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -26,6 +28,7 @@ from src.use_cases.cronograma_reajuste.responder import (
     ResponderReajusteRequest,
     ResponderReajusteUseCase,
 )
+from src.use_cases.monitoramento.aprovacoes import pedido_fora_do_prazo
 from src.use_cases.cronograma_reajuste.solicitar import (
     MAXIMO_DIAS_POR_PEDIDO,
     SolicitarReajusteRequest,
@@ -59,15 +62,18 @@ def projeto(status="em_andamento", data_kickoff=None, dias_ambientacao=5):
     )
 
 
-def escopo(vendidos=20, ajustados=0, data_inicio=QUI_03_09):
+def escopo(vendidos=20, ajustados=0, data_inicio=QUI_03_09, id=7, ordem=0):
     return SimpleNamespace(
-        id=7,
+        id=id,
         projeto_id=3,
         escopo_id=None,
         nome_customizado="Elaboração Contratual",
         dias_uteis_vendidos=vendidos,
         dias_uteis_ajustados=ajustados,
         data_inicio=data_inicio,
+        # A posição na lista *Escopos vendidos* — é ela que decide se o prazo
+        # deste escopo é o do kickoff ou os 3 dias úteis da largada.
+        ordem=ordem,
     )
 
 
@@ -75,9 +81,14 @@ def escopo(vendidos=20, ajustados=0, data_inicio=QUI_03_09):
 def pedir(monkeypatch):
     """Devolve `(executar, estado)` — `estado` mostra o que foi gravado."""
 
-    def _montar(alvo=None, *, hoje=QUI_03_09, equipe=None, pendente=None, dono=None):
+    def _montar(
+        alvo=None, *, hoje=QUI_03_09, equipe=None, pendente=None, dono=None, vendidos=None
+    ):
         alvo = alvo if alvo is not None else escopo()
         dono = dono if dono is not None else projeto()
+        # A lista *Escopos vendidos* do projeto. Com um escopo só, ele é o
+        # primeiro; os testes do segundo escopo passam a lista inteira.
+        vendidos = vendidos if vendidos is not None else [alvo]
         estado = SimpleNamespace(criados=[], notificados=[])
         equipe = equipe if equipe is not None else [
             SimpleNamespace(usuario_id=ANA.id, papel="coordenador"),
@@ -97,7 +108,9 @@ def pedir(monkeypatch):
         class EscopoProjetoFake:
             def __init__(self, db): pass
             def get_by_id(self, escopo_id):
-                return alvo if alvo and alvo.id == escopo_id else None
+                return next((e for e in vendidos if e.id == escopo_id), None)
+            def get_by_projeto(self, projeto_id):
+                return sorted(vendidos, key=lambda e: (e.ordem, e.id))
 
         class CatalogoFake:
             def __init__(self, db): pass
@@ -159,12 +172,6 @@ def pedir(monkeypatch):
             solicitar, "calcular_janela",
             lambda *a, **k: original(*a, **{**k, "referencia": hoje}),
         )
-        # Mesmo atalho para a exceção da ambientação, pelo mesmo motivo.
-        original_amb = solicitar.ambientacao_em_curso
-        monkeypatch.setattr(
-            solicitar, "ambientacao_em_curso",
-            lambda *a, **k: original_amb(*a, **{**k, "referencia": hoje}),
-        )
 
         uc = SolicitarReajusteUseCase.__new__(SolicitarReajusteUseCase)
         uc.__init__(db=None)
@@ -213,7 +220,14 @@ class TestQuemPode:
             executar()
 
 
-class TestPrazo:
+class TestPrazoSemAmbientacao:
+    """A régua dos 3 dias úteis, medida num projeto SEM kickoff marcado.
+
+    Sem ambientação não há "último dia da ambientação" para servir de prazo, e
+    até o primeiro escopo cai na régua da reunião inicial — que é a mesma dos
+    escopos seguintes. É por isso que `projeto()` nasce sem `data_kickoff`.
+    """
+
     def test_no_ultimo_dia_do_prazo_ainda_da(self, pedir):
         """§20.1: vale a data do PEDIDO. 08/09 é o 3º dia útil (07/09 é
         feriado), e a diretora pode responder depois disso."""
@@ -226,7 +240,7 @@ class TestPrazo:
     def test_no_dia_seguinte_acabou(self, pedir):
         executar, _ = pedir(hoje=QUA_09_09)
 
-        with pytest.raises(RegraDeNegocioError, match="prazo para pedir dias"):
+        with pytest.raises(RegraDeNegocioError, match="3 dias úteis"):
             executar()
 
     def test_escopo_sem_reuniao_inicial_nao_tem_prazo_correndo(self, pedir):
@@ -238,12 +252,18 @@ class TestPrazo:
             executar()
 
 
-class TestAmbientacao:
-    """A exceção do §8: enquanto o projeto está EM AMBIENTAÇÃO — e o último
-    dia dela ainda conta — o coordenador já pode pedir dias, mesmo que o
-    escopo não tenha reunião inicial. É na ambientação que a equipe descobre
-    que os dias vendidos não fecham; esperar a janela abrir para deixar pedir
-    era barrar o pedido exatamente quando ele nasce."""
+class TestPrazoDoPrimeiroEscopo:
+    """⭐ O primeiro escopo vendido pede dias **até o último dia da
+    ambientação** — o kickoff.
+
+    É nela que a equipe conhece o projeto e descobre que os dias vendidos não
+    fecham, e é ali que a conversa com a diretoria cabe: a largada seguinte já
+    é o time produzindo dentro de um prazo que ninguém mais vai renegociar.
+
+    ⚠ Isto ENCURTOU a regra anterior, em que a ambientação era só uma exceção
+    que antecipava o pedido e os 3 dias úteis seguiam correndo depois da
+    largada. Hoje, para o primeiro escopo, a largada não estende nada.
+    """
 
     def test_durante_a_ambientacao_pede_sem_reuniao_inicial(self, pedir):
         executar, estado = pedir(
@@ -269,6 +289,23 @@ class TestAmbientacao:
 
         assert len(estado.criados) == 1
 
+    def test_depois_da_ambientacao_a_largada_nao_estende_o_prazo(self, pedir):
+        """⭐ O coração da mudança.
+
+        Largada em 03/09 (o último dia da ambientação) e pedido em 04/09: pela
+        régua antiga ainda haveria dois dias úteis de prazo, porque os 3 dias
+        contavam da reunião inicial. Hoje o prazo do primeiro escopo acabou
+        junto com a ambientação.
+        """
+        executar, _ = pedir(
+            escopo(data_inicio=QUI_03_09),
+            dono=projeto(data_kickoff=SEX_28_08),
+            hoje=date(2026, 9, 4),
+        )
+
+        with pytest.raises(RegraDeNegocioError, match="último dia da ambientação"):
+            executar()
+
     def test_status_atrasado_nao_reabre_depois_do_fim(self, pedir):
         """A virada automática pode não ter rodado: o status ainda diz
         Ambientação, mas a data diz que ela acabou em 02/09 — a data manda."""
@@ -278,12 +315,13 @@ class TestAmbientacao:
             hoje=QUI_03_09,
         )
 
-        with pytest.raises(RegraDeNegocioError, match="reunião inicial"):
+        with pytest.raises(RegraDeNegocioError, match="último dia da ambientação"):
             executar()
 
     def test_projeto_vendido_nao_pede(self, pedir):
         """Antes da ambientação não há equipe em campo — nada para ajustar,
-        e o próprio kickoff ainda pode mudar."""
+        e o próprio kickoff ainda pode mudar. O STATUS é que segura a entrada:
+        sem ele, o escopo cai na régua da reunião inicial, que nem existe."""
         executar, _ = pedir(
             escopo(data_inicio=None),
             dono=projeto(status="vendido", data_kickoff=SEX_28_08),
@@ -293,10 +331,10 @@ class TestAmbientacao:
         with pytest.raises(RegraDeNegocioError, match="reunião inicial"):
             executar()
 
-    def test_na_ambientacao_o_prazo_da_reuniao_nao_barra(self, pedir):
+    def test_reuniao_inicial_dentro_da_ambientacao_nao_encurta_o_prazo(self, pedir):
         """Reunião inicial no 1º dia da ambientação: os 3 dias úteis dela
-        venceriam em 01/09, mas o projeto segue em ambientação até 03/09 —
-        e dentro dela o pedido continua aberto."""
+        venceriam em 01/09, mas o prazo do primeiro escopo é a ambientação
+        inteira, até 03/09."""
         executar, estado = pedir(
             escopo(data_inicio=SEX_28_08),
             dono=projeto(status="ambientacao", data_kickoff=SEX_28_08),
@@ -306,6 +344,65 @@ class TestAmbientacao:
         executar()
 
         assert len(estado.criados) == 1
+
+
+class TestPrazoDoSegundoEscopo:
+    """⭐ O segundo escopo NÃO tem ambientação — ela é do projeto e aconteceu
+    uma vez só, lá no começo.
+
+    Pendurar o prazo dele naquela data seria nascer vencido: quando o segundo
+    escopo larga, semanas depois, a ambientação já acabou há muito. Por isso
+    ele fica com a régua de sempre, os 3 dias úteis da reunião inicial dele.
+    """
+
+    def segundo(self):
+        """A lista *Escopos vendidos* do projeto: o primeiro e o segundo."""
+        primeiro = escopo(id=7, ordem=0, data_inicio=SEX_28_08)
+        segundo = escopo(id=8, ordem=1, data_inicio=QUI_03_09)
+        return segundo, [primeiro, segundo]
+
+    def test_os_3_dias_uteis_valem_mesmo_com_a_ambientacao_encerrada(self, pedir):
+        """Ambientação fechada em 03/09 e pedido em 08/09: para o segundo
+        escopo o que vale é a reunião inicial dele, não o kickoff."""
+        alvo, vendidos = self.segundo()
+        executar, estado = pedir(
+            alvo,
+            vendidos=vendidos,
+            dono=projeto(data_kickoff=SEX_28_08),
+            hoje=TER_08_09,
+        )
+
+        executar()
+
+        assert len(estado.criados) == 1
+
+    def test_no_dia_seguinte_ao_3o_dia_util_acabou(self, pedir):
+        alvo, vendidos = self.segundo()
+        executar, _ = pedir(
+            alvo,
+            vendidos=vendidos,
+            dono=projeto(data_kickoff=SEX_28_08),
+            hoje=QUA_09_09,
+        )
+
+        with pytest.raises(RegraDeNegocioError, match="3 dias úteis"):
+            executar()
+
+    def test_a_ambientacao_do_projeto_nao_abre_pedido_para_ele(self, pedir):
+        """Projeto em ambientação, segundo escopo ainda sem reunião inicial:
+        não há prazo correndo. A ambientação abre o pedido do PRIMEIRO escopo,
+        não o de todos."""
+        primeiro = escopo(id=7, ordem=0, data_inicio=None)
+        alvo = escopo(id=8, ordem=1, data_inicio=None)
+        executar, _ = pedir(
+            alvo,
+            vendidos=[primeiro, alvo],
+            dono=projeto(status="ambientacao", data_kickoff=SEX_28_08),
+            hoje=date(2026, 9, 1),
+        )
+
+        with pytest.raises(RegraDeNegocioError, match="reunião inicial"):
+            executar()
 
 
 class TestValidacaoDoPedido:
@@ -442,3 +539,31 @@ class TestDecisao:
             executar(quem=GIL)
 
         assert estado.atualizacoes == []
+
+
+class TestPedidoForaDoPrazo:
+    """A pílula que a diretoria lê na fila — §20.1: vale a data do PEDIDO.
+
+    ⚠ A conta era "prazo < hoje", e por isso acusava de atrasado quem pediu
+    dentro do prazo e só esperou a resposta. Com o prazo do primeiro escopo
+    fechando junto com a ambientação, isso virou o caso comum: a diretoria
+    quase sempre responde depois que o prazo daquele escopo já passou.
+    """
+
+    PRAZO = date(2026, 8, 25)
+
+    def test_pedido_dentro_do_prazo_nao_e_atrasado_por_demora_da_resposta(self):
+        assert pedido_fora_do_prazo(datetime(2026, 8, 25, 12, 0), self.PRAZO) is False
+
+    def test_pedido_no_fim_do_ultimo_dia_conta_no_fuso_local(self):
+        """⏱ 26/08 00:30 em UTC é 25/08 21:30 em São Paulo — o último dia do
+        prazo. Sem a conversão, quem pede à noite nasce fora do prazo."""
+        assert pedido_fora_do_prazo(datetime(2026, 8, 26, 0, 30), self.PRAZO) is False
+
+    def test_pedido_no_dia_seguinte_e_fora_do_prazo(self):
+        """Só chega aqui pedido gravado por outro caminho (dado antigo, ou
+        prazo que encurtou depois) — `solicitar` recusa na porta."""
+        assert pedido_fora_do_prazo(datetime(2026, 8, 26, 15, 0), self.PRAZO) is True
+
+    def test_escopo_sem_prazo_nao_perde_prazo_nenhum(self):
+        assert pedido_fora_do_prazo(datetime(2026, 8, 26, 15, 0), None) is False
