@@ -64,6 +64,7 @@ from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
 from src.utils.janela_escopo import calcular_janela
 
 
