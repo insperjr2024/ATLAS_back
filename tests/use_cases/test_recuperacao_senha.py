@@ -88,7 +88,7 @@ class TokenRepositoryFake:
         return len(pendentes)
 
     def create(self, **kwargs):
-        token = TokenFake(**kwargs, criado_em=AGORA)
+        token = TokenFake(**kwargs)
         self._tokens.append(token)
         self.criados.append(kwargs)
         return token

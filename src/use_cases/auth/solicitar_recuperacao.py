@@ -46,7 +46,13 @@ class SolicitarRecuperacaoUseCase:
         agora = agora or datetime.now()
         settings = get_settings()
 
-        usuario = self.usuario_repository.get_by_email_insper(request.email_insper)
+        # .strip() pelo mesmo motivo do login: e-mail colado do Gmail ou
+        # preenchido pelo teclado do celular costuma trazer espaço sobrando.
+        # Sem isso a busca falha, a pessoa cai na resposta neutra e nunca
+        # descobre que o problema foi um espaço, porque essa resposta não
+        # revela se o usuário foi encontrado ou não.
+        email = request.email_insper.strip()
+        usuario = self.usuario_repository.get_by_email_insper(email)
 
         # Usuário inexistente ou desativado: sai calado, com a resposta neutra.
         # Desativado não pode voltar pelo reset — seria contornar o §10, que
@@ -87,6 +93,14 @@ class SolicitarRecuperacaoUseCase:
         self.token_repository.create(
             usuario_id=usuario.id,
             token_hash=hash_token(token),
+            # criado_em explícito, e não o server_default da coluna: aquele é
+            # func.now() do Postgres, que no Supabase é UTC, enquanto todo o
+            # resto do sistema grava carimbo de auditoria com datetime.now()
+            # (hora local, ver src/utils/fuso.py). Sem isso o freio de spam
+            # logo abaixo compara "agora" local com um criado_em em UTC, a
+            # subtração dá negativa, e o freio trava a próxima solicitação
+            # de verdade por até 3 horas sem avisar ninguém.
+            criado_em=agora,
             expira_em=agora + timedelta(minutes=settings.RESET_TOKEN_EXPIRE_MINUTES),
         )
 
