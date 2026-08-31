@@ -34,6 +34,7 @@ from src.use_cases.cronograma.update_cronograma import (
     UpdateEtapaDetalheUseCase,
     UpdateEtapaIntervaloUseCase,
 )
+from src.use_cases.cronograma.ajuste_manual import AjusteManualRequest, AjusteManualUseCase
 from src.use_cases.cronograma_reajuste.listar_pendentes import ListarReajustesPendentesUseCase
 from src.use_cases.cronograma_reajuste.responder import ResponderReajusteRequest, ResponderReajusteUseCase
 from src.use_cases.cronograma_reajuste.solicitar import SolicitarReajusteRequest, SolicitarReajusteUseCase
@@ -137,18 +138,39 @@ def solicitar_reajuste(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """§8: o coordenador pede DIAS DE AJUSTE para o escopo.
+    """§8: o coordenador do projeto (ou a diretoria de projetos) pede DIAS DE
+    AJUSTE para o escopo.
 
     ⚠ **Sem `require_pode_definir_cronograma` de propósito.** Quem pode pedir é
     o coordenador DAQUELE projeto — papel na equipe, não uma das caixas de
     `cargo`. Exigir a caixa aqui barraria com 403 um coordenador de verdade
     cujo cargo não a tem marcada, que é exatamente quem o §8 autoriza. A
-    checagem mora no use case, junto das outras regras do pedido."""
+    checagem mora no use case, junto das outras regras do pedido — e desde
+    2026-08-31 ela deixa passar também a diretoria de projetos."""
     _projeto_do_escopo(escopo_id, current_user, db)
     try:
         return SolicitarReajusteUseCase(db).execute(escopo_id, request, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.put("/escopos-projeto/{escopo_id}/ajuste-manual")
+def ajuste_manual(
+    escopo_id: int,
+    request: AjusteManualRequest,
+    current_user=Depends(require_diretor_projetos),
+    db: Session = Depends(get_db),
+):
+    """⭐ A diretoria de projetos muda o tamanho da janela do escopo, a
+    qualquer momento e sem passar pelas travas do §8.
+
+    ⚠ **`require_diretor_projetos` e não `require_pode_definir_cronograma`.**
+    Aqui a guarda é de POSIÇÃO de propósito: isto não é "editar cronograma"
+    (uma caixa que coordenador e gerente têm), é atravessar a regra que diz o
+    que é o trabalho vendido. Não deve ser delegável pela tela de permissões.
+    """
+    _projeto_do_escopo(escopo_id, current_user, db)
+    return _executar(lambda: AjusteManualUseCase(db).execute(escopo_id, request))
 
 
 @router.get("/reajustes/pendentes")

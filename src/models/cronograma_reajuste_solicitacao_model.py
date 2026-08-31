@@ -16,7 +16,9 @@ class CronogramaReajusteSolicitacaoModel(Base):
 
     As regras que moram no use case, não aqui:
 
-    - **Só o coordenador pede, só o diretor decide.**
+    - **Pede o coordenador do projeto ou a diretoria de projetos, e só a
+      diretoria de projetos decide.** (A diretoria pede desde 2026-08-31;
+      ver `use_cases/cronograma_reajuste/solicitar.py`.)
     - **Só nos 3 primeiros dias úteis da janela**, contando a data da reunião
       inicial como dia 1. Vale a data do PEDIDO, não a da decisão — pedido no
       3º dia e aprovado no 6º continua sendo ajuste.

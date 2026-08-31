@@ -37,7 +37,13 @@ class ProjetoEscopoModel(Base):
     #: apagaria a diferença entre "vendemos 30" e "vendemos 20 e estouramos".
     dias_uteis_vendidos = Column(Integer, nullable=False)
     #: Dias extras autorizados pela diretoria, nos 3 primeiros dias úteis da
-    #: janela. Só cresce, e é a soma de todos os pedidos aprovados.
+    #: janela — a soma de todos os pedidos aprovados (§8).
+    #:
+    #: ⚠ **Pode ser NEGATIVO desde 2026-08-31.** Deixou de "só crescer" quando
+    #: a diretoria de projetos ganhou o ajuste manual da janela
+    #: (`use_cases/cronograma/ajuste_manual.py`): encolher a janela abaixo do
+    #: que foi vendido mexe aqui, porque a alternativa seria sobrescrever
+    #: `dias_uteis_vendidos` e perder o registro comercial.
     dias_uteis_ajustados = Column(Integer, nullable=False, default=0, server_default="0")
     # Ordem de exibição na tela do projeto — não é o `id` (que é ordem de
     # criação, e reordenar não deveria recriar linha). Default 0 pra quem já

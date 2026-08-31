@@ -9,7 +9,8 @@ Quatro regras, e todas as quatro estão aqui e não no router, porque juntas
 formam UMA regra de negócio ("o pedido é válido?") e espalhá-las faria a rota
 responder 403 num caso e 422 no outro para o mesmo problema:
 
-1. **Só o coordenador pede** — o papel NO PROJETO, não a posição na plataforma.
+1. **Pede o coordenador do projeto ou a diretoria de projetos** — para o
+   coordenador vale o papel NO PROJETO, não a posição na plataforma.
 2. **Só dentro do prazo**, e vale a data do PEDIDO (§20.1). O prazo tem duas
    réguas, conforme a posição do escopo na lista *Escopos vendidos*:
    o **primeiro escopo** pede até o último dia da ambientação (o kickoff),
@@ -47,7 +48,12 @@ from src.utils.janela_escopo import (
     prazo_pelo_kickoff,
     primeiro_escopo_id,
 )
-from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
+from src.middlewares.authorization import (
+    DIRETORIA,
+    DIRETORIA_DE_PESSOAS,
+    DIRETORIA_DE_PROJETOS,
+    eh_diretoria_de_projetos,
+)
 
 #: Teto por pedido. Não é regra do briefing — é uma trava contra o dedo
 #: escorregando no teclado ("+300 dias"), que a diretora aprovaria sem
@@ -102,7 +108,7 @@ class SolicitarReajusteUseCase:
         if not escopo:
             raise RegraDeNegocioError("Escopo não encontrado")
 
-        self._exigir_coordenador(escopo, current_user)
+        self._exigir_quem_pode(escopo, current_user)
         self._exigir_prazo_aberto(escopo)
 
         if request.dias_solicitados < 1:
@@ -129,26 +135,51 @@ class SolicitarReajusteUseCase:
 
         nome_escopo = nome_do_escopo(escopo, self.catalogo_repository)
         for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
+            # Quem pediu não é avisado do próprio pedido — desde 2026-08-31 a
+            # diretora de projetos também pede, e sem isto ela receberia uma
+            # notificação para ir ver o que ela mesma acabou de escrever.
+            if diretor.id == current_user.id:
+                continue
             notificar_reajuste_solicitado(
                 self.db, diretor.id, escopo.projeto_id, escopo.id, nome_escopo, current_user.nome
             )
 
         return serializar_solicitacao(solicitacao)
 
-    def _exigir_coordenador(self, escopo, current_user) -> None:
-        """§8: só o coordenador pede — e é o papel NO PROJETO que vale.
+    def _exigir_quem_pode(self, escopo, current_user) -> None:
+        """§8: pede o coordenador DO PROJETO ou a diretoria de projetos.
 
-        Diretor e gerente não pedem porque não é deles a informação: quem sabe
-        que os dias não dão conta é quem está conduzindo o escopo. O diretor,
-        aliás, não precisaria pedir — ele decide.
+        Para o coordenador vale o papel NO PROJETO (2026-08-31: em qualquer
+        um dos escopos dele — um projeto pode ter mais de um coordenador, e
+        nenhum deles é dono de um escopo específico), porque quem sabe que os
+        dias não dão conta é quem está conduzindo.
+
+        ⚠ **A diretoria de projetos entra por fora da equipe** (2026-08-31, a
+        pedido). Ela enxerga o portfólio inteiro, então pede em qualquer
+        projeto, sem estar na equipe dele. Antes era barrada aqui com o
+        argumento de que "ela decide, não pede" — na prática ela precisava
+        abrir o pedido pelo coordenador para deixar a decisão registrada no
+        Histórico (§13), e o caminho não existia.
+
+        ⚠ Isso a deixa **aprovar o próprio pedido**: quem responde é
+        `require_diretor_projetos` (ver `responder.py`), a mesma posição. Não
+        há trava contra isso, e é deliberado — a alternativa seria travar a
+        única posição que pode decidir. O registro no Histórico é o que
+        preserva a rastreabilidade.
+
+        Gerente e consultor continuam de fora: nem conduzem o escopo nem
+        decidem sobre ele.
         """
+        if eh_diretoria_de_projetos(current_user):
+            return
         eh_coordenador = any(
             m.usuario_id == current_user.id and m.papel == "coordenador"
             for m in self.membro_repository.get_by_projeto(escopo.projeto_id, apenas_atuais=True)
         )
         if not eh_coordenador:
             raise RegraDeNegocioError(
-                "Só o coordenador do projeto pede dias de ajuste (§8)"
+                "Só o coordenador do projeto ou a diretoria de projetos "
+                "pedem dias de ajuste (§8)"
             )
 
     def _exigir_prazo_aberto(self, escopo) -> None:
