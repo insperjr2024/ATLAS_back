@@ -25,6 +25,7 @@ from src.use_cases.projeto_escopo.create_escopo_projeto import (
     CreateEscopoProjetoUseCase,
     EscopoVendidoRequest,
 )
+from src.use_cases.projeto_escopo.permissao_escopo import exigir_pode_editar_escopos
 from src.use_cases.projeto_escopo.get_escopos_projeto import (
     ListEscoposProjetoUseCase,
     ListTodosEscoposVendidosUseCase,
@@ -552,9 +553,18 @@ def list_todos_escopos_vendidos(db: Session = Depends(get_db)):
 
 
 @router.post("/projetos/{projeto_id}/escopos")
-def create_escopo(projeto_id: int, request: EscopoVendidoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+def create_escopo(projeto_id: int, request: EscopoVendidoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+    """§4: acrescenta um escopo vendido ao projeto.
+
+    ⚠ **`require_lideranca` e não `require_gestao`** desde 2026-08-31: o
+    coordenador do projeto passou a mexer nos escopos vendidos, e a gerência de
+    frente deixou de mexer. A guarda de posição sozinha não resolve nenhum dos
+    dois lados (ela deixaria passar o coordenador de QUALQUER projeto, e o
+    gerente de todos), então quem decide é `exigir_pode_editar_escopos` logo
+    abaixo — o `require_lideranca` aqui é só o filtro grosso."""
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
+        exigir_pode_editar_escopos(projeto_id, current_user, db)
         result = CreateEscopoProjetoUseCase(db).execute(projeto_id, request)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -564,18 +574,24 @@ def create_escopo(projeto_id: int, request: EscopoVendidoRequest, current_user=D
 
 
 @router.patch("/escopos-projeto/{escopo_id}")
-def update_escopo(escopo_id: int, request: UpdateEscopoProjetoRequest, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
-    _projeto_do_escopo(escopo_id, current_user, db)
+def update_escopo(escopo_id: int, request: UpdateEscopoProjetoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+    """Ver `create_escopo` sobre a troca de `require_gestao` por
+    `require_lideranca` + `exigir_pode_editar_escopos`."""
+    projeto_id = _projeto_do_escopo(escopo_id, current_user, db)
     try:
+        exigir_pode_editar_escopos(projeto_id, current_user, db)
         return UpdateEscopoProjetoUseCase(db).execute(escopo_id, request)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.delete("/escopos-projeto/{escopo_id}", status_code=204)
-def delete_escopo(escopo_id: int, current_user=Depends(require_gestao), db: Session = Depends(get_db)):
-    _projeto_do_escopo(escopo_id, current_user, db)
+def delete_escopo(escopo_id: int, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
+    """Ver `create_escopo` sobre a troca de `require_gestao` por
+    `require_lideranca` + `exigir_pode_editar_escopos`."""
+    projeto_id = _projeto_do_escopo(escopo_id, current_user, db)
     try:
+        exigir_pode_editar_escopos(projeto_id, current_user, db)
         DeleteEscopoProjetoUseCase(db).execute(escopo_id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
