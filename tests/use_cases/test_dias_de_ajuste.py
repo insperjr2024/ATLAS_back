@@ -4,8 +4,10 @@ no cronograma.
 Quatro regras dominam estes testes, e todas as quatro protegem a mesma coisa:
 que "vendidos" continue significando o que foi vendido.
 
-- **Só o coordenador pede**, e é o papel NO PROJETO que vale — não a posição
-  na plataforma nem uma caixa de `cargo`.
+- **Pede o coordenador do projeto ou a diretoria de projetos.** Para o
+  coordenador vale o papel NO PROJETO — não a posição na plataforma nem uma
+  caixa de `cargo`; a diretoria de projetos entra pela POSIÇÃO, sem estar na
+  equipe (2026-08-31).
 - **Só dentro do prazo**, e ele tem duas réguas: o PRIMEIRO escopo vendido
   pede até o último dia da ambientação (o kickoff); os demais, nos 3 primeiros
   dias úteis da reunião inicial deles, contando a reunião como o dia 1. Depois
@@ -209,12 +211,31 @@ class TestQuemPode:
         with pytest.raises(RegraDeNegocioError, match="Só o coordenador"):
             executar(quem=CAIO)
 
-    def test_diretor_nao_pede_para_si_mesmo(self, pedir):
-        """Ele decide, não pede — e não está na equipe do projeto."""
+    def test_diretoria_de_projetos_pede_sem_estar_na_equipe(self, pedir):
+        """2026-08-31: ela enxerga o portfólio inteiro e pede em qualquer
+        projeto. Antes era barrada aqui ("decide, não pede")."""
+        executar, estado = pedir()
+
+        resposta = executar(quem=DANI)
+
+        assert resposta["dias_solicitados"] == 10
+        assert estado.criados[0]["solicitado_por"] == DANI.id
+
+    def test_quem_pede_nao_e_notificado_do_proprio_pedido(self, pedir):
+        """DANI é a única `diretor_projetos` do dublê: pedindo ela mesma, não
+        sobra ninguém para avisar."""
+        executar, estado = pedir()
+
+        executar(quem=DANI)
+
+        assert estado.notificados == []
+
+    def test_gerente_nao_pede(self, pedir):
+        """Nem conduz o escopo nem decide sobre ele."""
         executar, _ = pedir()
 
         with pytest.raises(RegraDeNegocioError, match="Só o coordenador"):
-            executar(quem=DANI)
+            executar(quem=GIL)
 
     def test_coordenador_de_outro_projeto_nao_pede(self, pedir):
         """A equipe deste projeto não tem a Ana como coordenadora."""
