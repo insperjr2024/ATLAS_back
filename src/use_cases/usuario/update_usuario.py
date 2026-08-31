@@ -79,6 +79,17 @@ class UpdateUsuarioUseCase:
             return None
         posicao_anterior = anterior.posicao
 
+        # Troca de email: barra o branco e a colisão com outra conta antes de
+        # bater na constraint UNIQUE do banco, que viraria um 500 sem mensagem.
+        if "email_insper" in data:
+            novo_email = (data["email_insper"] or "").strip()
+            if not novo_email:
+                raise RegraDeNegocioError("O email não pode ficar em branco")
+            data["email_insper"] = novo_email
+            ja_existe = self.repository.get_by_email_insper(novo_email)
+            if ja_existe and ja_existe.id != usuario_id:
+                raise RegraDeNegocioError("Já existe uma conta com este email")
+
         # `ativo` é espelho de `status`: mexer num mantém o outro coerente, senão
         # o login (que lê `ativo`) e a tela de Membros (que lê `status`) divergem.
         if "status" in data:
