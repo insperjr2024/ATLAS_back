@@ -13,7 +13,43 @@ from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.equipe_banca import membros_da_banca
+
+
+def composicao_da_banca(banca, frentes, candidatura_usuario_ids, checker, resolver) -> list:
+    """⭐ A composição desta banca, frente a frente — o que a matriz de
+    Configurações exige e o que a banca TEM (2026-09-02).
+
+    Existe porque `piso_minimo` é uma soma: ele diz "faltam 2" e não diz de
+    quê. A aba Bancas precisa da quebra para dizer "falta 1 de Direito", e
+    calculá-la no front exigiria repetir aqui a regra da liderança, a exclusão
+    da equipe do projeto e a leitura da matriz — três coisas que já vivem no
+    `ComposicaoBancaChecker`.
+
+    `checker` e `resolver` vêm de fora porque a listagem monta isto para todas
+    as bancas do semestre: um por requisição, com os caches deles quentes,
+    em vez de um por banca.
+    """
+    if not frentes:
+        # Banca legada, sem frente vinculada: não há combinação e não há o que
+        # exigir por frente. Devolver `[]` (e não erro) deixa a tela mostrar
+        # só o teto, que é o que sempre valeu para ela.
+        return []
+    regras = resolver.para([f.id for f in frentes])
+    return [
+        {
+            "frente_id": c.frente_id,
+            "frente_nome": c.frente_nome,
+            "min_membros": c.min_membros,
+            "max_membros": c.max_membros,
+            "min_lideranca": c.min_lideranca,
+            "max_lideranca": c.max_lideranca,
+            "membros": c.membros,
+            "liderancas": c.liderancas,
+        }
+        for c in checker.contar(banca, regras, set(candidatura_usuario_ids))
+    ]
 
 
 class GetBancaUseCase:
@@ -62,6 +98,9 @@ class GetBancaUseCase:
             # é o teto de quantos cabem. Sem este campo a tela tinha de
             # reimplementar a regra, e usava o teto por engano.
             "piso_minimo": self._piso(banca),
+            # A mesma exigência do `piso_minimo` acima, aberta por frente —
+            # ver `composicao_da_banca`.
+            "composicao": self._composicao(banca, candidaturas),
             # ⭐ §8: quem NÃO pode avaliar esta banca por ser do grupo dela.
             # Sai daqui, e não do `equipe_projeto` sozinho, porque banca
             # marcada pelo cronograma não escreve naquela tabela legada — a
@@ -81,9 +120,22 @@ class GetBancaUseCase:
         }
 
     def _piso(self, banca) -> int:
+        return calcular_piso_banca(banca, self._frentes(banca), self.db)
+
+    def _frentes(self, banca):
         vinculos = self.banca_frente_repository.get_by_banca(banca.id)
-        frentes = [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f]
-        return calcular_piso_banca(banca, frentes, self.db)
+        return [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f]
+
+    def _composicao(self, banca, candidaturas) -> list:
+        from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
+
+        return composicao_da_banca(
+            banca,
+            self._frentes(banca),
+            [c.usuario_id for c in candidaturas],
+            ComposicaoBancaChecker(self.db),
+            ResolverComposicaoUseCase(self.db),
+        )
 
 
 class ListBancasUseCase:
@@ -110,7 +162,15 @@ class ListBancasUseCase:
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
 
     def execute(self):
+        from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
+
         bancas = self.repository.get_all()
+        # ⚠ Um checker e um resolver para a listagem INTEIRA: os dois guardam
+        # em cache o que leram (usuários, vínculos de frente, regras), e um
+        # por banca devolveria a varredura de usuários por linha que este
+        # `execute` evita desde sempre.
+        checker = ComposicaoBancaChecker(self.db)
+        resolver = ResolverComposicaoUseCase(self.db)
         configuracao = self.configuracao_repository.get()
         vagas = configuracao.vagas_por_banca if configuracao else 5
         semestres = self.semestre_repository.get_all()
@@ -124,6 +184,11 @@ class ListBancasUseCase:
         for b in bancas:
             candidaturas = self.candidatura_repository.get_by_banca(b.id)
             semestre = identificar_semestre(b.data_hora, semestres)
+            frentes_da_banca = [
+                frentes_por_id[v.frente_id]
+                for v in self.banca_frente_repository.get_by_banca(b.id)
+                if v.frente_id in frentes_por_id
+            ]
             resultado.append({
                 "id": b.id,
                 "nome_projeto": b.nome_projeto,
@@ -139,14 +204,13 @@ class ListBancasUseCase:
                 "piso_minimo_override": b.piso_minimo_override,
                 "descricao_coordenador": b.descricao_coordenador,
                 "descricao_coordenador_enviada_em": b.descricao_coordenador_enviada_em,
-                "piso_minimo": calcular_piso_banca(
+                "piso_minimo": calcular_piso_banca(b, frentes_da_banca, self.db),
+                "composicao": composicao_da_banca(
                     b,
-                    [
-                        frentes_por_id[v.frente_id]
-                        for v in self.banca_frente_repository.get_by_banca(b.id)
-                        if v.frente_id in frentes_por_id
-                    ],
-                    self.db,
+                    frentes_da_banca,
+                    [c.usuario_id for c in candidaturas],
+                    checker,
+                    resolver,
                 ),
                 "equipe_ids": sorted(
                     membros_da_banca(

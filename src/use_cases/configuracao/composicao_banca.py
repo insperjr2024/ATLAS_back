@@ -62,12 +62,24 @@ class ResolverComposicaoUseCase:
         self.repository = BancaComposicaoRegraRepository(db)
         self.frente_repository = FrenteRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
+        self._cache: Dict[str, List[RegraDaFrente]] = {}
+        self._cache_frentes: Optional[Dict[int, object]] = None
+        self._cache_lideranca: Optional[int] = None
 
     def para(self, frente_ids: List[int]) -> List[RegraDaFrente]:
-        """A regra de cada frente da combinação, na ordem dos ids."""
+        """A regra de cada frente da combinação, na ordem dos ids.
+
+        ⚠ O resultado fica em cache NA INSTÂNCIA. `GET /bancas` pergunta uma
+        vez por banca, e a maioria das bancas do semestre repete um punhado de
+        combinações — sem o cache, cada linha da lista custava uma varredura
+        de frentes, uma leitura da configuração e uma consulta às regras. O
+        cache dura o que a instância durar: uma requisição.
+        """
         combinacao = chave(frente_ids)
+        if combinacao in self._cache:
+            return self._cache[combinacao]
         gravadas = self.repository.get_por_frente(combinacao)
-        frentes = {f.id: f for f in self.frente_repository.get_all()}
+        frentes = self._frentes()
         padrao_lideranca = self._lideranca_padrao()
 
         regras = []
@@ -100,11 +112,21 @@ class ResolverComposicaoUseCase:
                         configurada=False,
                     )
                 )
+        self._cache[combinacao] = regras
         return regras
 
+    def _frentes(self) -> Dict[int, object]:
+        if self._cache_frentes is None:
+            self._cache_frentes = {f.id: f for f in self.frente_repository.get_all()}
+        return self._cache_frentes
+
     def _lideranca_padrao(self) -> int:
-        config = self.configuracao_repository.get()
-        return getattr(config, "lideranca_minima_por_frente", 1) if config else 1
+        if self._cache_lideranca is None:
+            config = self.configuracao_repository.get()
+            self._cache_lideranca = (
+                getattr(config, "lideranca_minima_por_frente", 1) if config else 1
+            )
+        return self._cache_lideranca
 
     def listar_combinacoes(self) -> List[dict]:
         """O seletor da tela: toda combinação possível, com o resumo do que
