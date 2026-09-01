@@ -18,6 +18,8 @@ from src.utils.equipe_banca import membros_da_banca
 
 class GetBancaUseCase:
     def __init__(self, db: Session):
+        #: A sessão, para `calcular_piso_banca` ler a matriz de composição.
+        self.db = db
         self.repository = BancaRepository(db)
         self.vendedor_repository = ProjetoVendedorRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
@@ -81,11 +83,16 @@ class GetBancaUseCase:
     def _piso(self, banca) -> int:
         vinculos = self.banca_frente_repository.get_by_banca(banca.id)
         frentes = [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f]
-        return calcular_piso_banca(banca, frentes)
+        return calcular_piso_banca(banca, frentes, self.db)
 
 
 class ListBancasUseCase:
     def __init__(self, db: Session):
+        # ⚠ A sessão em si, e não só os repositórios: `calcular_piso_banca`
+        # precisa dela para ler a matriz de composição (2026-09-01). Sem esta
+        # linha, `GET /bancas` devolve 500 — foi o que aconteceu, pela segunda
+        # vez nesta classe, pelo mesmo motivo descrito abaixo.
+        self.db = db
         self.repository = BancaRepository(db)
         # ⚠ Este arquivo tem DUAS classes, e as duas chamam `membros_da_banca`.
         # Quando o vendedor entrou no §8 (2026-08-20), o repositório foi
@@ -139,6 +146,7 @@ class ListBancasUseCase:
                         for v in self.banca_frente_repository.get_by_banca(b.id)
                         if v.frente_id in frentes_por_id
                     ],
+                    self.db,
                 ),
                 "equipe_ids": sorted(
                     membros_da_banca(

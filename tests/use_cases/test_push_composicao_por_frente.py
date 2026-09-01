@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.use_cases.banca import push_alocacao_automatica as mod
+from src.use_cases.configuracao import composicao_banca as composicao_mod
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 
 
@@ -156,6 +157,27 @@ def montar(
     coordenador_id=None,
 ):
     monkeypatch.setattr(mod, "notificar", lambda *a, **k: None)
+
+    # ⭐ O piso da banca passou a sair da matriz por combinação de frentes
+    # (2026-09-01). Estes testes medem o PUSH, não a matriz: com a tabela
+    # vazia, o resolver cai no padrão — `frente.piso_banca` mais o mínimo de
+    # liderança global —, que é a régua que eles sempre usaram.
+    class FakeRegraRepo:
+        def __init__(self, db): pass
+        def get_por_frente(self, _combinacao): return {}
+
+    class FakeFrenteRepoTodas:
+        def __init__(self, db): pass
+        def get_all(self): return list(frentes.values())
+
+    class FakeConfigRepoResolver:
+        def __init__(self, db): pass
+        def get(self):
+            return SimpleNamespace(lideranca_minima_por_frente=lideranca_minima)
+
+    monkeypatch.setattr(composicao_mod, "BancaComposicaoRegraRepository", FakeRegraRepo)
+    monkeypatch.setattr(composicao_mod, "FrenteRepository", FakeFrenteRepoTodas)
+    monkeypatch.setattr(composicao_mod, "ConfiguracaoRepository", FakeConfigRepoResolver)
     uc = PushAlocacaoAutomaticaUseCase.__new__(PushAlocacaoAutomaticaUseCase)
     uc.db = None
     uc.banca_frente_repository = FakeBancaFrenteRepo(frente_ids)
