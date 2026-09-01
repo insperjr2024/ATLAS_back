@@ -31,6 +31,26 @@ class ProjetoEscopoModel(Base):
     escopo_id = Column(Integer, ForeignKey("escopo.id"), nullable=True, index=True)
     nome_customizado = Column(String(150), nullable=True)
     frente_id = Column(Integer, ForeignKey("frente.id"), nullable=False, index=True)
+    #: ⭐ O calendário acadêmico que ESTE escopo segue — a base da contagem de
+    #: dias úteis dele: janela, atraso e o cinza do cronograma.
+    #:
+    #: Guarda o rótulo, igual a `dia_nao_letivo.variante`, e vale dentro de
+    #: `frente_id`: o par (frente, calendário) é o que identifica um calendário
+    #: base. Só o rótulo não bastaria — "Engenharias" existe na Tech, e nada
+    #: impediria outra frente de ter um calendário de mesmo nome.
+    #:
+    #: `NULL` é legítimo e não quer dizer "não escolhido": é o calendário da
+    #: frente que tem um só (Business, Direito, Processos), o mesmo nulo de
+    #: `dia_nao_letivo.variante`. Não há rótulo a inventar para uma frente de
+    #: curso único, então quem obriga a escolher é o cadastro — a criação e a
+    #: edição do escopo exigem um calendário que EXISTA na frente dele —, não a
+    #: coluna.
+    #:
+    #: ⚠ Vive no escopo, e não no projeto, porque um projeto sinérgico tem
+    #: escopos em frentes diferentes e cada frente tem o calendário do curso
+    #: dela. `projeto.calendario` existiu até a `e5c1a9f37b64` e não dava conta
+    #: disso: um campo só não representa dois cursos.
+    calendario = Column(String(30), nullable=True)
     #: ⭐ **Imutável — é o registro comercial.** O que foi vendido ao cliente
     #: nunca é sobrescrito: precisar de mais tempo soma em `dias_uteis_ajustados`,
     #: e o que passar dos dois vira atraso (derivado). Sobrescrever este número

@@ -9,7 +9,7 @@ sincronização: é a mesma linha lida duas vezes.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -34,6 +34,7 @@ from src.use_cases.notificacao.eventos import notificar_banca_remarcada
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.piso_banca import calcular_piso_banca
+from src.utils.calendario_variante import apenas_globais, datas_por_escopo
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import CODIGO_BANCA_ABAIXO_DO_MINIMO, RegraDeNegocioError
 from src.utils.fuso import normalizar_utc
@@ -403,8 +404,11 @@ class MarcarBancaEscopoUseCase:
             self.banca_frente_repository.create(banca_id=banca_id, frente_id=frente_id)
 
     def _janela_do_escopo(self, escopo):
+        # ⭐ O calendário base DESTE escopo (`projeto_escopo.calendario` dentro
+        # da frente dele): a janela em que a banca precisa caber (§9) é contada
+        # no calendário do curso do time, não no da frente vizinha.
         dias_nao_letivos = [
-            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(escopo.projeto_id)
+            d.data for d in self.dia_nao_letivo_repository.get_do_escopo(escopo)
         ]
         # A janela precisa enxergar as pausas do projeto — senão a banca de um
         # projeto que ficou ⏸ Pausado é barrada por uma data que já não é o fim
@@ -419,6 +423,31 @@ class MarcarBancaEscopoUseCase:
             dias_nao_letivos,
             janelas_pausa=janelas_pausa,
         )
+
+    def _calendario_da_banca(self, banca_id: int) -> List[date]:
+        """A UNIÃO dos calendários dos escopos que esta banca cobre.
+
+        Uma banca pode avaliar escopos de frentes diferentes (§9), e aí não
+        existe "o" calendário dela. A união é a escolha conservadora: mais dias
+        não letivos significa menos dias úteis até a banca, logo uma folga
+        menor e o gate do §13 disparando mais — que é o lado certo de errar
+        quando os avaliadores já estão escalados.
+
+        Sem escopo vinculado sobram os globais, que é o calendário de quem não
+        declarou nenhum.
+        """
+        escopos = [
+            e
+            for e in (
+                self.escopo_repository.get_by_id(escopo_id)
+                for escopo_id in self.banca_escopo_repository.get_escopo_ids(banca_id)
+            )
+            if e
+        ]
+        registros = self.dia_nao_letivo_repository.get_all()
+        if not escopos:
+            return [d.data for d in apenas_globais(registros)]
+        return sorted({d for e in escopos for d in datas_por_escopo(registros, [e])[e.id]})
 
     def _exigir_janela(
         self,
@@ -535,13 +564,9 @@ class MarcarBancaEscopoUseCase:
         if not (request.justificativa or "").strip():
             raise RegraDeNegocioError("Remarcar uma banca exige justificativa")
 
-        # A folga é contada no calendário DESTE projeto: cinco dias úteis para
-        # um time de Ciência da Computação não são os mesmos cinco de um das
-        # engenharias quando a semana de provas de um cai no meio.
-        dias_nao_letivos = [
-            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(projeto_id)
-        ]
-        folga = dias_uteis_ate_a_banca(existente.data_hora, dias_nao_letivos)
+        folga = dias_uteis_ate_a_banca(
+            existente.data_hora, self._calendario_da_banca(existente.id)
+        )
 
         if folga is not None and folga <= FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS and not eh_diretor_projetos:
             raise RegraDeNegocioError(

@@ -17,7 +17,6 @@ from src.repositories.cronograma_repository import (
     CronogramaMarcoRepository,
 )
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
-from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import (
@@ -26,7 +25,7 @@ from src.repositories.projeto_status_historico_repository import (
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.projeto_escopo.get_escopos_projeto import ListEscoposProjetoUseCase
-from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
+from src.utils.calendario_variante import apenas_globais, datas_por_escopo, do_escopo
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.dias_uteis import somar_dias_uteis
 from src.utils.janela_escopo import calcular_janela
@@ -43,7 +42,6 @@ class GetCronogramaUseCase:
         self.etapa_repository = CronogramaEtapaRepository(db)
         self.marco_repository = CronogramaMarcoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
-        self.frente_repository = FrenteRepository(db)
         self.banca_repository = BancaRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
@@ -68,14 +66,27 @@ class GetCronogramaUseCase:
         inicio, fim = self._janela(projeto, escopos, etapas, marcos, bancas, referencia)
         semestre = self.semestre_repository.get_ativo()
         dias_nao_letivos = self.dia_nao_letivo_repository.get_por_intervalo(inicio, fim)
-        # O corte por calendário de curso acontece AQUI, e não no front. As seis
+        # O corte por calendário acontece AQUI, e não no front. As seis
         # derivações de `dias_nao_uteis` no `ProjetoCronograma.tsx` filtram por
         # frente; ensinar as seis a filtrar também por curso seria repetir a
         # regra em TypeScript, que é o que este endpoint existe para evitar.
-        dias_nao_letivos = filtrar_variante(
-            dias_nao_letivos,
-            escolha_por_frente(self.frente_repository.get_all(), projeto.calendario),
-        )
+        #
+        # ⭐ A união dos calendários dos escopos deste projeto — que num projeto
+        # de frente única é o calendário dele e ponto. Ela serve o CINZA da
+        # tela, que é por frente: o projeto sinérgico precisa enxergar os dois
+        # calendários ao mesmo tempo para avisar quando uma etapa pisa no dia
+        # não útil da outra frente. Quem conta dias, ao contrário, usa o
+        # calendário de UM escopo — `calendario_do_escopo`, abaixo.
+        do_projeto = apenas_globais(dias_nao_letivos)
+        vistos = {id(d) for d in do_projeto}
+        for e in escopos:
+            for d in do_escopo(dias_nao_letivos, e):
+                if id(d) not in vistos:
+                    vistos.add(id(d))
+                    do_projeto.append(d)
+        dias_nao_letivos = sorted(do_projeto, key=lambda d: d.data)
+        # A base de contagem de cada escopo, resolvida uma vez.
+        calendario_do_escopo = datas_por_escopo(dias_nao_letivos, escopos)
 
         etapas_por_escopo = {}
         for etapa in etapas:
@@ -132,18 +143,26 @@ class GetCronogramaUseCase:
             # Ambientação e pausas são DERIVADAS, não etapas gravadas — vêm
             # calculadas daqui para o front não reimplementar `somar_dias_uteis`
             # em TypeScript.
-            # A ambientação é do PROJETO, não de um escopo, então conta apenas
-            # os dias que valem para todas as frentes. Usar o calendário de uma
-            # frente aqui faria a ambientação do mesmo projeto terminar em datas
-            # diferentes conforme o escopo que estivesse selecionado na tela.
             # ⚠ A faixa do escopo não recebe mais as bancas: ela virou a JANELA
             # (reunião inicial + vendidos + ajustados), que é previsão e não
             # depende de a banca ter data.
+            #
+            # ⭐ Dois calendários, e é de propósito. A JANELA de cada escopo usa
+            # o calendário BASE DELE — semana de avaliação e recesso são do
+            # curso (`frente_id` preenchido), e ignorá-los fazia a faixa fechar
+            # antes da hora: um escopo que atravessa a semana de provas perdia
+            # justamente os dias em que ninguém trabalha. Era o mesmo payload se
+            # contradizendo, porque `escopos[].fim_janela_prevista` (de
+            # `ListEscoposProjetoUseCase`) sempre contou o calendário todo.
+            # A AMBIENTAÇÃO continua só com os globais: ela é do PROJETO, não de
+            # um escopo, e o calendário de uma frente faria a mesma ambientação
+            # terminar em datas diferentes conforme o escopo selecionado.
             "faixas_derivadas": self._faixas_derivadas(
                 projeto,
                 escopos,
-                [d.data for d in dias_nao_letivos if d.frente_id is None],
+                calendario_do_escopo,
                 janelas_pausa,
+                dias_nao_letivos_globais=[d.data for d in apenas_globais(dias_nao_letivos)],
             ),
             "janela": {"inicio": inicio, "fim": fim},
             # A gestão corrente, à parte da janela. A janela é larga de
@@ -211,8 +230,31 @@ class GetCronogramaUseCase:
         ano_base = min(min(candidatas).year, referencia.year)
         return date(ano_base, 1, 1), date(referencia.year + 1, 12, 31)
 
-    def _faixas_derivadas(self, projeto, escopos, dias_nao_letivos, janelas_pausa=()):
+    def _faixas_derivadas(
+        self,
+        projeto,
+        escopos,
+        calendario_do_escopo,
+        janelas_pausa=(),
+        dias_nao_letivos_globais=None,
+    ):
+        """As faixas que o cronograma desenha: janela do escopo, ambientação e pausa.
+
+        `calendario_do_escopo` é `{escopo.id: [date, ...]}` — a base de cada
+        escopo, já resolvida (frente e curso). Uma lista simples também serve, e
+        aí vale para todos: é o que um chamador de calendário único espera, e o
+        que os testes montam.
+
+        `dias_nao_letivos_globais` é o recorte que vale para todas as frentes e
+        serve só à ambientação, que é do PROJETO; omiti-lo faz ela cair no
+        calendário do primeiro escopo, o que só é correto quando há um só.
+        """
         faixas = []
+        if not isinstance(calendario_do_escopo, dict):
+            unico = list(calendario_do_escopo)
+            calendario_do_escopo = {e.id: unico for e in escopos}
+        if dias_nao_letivos_globais is None:
+            dias_nao_letivos_globais = next(iter(calendario_do_escopo.values()), [])
 
         # ⭐ A JANELA DE CADA ESCOPO: da reunião inicial (`data_inicio`, §5.4)
         # até *vendidos + ajustados* dias úteis depois dela.
@@ -230,7 +272,7 @@ class GetCronogramaUseCase:
                 escopo.data_inicio,
                 escopo.dias_uteis_vendidos,
                 escopo.dias_uteis_ajustados,
-                dias_nao_letivos,
+                calendario_do_escopo.get(escopo.id, ()),
                 janelas_pausa=janelas_pausa,
             )
             if not janela.aberta:
@@ -260,7 +302,7 @@ class GetCronogramaUseCase:
         if inicio_ambientacao and projeto.dias_ambientacao > 0:
             try:
                 fim = somar_dias_uteis(
-                    inicio_ambientacao, projeto.dias_ambientacao, dias_nao_letivos
+                    inicio_ambientacao, projeto.dias_ambientacao, dias_nao_letivos_globais
                 )
                 faixas.append(
                     {

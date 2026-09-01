@@ -1,68 +1,91 @@
-"""Qual calendário acadêmico vale para um projeto.
+"""Qual calendário acadêmico vale para cada escopo.
 
-Uma frente pode ter mais de um calendário (`dia_nao_letivo.variante`), porque
-ela cobre mais de um curso e os cursos nem sempre têm as mesmas datas — dentro
-da Tech, Ciência da Computação não segue o calendário das engenharias. Este
-módulo é o único lugar que sabe escolher entre eles.
+Um calendário base é o par **(frente, rótulo)**. A frente sozinha não basta —
+dentro da Tech, Ciência da Computação não segue o calendário das engenharias —
+e o rótulo sozinho também não: nada impede duas frentes de terem um calendário
+de mesmo nome, e o `NULL` (a frente que tem um calendário só) seria o mesmo
+para todas elas.
+
+⭐ **A base é do ESCOPO, não do projeto** (`projeto_escopo.calendario`). Um
+projeto sinérgico tem escopos em frentes diferentes, e o escopo de Business não
+para na semana de avaliação da Tech.
+
+⚠ Isto mudou em 2026-08-31. Antes existia `projeto.calendario`, um override de
+projeto inteiro, e o corte era feito por `filtrar_variante`, que olhava só a
+VARIANTE e nunca a frente. O efeito era que a escolha não escolhia nada: todo
+projeto contava a união dos dias de todas as frentes.
 
 Funções puras, sem banco, como `dias_uteis.py` e `condicoes_alerta.py`: quem
-chama já tem os dias e as frentes em mãos. Isso mantém a escolha testável sem
-subir Postgres e evita mais uma query dentro de laço de monitoramento.
+chama já tem os dias em mãos. Isso mantém a escolha testável sem subir Postgres
+e evita mais uma query dentro de laço de monitoramento.
 """
 
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Iterable, List, Optional
 
 
-def escolha_por_frente(
-    frentes: Iterable, calendario_do_projeto: Optional[str] = None
-) -> Dict[int, Optional[str]]:
-    """Qual calendário vale em cada frente, do ponto de vista de um projeto.
-
-    Sem `calendario_do_projeto` (o caso da esmagadora maioria), cada frente
-    responde com o padrão dela — e o padrão da Tech é justamente o calendário
-    que já estava carregado antes de tudo isso existir. É o que faz um projeto
-    que não escolheu nada continuar vendo exatamente as mesmas datas de sempre.
-
-    A escolha do projeto vale para TODAS as frentes, e não só para a dele, de
-    propósito: num projeto sinérgico ela só encontra dia em quem tem aquele
-    calendário. Um projeto de Ciência da Computação com um escopo de Business
-    não acha "Ciência da Computação" em Business, cai no padrão de Business
-    (nulo) e enxerga o calendário da frente inteira — que é o certo.
-    """
-    return {
-        frente.id: calendario_do_projeto or getattr(frente, "calendario_padrao", None)
-        for frente in frentes
-    }
+def eh_global(dia) -> bool:
+    """O dia vale para a faculdade inteira — feriado, sem frente nem curso."""
+    return getattr(dia, "frente_id", None) is None
 
 
-def filtrar_variante(dias: Iterable, escolhida_por_frente: Mapping[int, Optional[str]]) -> List:
-    """Corta os dias que pertencem a um calendário que não é o escolhido.
+def do_calendario(
+    dias: Iterable, frente_id: Optional[int], calendario: Optional[str] = None
+) -> List:
+    """Os dias de UM calendário base: os dele mais os globais.
 
-    Passam três coisas, e é mais fácil ler pelo que NÃO passa: só fica de fora
-    o dia que declara um calendário diferente do escolhido para a frente dele.
-    Feriado nacional (sem frente) e dia que vale para a frente inteira (sem
-    calendário) atravessam sempre.
+    O feriado nacional (`frente_id` nulo) atravessa sempre — é o "a não ser que
+    seja feriado" da regra. Fora dele, só passa o dia que é exatamente daquela
+    frente E daquele rótulo.
+
+    ⚠ `calendario=None` **não** é curinga: é o rótulo nulo, o da frente que tem
+    um calendário só. Numa frente com variantes ele não casa com nada além dos
+    dias que valem para a frente inteira, que é o correto — quem não escolheu
+    curso não pode receber a semana de avaliação de um curso específico.
 
     `getattr` em vez de acesso direto porque metade dos testes desta base monta
     o calendário com `SimpleNamespace(data=...)` e listas de `date` puras — o
     mesmo contrato frouxo que `dias_uteis.normalizar` respeita.
     """
-    resultado = []
-    for dia in dias:
-        variante = getattr(dia, "variante", None)
-        if variante is None:
-            resultado.append(dia)
-            continue
-        if variante == escolhida_por_frente.get(getattr(dia, "frente_id", None)):
-            resultado.append(dia)
-    return resultado
+    return [
+        dia
+        for dia in dias
+        if eh_global(dia)
+        or (
+            getattr(dia, "frente_id", None) == frente_id
+            and getattr(dia, "variante", None) == calendario
+        )
+    ]
+
+
+def do_escopo(dias: Iterable, escopo) -> List:
+    """`do_calendario` lendo a frente e o rótulo do próprio escopo.
+
+    É a chamada de quase todo mundo: quem tem o escopo na mão não deveria
+    precisar lembrar quais dois campos formam o par.
+    """
+    return do_calendario(
+        dias, getattr(escopo, "frente_id", None), getattr(escopo, "calendario", None)
+    )
+
+
+def datas_por_escopo(dias: Iterable, escopos: Iterable) -> dict:
+    """`{escopo.id: [date, ...]}` — o calendário de cada escopo, resolvido de uma vez.
+
+    Existe para o chamador carregar `dia_nao_letivo` UMA vez e ainda assim dar
+    a cada escopo o calendário dele, que é o contrato que `dias_uteis.py`
+    estabelece no docstring. Sem isto, quem tem vários escopos ou refiltra a
+    lista dentro do laço, ou volta a usar a união e perde a escolha.
+    """
+    dias = list(dias)
+    return {e.id: [d.data for d in do_escopo(dias, e)] for e in escopos}
 
 
 def apenas_globais(dias: Iterable) -> List:
     """Os dias que valem para a faculdade inteira, sem curso nem frente.
 
-    Existe para dar nome ao filtro que sete use cases já faziam à mão com
-    `if d.frente_id is None`. Não muda nada: variante só existe dentro de uma
-    frente, então o recorte global nunca viu, nem verá, dia de curso.
+    É o recorte do que é do PROJETO e não de um escopo: a ambientação, e o
+    prazo de pedido que fecha junto com ela. Um projeto tem uma ambientação só,
+    e o calendário de um curso não pode fazê-la terminar em datas diferentes
+    conforme o escopo que estiver selecionado na tela.
     """
-    return [d for d in dias if getattr(d, "frente_id", None) is None]
+    return [d for d in dias if eh_global(d)]

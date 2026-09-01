@@ -20,6 +20,9 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository
 from src.use_cases.notificacao.eventos import notificar_entrega, notificar_entrega_alterada
+from src.use_cases.projeto_escopo.create_escopo_projeto import (
+    validar_calendario_do_escopo,
+)
 from src.utils.exceptions import RegraDeNegocioError
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,15 @@ class UpdateEscopoProjetoRequest(BaseModel):
     dias_uteis_vendidos: Optional[int] = None
     data_entrega_planejada: Optional[date] = None
     ordem: Optional[int] = None
+    #: ⭐ O calendário base do escopo (§5.4). Editável porque o cadastro erra:
+    #: um escopo entra em "Engenharias" e o time é de Ciência da Computação, e
+    #: até alguém corrigir a janela inteira é contada na semana de avaliação
+    #: errada.
+    #:
+    #: Nulo é resposta legítima (a frente que tem um calendário só), então este
+    #: campo depende de `exclude_unset` para distinguir "não mandei" de "mandei
+    #: nulo" — é por isso que ele não pode ganhar um default diferente.
+    calendario: Optional[str] = None
 
 
 class UpdateEscopoProjetoUseCase:
@@ -62,6 +74,13 @@ class UpdateEscopoProjetoUseCase:
         # onde, e depois de gravar ela já se perdeu.
         anterior = self.repository.get_by_id(escopo_id)
         data_antiga = anterior.data_entrega_planejada if anterior else None
+
+        # O calendário é validado contra a frente do escopo que ESTÁ no banco —
+        # a frente não é editável por aqui, então não há como a dupla divergir.
+        if "calendario" in dados and anterior:
+            dados["calendario"] = validar_calendario_do_escopo(
+                self.db, anterior.frente_id, dados["calendario"]
+            )
 
         escopo = self.repository.update(escopo_id, **dados)
         if not escopo:

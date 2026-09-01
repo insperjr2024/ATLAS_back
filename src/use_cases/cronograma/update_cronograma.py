@@ -97,7 +97,7 @@ def _exigir_dentro_da_janela(db: Session, escopo, data_inicio: date, data_fim: d
     # O calendário DESTE projeto (a variante de curso da main), guardado em
     # registros: a janela usa as datas, e o prazo do §8 precisa do recorte
     # global logo abaixo — pedir duas vezes ao banco seria a mesma consulta.
-    dias_nao_letivos_registros = DiaNaoLetivoRepository(db).get_do_projeto(escopo.projeto_id)
+    dias_nao_letivos_registros = DiaNaoLetivoRepository(db).get_do_escopo(escopo)
     dias_nao_letivos = [d.data for d in dias_nao_letivos_registros]
     janelas_pausa = derivar_janelas_pausa(
         ProjetoStatusHistoricoRepository(db).get_by_projeto(escopo.projeto_id)

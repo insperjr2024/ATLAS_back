@@ -7,10 +7,9 @@ dar errado em silêncio:
 - carregar dias num calendário, onde `substituir` pode apagar o calendário
   vizinho por engano, já que os dois moram na mesma frente;
 - renomear, que é UPDATE em três tabelas porque o rótulo é a chave — deixar
-  uma para trás desliga o calendário dos projetos sem erro nenhum aparecer;
-- apontar o projeto para um calendário, onde um nome que não existe não
-  casaria com dia algum e o projeto passaria a contar a semana de provas de
-  ninguém.
+  uma para trás desliga o calendário dos escopos sem erro nenhum aparecer;
+- apontar o ESCOPO para um calendário, onde um nome que não existe não casaria
+  com dia algum e o escopo passaria a contar a semana de provas de ninguém.
 """
 
 from datetime import date
@@ -35,9 +34,9 @@ from src.use_cases.dia_nao_letivo.renomear_calendario import (
     RenomearCalendarioRequest,
     RenomearCalendarioUseCase,
 )
-from src.use_cases.projeto.update_configuracoes import (
-    UpdateCalendarioRequest,
-    UpdateCalendarioUseCase,
+from src.use_cases.projeto_escopo.update_escopo_projeto import (
+    UpdateEscopoProjetoRequest,
+    UpdateEscopoProjetoUseCase,
 )
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -85,14 +84,14 @@ def base(db):
     )
     db.add(projeto)
     db.flush()
-    db.add(
-        ProjetoEscopoModel(
-            projeto_id=projeto.id,
-            frente_id=tech.id,
-            nome_customizado="Escopo",
-            dias_uteis_vendidos=25,
-        )
+    escopo = ProjetoEscopoModel(
+        projeto_id=projeto.id,
+        frente_id=tech.id,
+        nome_customizado="Escopo",
+        calendario=ENGENHARIAS,
+        dias_uteis_vendidos=25,
     )
+    db.add(escopo)
     db.add(
         DiaNaoLetivoModel(
             semestre_id=semestre.id,
@@ -103,7 +102,12 @@ def base(db):
         )
     )
     db.commit()
-    return {"semestre": semestre.id, "tech": tech.id, "projeto": projeto.id}
+    return {
+        "semestre": semestre.id,
+        "tech": tech.id,
+        "projeto": projeto.id,
+        "escopo": escopo.id,
+    }
 
 
 def carregar(db, base, dias, variante, substituir=False):
@@ -159,14 +163,13 @@ class TestRenomear:
     def pedido(self, base, nome):
         return RenomearCalendarioRequest(frente_id=base["tech"], nome=nome)
 
-    def test_leva_junto_os_dias_o_padrao_da_frente_e_os_projetos(self, db, base):
+    def test_leva_junto_os_dias_o_padrao_da_frente_e_os_escopos(self, db, base):
         """O rótulo é a chave nas três tabelas. Deixar uma para trás desligaria
-        o calendário dos projetos sem erro nenhum aparecer na tela."""
-        db.query(ProjetoModel).filter(ProjetoModel.id == base["projeto"]).update(
-            {ProjetoModel.calendario: ENGENHARIAS}
-        )
-        db.commit()
+        o calendário dos escopos sem erro nenhum aparecer na tela.
 
+        O escopo da fixture já nasce em `ENGENHARIAS` — é justamente o vínculo
+        que tem de ser levado junto.
+        """
         RenomearCalendarioUseCase(db).execute(
             base["semestre"], ENGENHARIAS, self.pedido(base, "Engenharias e Design")
         )
@@ -177,8 +180,12 @@ class TestRenomear:
         ]
         frente = db.query(FrenteModel).filter(FrenteModel.id == base["tech"]).first()
         assert frente.calendario_padrao == "Engenharias e Design"
-        projeto = db.query(ProjetoModel).filter(ProjetoModel.id == base["projeto"]).first()
-        assert projeto.calendario == "Engenharias e Design"
+        escopo = (
+            db.query(ProjetoEscopoModel)
+            .filter(ProjetoEscopoModel.id == base["escopo"])
+            .first()
+        )
+        assert escopo.calendario == "Engenharias e Design"
 
     def test_nome_ja_usado_na_frente_e_recusado(self, db, base):
         carregar(db, base, [PROVA_CC], COMPUTACAO)
@@ -194,28 +201,58 @@ class TestRenomear:
             )
 
 
-class TestApontarOProjeto:
-    def test_aceita_calendario_que_existe_na_frente_do_projeto(self, db, base):
-        carregar(db, base, [PROVA_CC], COMPUTACAO)
-        resultado = UpdateCalendarioUseCase(db).execute(
-            base["projeto"], UpdateCalendarioRequest(calendario=COMPUTACAO)
+class TestApontarOEscopo:
+    """⭐ A base de contagem é do ESCOPO, e escolhê-la é obrigatório.
+
+    `projeto.calendario` era opcional e ninguém escolhia — os 22 projetos em
+    produção estavam todos nulos, e a plataforma contava a união dos dias de
+    todas as frentes.
+    """
+
+    def trocar(self, db, base, calendario):
+        return UpdateEscopoProjetoUseCase(db).execute(
+            base["escopo"], UpdateEscopoProjetoRequest(calendario=calendario)
         )
-        assert resultado["calendario"] == COMPUTACAO
+
+    def test_aceita_calendario_que_existe_na_frente_do_escopo(self, db, base):
+        carregar(db, base, [PROVA_CC], COMPUTACAO)
+        self.trocar(db, base, COMPUTACAO)
+
+        escopo = (
+            db.query(ProjetoEscopoModel)
+            .filter(ProjetoEscopoModel.id == base["escopo"])
+            .first()
+        )
+        assert escopo.calendario == COMPUTACAO
 
     def test_recusa_nome_que_nao_existe(self, db, base):
         """Um rótulo errado não daria erro na hora: simplesmente não casaria
-        com dia algum, e o projeto contaria a semana de provas de ninguém."""
-        with pytest.raises(RegraDeNegocioError, match="Nenhuma frente deste projeto"):
-            UpdateCalendarioUseCase(db).execute(
-                base["projeto"], UpdateCalendarioRequest(calendario="Medicina")
-            )
+        com dia algum, e o escopo contaria a semana de provas de ninguém."""
+        with pytest.raises(RegraDeNegocioError, match="não tem um calendário chamado"):
+            self.trocar(db, base, "Medicina")
 
-    def test_vazio_volta_para_o_padrao_da_frente(self, db, base):
+    def test_nulo_e_recusado_quando_a_frente_tem_calendarios_nomeados(self, db, base):
+        """⭐ O que faltava. Nulo numa frente com cursos é "não escolhi", e era
+        exatamente esse estado que deixava a plataforma somando tudo."""
+        with pytest.raises(RegraDeNegocioError, match="Escolha o calendário"):
+            self.trocar(db, base, None)
+
+    def test_a_mensagem_lista_as_opcoes(self, db, base):
         carregar(db, base, [PROVA_CC], COMPUTACAO)
-        UpdateCalendarioUseCase(db).execute(
-            base["projeto"], UpdateCalendarioRequest(calendario=COMPUTACAO)
+        with pytest.raises(RegraDeNegocioError) as erro:
+            self.trocar(db, base, None)
+
+        assert ENGENHARIAS in str(erro.value) and COMPUTACAO in str(erro.value)
+
+    def test_nao_mandar_o_campo_nao_mexe_no_calendario(self, db, base):
+        """`exclude_unset`: editar só os dias vendidos não pode zerar a base."""
+        UpdateEscopoProjetoUseCase(db).execute(
+            base["escopo"], UpdateEscopoProjetoRequest(dias_uteis_vendidos=30)
         )
-        resultado = UpdateCalendarioUseCase(db).execute(
-            base["projeto"], UpdateCalendarioRequest(calendario=None)
+
+        escopo = (
+            db.query(ProjetoEscopoModel)
+            .filter(ProjetoEscopoModel.id == base["escopo"])
+            .first()
         )
-        assert resultado["calendario"] is None
+        assert escopo.calendario == ENGENHARIAS

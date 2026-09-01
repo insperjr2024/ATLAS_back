@@ -76,6 +76,7 @@ def calcular_atraso_projeto(
     referencia: Optional[date] = None,
     dias_nao_letivos: Optional[Iterable[date]] = None,
     janelas_pausa: Iterable[tuple] = (),
+    dias_nao_letivos_por_escopo: Optional[Dict[int, Iterable[date]]] = None,
 ) -> AtrasoProjeto:
     """§7.4: quais bancas deste projeto já deviam ter acontecido e não aconteceram.
 
@@ -110,7 +111,12 @@ def calcular_atraso_projeto(
     cobrar tempo em que o time não tinha como trabalhar.
     """
     referencia = referencia or date.today()
+    # ⭐ O calendário é do ESCOPO: cada um segue o do curso da frente dele
+    # (`projeto_escopo.calendario`), e num projeto sinérgico os dois não batem.
+    # `dias_nao_letivos` fica como o calendário de quem não está no mapa — os
+    # globais, e o que os testes de calendário único passam.
     nao_letivos = dias_nao_letivos or []
+    por_escopo = dias_nao_letivos_por_escopo or {}
     resultado = AtrasoProjeto(projeto_id=projeto_id)
     # ⚠ Meia-noite de HOJE, não 23:59. É o que faz a banca marcada para hoje
     # ainda não estar atrasada — ver o item 4 do docstring.
@@ -136,7 +142,10 @@ def calcular_atraso_projeto(
             continue
 
         dias = atraso_sem_pausa(
-            banca.data_hora.date(), referencia, nao_letivos, janelas_pausa
+            banca.data_hora.date(),
+            referencia,
+            por_escopo.get(escopo.id, nao_letivos),
+            janelas_pausa,
         )
         resultado.motivos.append(
             MotivoAtraso(

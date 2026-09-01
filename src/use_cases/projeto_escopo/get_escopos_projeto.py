@@ -17,7 +17,6 @@ from src.repositories.cronograma_repository import CronogramaEtapaRepository
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
-from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_justificativa_atraso_repository import (
     ProjetoJustificativaAtrasoRepository,
@@ -26,11 +25,7 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.projeto_status_historico_repository import ProjetoStatusHistoricoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.banca_status import calcular_status_banca
-from src.utils.calendario_variante import (
-    apenas_globais,
-    escolha_por_frente,
-    filtrar_variante,
-)
+from src.utils.calendario_variante import apenas_globais, datas_por_escopo
 from src.utils.contagem_dias import calcular_contagem_projeto, derivar_janelas_pausa
 from src.utils.janela_escopo import (
     calcular_janela,
@@ -81,7 +76,6 @@ class ListEscoposProjetoUseCase:
         self.projeto_repository = ProjetoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
-        self.frente_repository = FrenteRepository(db)
         self.catalogo_repository = EscopoRepository(db)
         self.banca_repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
@@ -113,15 +107,15 @@ class ListEscoposProjetoUseCase:
         # que `dias_uteis.py` estabelece no docstring.
         historico = self.historico_repository.get_by_projeto(projeto_id)
         dias_nao_letivos_registros = self.dia_nao_letivo_repository.get_all()
-        # Uma frente pode ter mais de um calendário, e este projeto segue um
-        # só. Sem o corte, um time de Ciência da Computação contaria como
-        # parada a semana de provas das engenharias, que está na mesma frente.
-        escolhidos = escolha_por_frente(
-            self.frente_repository.get_all(),
-            getattr(projeto, "calendario", None) if projeto else None,
-        )
-        dias_nao_letivos_registros = filtrar_variante(dias_nao_letivos_registros, escolhidos)
-        dias_nao_letivos = [d.data for d in dias_nao_letivos_registros]
+        # ⭐ Cada escopo tem o SEU calendário base (`projeto_escopo.calendario`
+        # dentro da frente dele). Resolvido de uma vez, com o banco carregado
+        # uma vez só: um projeto sinérgico tem escopos em frentes diferentes, e
+        # o de Business não para na semana de avaliação da Tech.
+        calendario_do_escopo = datas_por_escopo(dias_nao_letivos_registros, escopos)
+        # O recorte GLOBAL — feriado, o que vale para a faculdade inteira. É o
+        # calendário do que é do PROJETO e não de um escopo: a ambientação e o
+        # prazo de pedido que fecha junto com ela.
+        dias_nao_letivos_globais = [d.data for d in apenas_globais(dias_nao_letivos_registros)]
         catalogo = {e.id: e for e in self.catalogo_repository.get_all()}
         bancas = self.banca_repository.mapa_por_escopo([e.id for e in escopos])
         # Uma banca pode cobrir vários escopos — a tela mostra isso em cada
@@ -147,13 +141,14 @@ class ListEscoposProjetoUseCase:
         contagens = calcular_contagem_projeto(
             escopos,
             historico,
-            dias_nao_letivos,
+            dias_nao_letivos_globais,
             referencia=referencia,
             etapas_por_escopo=etapas_por_escopo,
             bancas_por_escopo=bancas,
             # As tentativas: é a PRIMEIRA realização que congela a contagem e
             # abre as correções (§11), não a tentativa corrente.
             sessoes_por_banca=sessoes_por_banca,
+            dias_nao_letivos_por_escopo=calendario_do_escopo,
         )
         # ⚠ Com as janelas de pausa, como no use case que DECIDE o pedido
         # (`solicitar._janela`): sem elas, o prazo servido aqui vencia antes
@@ -173,7 +168,7 @@ class ListEscoposProjetoUseCase:
                 projeto.dias_ambientacao,
                 # O recorte GLOBAL: a ambientação é do projeto inteiro, e dia
                 # global não pertence a frente nem a calendário de curso.
-                [d.data for d in apenas_globais(dias_nao_letivos_registros)],
+                dias_nao_letivos_globais,
             )
             if projeto
             else None
@@ -183,7 +178,7 @@ class ListEscoposProjetoUseCase:
                 e.data_inicio,
                 e.dias_uteis_vendidos,
                 e.dias_uteis_ajustados,
-                dias_nao_letivos,
+                calendario_do_escopo[e.id],
                 referencia=referencia,
                 janelas_pausa=janelas_pausa,
                 prazo_do_kickoff=prazo_kickoff if e.id == primeiro_id else None,
@@ -245,6 +240,9 @@ def serializar_escopo(
         "nome": nome_do_escopo(escopo, catalogo_por_id),
         "frente_id": escopo.frente_id,
         "ordem": escopo.ordem,
+        # O calendário base (§5.4). Vai ao front para a tela mostrar em qual
+        # calendário os dias deste escopo são contados — e deixar trocar.
+        "calendario": escopo.calendario,
         "dias_uteis_vendidos": escopo.dias_uteis_vendidos,
         "dias_uteis_ajustados": escopo.dias_uteis_ajustados,
         "status": escopo.status,

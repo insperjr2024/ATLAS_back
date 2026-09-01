@@ -2,10 +2,9 @@ from datetime import date
 from typing import List, Optional, Sequence
 
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
-from src.models.frente_model import FrenteModel
-from src.models.projeto_model import ProjetoModel
+from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.repositories.base_repository import BaseRepository
-from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
+from src.utils.calendario_variante import do_escopo
 
 
 class DiaNaoLetivoRepository(BaseRepository[DiaNaoLetivoModel]):
@@ -35,23 +34,33 @@ class DiaNaoLetivoRepository(BaseRepository[DiaNaoLetivoModel]):
     def get_por_data(self, semestre_id: int, data: date) -> Optional[DiaNaoLetivoModel]:
         return self.first_by(semestre_id=semestre_id, data=data)
 
-    def get_do_projeto(self, projeto_id: int) -> List[DiaNaoLetivoModel]:
-        """O calendário que vale para ESTE projeto, de todos os semestres.
+    def get_do_escopo(self, escopo) -> List[DiaNaoLetivoModel]:
+        """O calendário base de UM escopo, de todos os semestres.
 
         Mesmo alcance do `get_all()` que os use cases de janela e contagem já
         usavam — o cronograma atravessa a virada de gestão —, com uma diferença
-        só: os dias de um calendário de curso que não é o dele ficam de fora.
+        só: fica de fora o dia que é de outra frente ou de outro curso.
 
-        Três queries onde antes havia uma. Vale para quem resolve UM projeto;
-        quem varre a carteira inteira (monitoramento, fila de aprovações) deve
-        carregar dias e frentes uma vez e chamar `filtrar_variante` no laço.
+        Vale para quem resolve UM escopo. Quem tem vários (a aba de cronograma)
+        ou varre a carteira inteira (monitoramento, fila de aprovações) deve
+        carregar os dias uma vez e chamar `datas_por_escopo` no laço.
         """
-        projeto = self.db.query(ProjetoModel).filter(ProjetoModel.id == projeto_id).first()
-        escolhidos = escolha_por_frente(
-            self.db.query(FrenteModel).all(),
-            getattr(projeto, "calendario", None) if projeto else None,
+        return do_escopo(self.get_all(), escopo)
+
+    def get_do_escopo_id(self, projeto_escopo_id: int) -> List[DiaNaoLetivoModel]:
+        """`get_do_escopo` para quem só tem o id em mãos.
+
+        Escopo inexistente devolve apenas os globais: é o calendário mais
+        conservador possível, e some com a necessidade de um `if` no chamador.
+        """
+        escopo = (
+            self.db.query(ProjetoEscopoModel)
+            .filter(ProjetoEscopoModel.id == projeto_escopo_id)
+            .first()
         )
-        return filtrar_variante(self.get_all(), escolhidos)
+        return do_escopo(self.get_all(), escopo) if escopo else [
+            d for d in self.get_all() if d.frente_id is None
+        ]
 
     def get_do_calendario(
         self,

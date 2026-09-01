@@ -48,7 +48,7 @@ from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.cronograma.get_cronograma import GetCronogramaUseCase
-from src.utils.calendario_variante import escolha_por_frente, filtrar_variante
+from src.utils.calendario_variante import apenas_globais, datas_por_escopo
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.banca_status import ABERTA, calcular_status_banca
 from src.utils.condicoes_alerta import (
@@ -150,26 +150,25 @@ class _BaseMonitoramento:
         que é a razão de existir desta seção. O calendário é o acadêmico do
         semestre: dezenas de linhas, não milhares.
 
-        Devolve os REGISTROS, e não as datas: uma frente pode ter mais de um
-        calendário de curso, e escolher entre eles depende do projeto. Quem
-        varre a carteira passa cada projeto por `_calendario_do_projeto`
-        dentro do laço.
+        Devolve os REGISTROS, e não as datas: o calendário base é do ESCOPO
+        (frente + curso), e resolver isso exige os campos da linha. Quem varre
+        a carteira passa os escopos de cada projeto por
+        `_calendario_por_escopo` dentro do laço.
         """
         return self.dia_nao_letivo_repository.get_all()
 
-    def _calendario_do_projeto(self, registros, projeto) -> List[date]:
-        """As datas de `registros` que valem para ESTE projeto.
+    def _calendario_por_escopo(self, registros, escopos) -> dict:
+        """`{escopo.id: [date, ...]}` — a base de contagem de cada escopo.
 
-        As frentes são lidas uma vez e guardadas: isto roda dentro do laço de
-        projetos, e uma query por projeto aqui é exatamente o que o docstring
-        de `_dias_nao_letivos` existe para evitar.
+        ⭐ O calendário é do ESCOPO (`projeto_escopo.calendario` dentro da
+        frente dele), não do projeto: num projeto sinérgico o escopo de
+        Business não para na semana de avaliação da Tech.
+
+        Função pura sobre `registros`, que o chamador já carregou uma vez — é o
+        que o docstring de `_dias_nao_letivos` existe para proteger: uma query
+        por projeto aqui derrubaria o laço da carteira inteira.
         """
-        if getattr(self, "_frentes_do_calendario", None) is None:
-            self._frentes_do_calendario = self.frente_repository.get_all()
-        escolhidos = escolha_por_frente(
-            self._frentes_do_calendario, getattr(projeto, "calendario", None)
-        )
-        return [d.data for d in filtrar_variante(registros, escolhidos)]
+        return datas_por_escopo(registros, escopos)
 
     def _calendario_global(self) -> List[date]:
         """Só os dias não letivos que valem para TODAS as frentes.
@@ -298,8 +297,11 @@ class _BaseMonitoramento:
                 ctx["bancas_por_escopo"],
                 ctx["nomes_escopo"],
                 referencia,
-                self._calendario_do_projeto(nao_letivos, p),
+                [d.data for d in apenas_globais(nao_letivos)],
                 janelas_pausa=derivar_janelas_pausa(historico.get(p.id, [])),
+                dias_nao_letivos_por_escopo=self._calendario_por_escopo(
+                    nao_letivos, ctx["escopos_por_projeto"].get(p.id, [])
+                ),
             )
             for p in projetos
         }
@@ -472,17 +474,18 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         for projeto in projetos:
             do_projeto = ctx["escopos_por_projeto"].get(projeto.id, [])
             ajustados = sum(e.dias_uteis_ajustados for e in do_projeto)
-            # O calendário deste projeto, resolvido dentro do laço: a frente
-            # dele pode ter mais de um curso, e as datas de prova de um não são
-            # as do outro.
-            do_calendario = self._calendario_do_projeto(nao_letivos, projeto)
+            # O calendário de cada escopo, resolvido dentro do laço: escopos do
+            # mesmo projeto podem ser de frentes (e de cursos) diferentes, e as
+            # datas de prova de um não são as do outro.
+            por_escopo = self._calendario_por_escopo(nao_letivos, do_projeto)
             contagens = calcular_contagem_projeto(
                 do_projeto,
                 historico_por_projeto.get(projeto.id, []),
-                do_calendario,
+                [d.data for d in apenas_globais(nao_letivos)],
                 referencia=hoje,
                 bancas_por_escopo=ctx["bancas_por_escopo"],
                 sessoes_por_banca=ctx["sessoes_por_banca"],
+                dias_nao_letivos_por_escopo=por_escopo,
             )
             valem = [
                 (e, c)
@@ -941,10 +944,12 @@ class ExecucaoUseCase(_BaseMonitoramento):
 
         tarefas = []
         for p in projetos:
-            # Resolvido por projeto: "3 dias úteis sem tarefa" tem de ser
-            # medido no calendário do curso do time, e não no de outro curso da
-            # mesma frente.
-            do_calendario = self._calendario_do_projeto(nao_letivos, p)
+            # ⚠ O recorte GLOBAL, e não o de um escopo. "3 dias úteis sem
+            # tarefa" é pergunta sobre o PROJETO inteiro, e um projeto
+            # sinérgico tem escopos em calendários diferentes — escolher o de
+            # um deles faria o mesmo projeto ficar saudável ou parado conforme
+            # o escopo que se olhasse. É a mesma régua da ambientação.
+            do_calendario = [d.data for d in apenas_globais(nao_letivos)]
             todas_do_projeto = tarefas_por_projeto.get(p.id, [])
             # ⚠ Tudo que responde "como estava naquela semana" olha só as
             # tarefas que JÁ EXISTIAM até o fim dela. Sem esse corte, olhar 12
@@ -1542,8 +1547,11 @@ class AtrasosUseCase(_BaseMonitoramento):
             contagens = calcular_contagem_projeto(
                 do_projeto,
                 historico_por_projeto.get(projeto.id, []),
-                self._calendario_do_projeto(nao_letivos, projeto),
+                [d.data for d in apenas_globais(nao_letivos)],
                 referencia=referencia,
+                dias_nao_letivos_por_escopo=self._calendario_por_escopo(
+                    nao_letivos, do_projeto
+                ),
                 bancas_por_escopo=ctx["bancas_por_escopo"],
                 # ⚠ **Faltava, e era o erro mais caro da tela.** Sem as
                 # sessões, `primeira_realizacao` cai no fallback

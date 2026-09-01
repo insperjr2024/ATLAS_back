@@ -66,8 +66,7 @@ from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativ
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.calendario_variante import (
     apenas_globais,
-    escolha_por_frente,
-    filtrar_variante,
+    datas_por_escopo,
 )
 from src.utils.fuso import para_hora_local
 from src.utils.janela_escopo import (
@@ -162,28 +161,30 @@ class ListarAprovacoesPendentesUseCase:
         # Uma vez, para as filas que medem dia útil (§5.4). Sem isto a
         # projeção do pedido de dias contaria feriado como dia de trabalho.
         #
-        # Vêm os REGISTROS, e o corte por curso acontece dentro de cada fila:
-        # uma frente pode ter mais de um calendário, e a fila mistura projetos
-        # de cursos diferentes. Resolver aqui daria a todos o calendário de um.
+        # Vêm os REGISTROS, e o corte acontece dentro de cada fila: o
+        # calendário base é do ESCOPO (frente + curso), e a fila mistura
+        # escopos de frentes diferentes. Resolver aqui daria a todos o mesmo.
         registros_nao_letivos = self.dia_nao_letivo_repository.get_all()
-        frentes = self.frente_repository.get_all()
-
-        def dias_do_projeto(projeto):
-            escolhidos = escolha_por_frente(frentes, getattr(projeto, "calendario", None))
-            return [d.data for d in filtrar_variante(registros_nao_letivos, escolhidos)]
-
         # ⭐ O prazo do §8 do PRIMEIRO escopo é o fim da ambientação, e a
         # ambientação é do projeto inteiro: vale o recorte GLOBAL, o mesmo de
         # `EncerrarAmbientacaoUseCase` e de `solicitar`. Fora do laço porque
-        # dia global não tem frente nem curso — não muda de projeto para
-        # projeto, ao contrário de `dias_do_projeto`.
+        # dia global não tem frente nem curso — não muda de escopo para escopo.
         nao_letivos_globais = [d.data for d in apenas_globais(registros_nao_letivos)]
 
+        #: `{escopo.id: [date, ...]}` para TODOS os escopos da fila, resolvido
+        #: uma vez. Uma passada sobre o calendário por escopo é barata; o que
+        #: não pode é uma query por escopo dentro do laço.
+        calendario_por_escopo = datas_por_escopo(registros_nao_letivos, escopos)
+
+        def dias_do_escopo(escopo):
+            return calendario_por_escopo.get(escopo.id, nao_letivos_globais)
+
+
         dias = self._dias_de_ajuste(
-            escopos, por_id, nomes_escopo, nomes_usuario, dias_do_projeto, nao_letivos_globais
+            escopos, por_id, nomes_escopo, nomes_usuario, dias_do_escopo, nao_letivos_globais
         )
         atrasos = self._atrasos_sem_justificativa(
-            projetos, escopos, nomes_escopo, hoje, dias_do_projeto
+            projetos, escopos, nomes_escopo, hoje, nao_letivos_globais, calendario_por_escopo
         )
         entradas = self._solicitacoes_de_entrada(current_user)
         sem_resultado = self._bancas_sem_resultado(escopos, por_id, nomes_escopo, hoje)
@@ -341,7 +342,7 @@ class ListarAprovacoesPendentesUseCase:
         por_id,
         nomes_escopo,
         nomes_usuario,
-        dias_do_projeto,
+        dias_do_escopo,
         nao_letivos_globais,
     ) -> List[dict]:
         """§8: o coordenador pediu, a janela não cresce até ela responder.
@@ -371,7 +372,7 @@ class ListarAprovacoesPendentesUseCase:
             if not pendente:
                 continue
             projeto = por_id.get(escopo.projeto_id)
-            dias_nao_letivos = dias_do_projeto(projeto)
+            dias_nao_letivos = dias_do_escopo(escopo)
             prazo_do_kickoff = (
                 prazo_pelo_kickoff(
                     projeto.status,
@@ -424,7 +425,7 @@ class ListarAprovacoesPendentesUseCase:
         return sorted(linhas, key=lambda x: x["criado_em"])
 
     def _atrasos_sem_justificativa(
-        self, projetos, escopos, nomes_escopo, hoje: date, dias_do_projeto
+        self, projetos, escopos, nomes_escopo, hoje: date, nao_letivos_globais, calendario_por_escopo
     ) -> List[dict]:
         """§7.4: o alerta é automático, o porquê é ela quem digita.
 
@@ -471,7 +472,8 @@ class ListarAprovacoesPendentesUseCase:
                 por_projeto.get(projeto.id, []),
                 bancas,
                 nomes_escopo,
-                dias_nao_letivos=dias_do_projeto(projeto),
+                dias_nao_letivos=nao_letivos_globais,
+                dias_nao_letivos_por_escopo=calendario_por_escopo,
                 referencia=hoje,
             )
             if not atraso.atrasado:

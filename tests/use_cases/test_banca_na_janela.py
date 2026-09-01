@@ -182,9 +182,10 @@ def marcar(monkeypatch):
             def __init__(self, db): pass
             def get_all(self):
                 return [SimpleNamespace(data=d) for d in CALENDARIO]
-            # O calendário deste projeto. Sem variantes no fake, é o mesmo
-            # `get_all()` — o que muda na produção é só o corte por curso.
-            def get_do_projeto(self, _projeto_id):
+            # O calendário base deste escopo. Sem frente nem variante no
+            # fake, é o mesmo `get_all()` — o que muda na produção é só o corte
+            # por frente e curso.
+            def get_do_escopo(self, _escopo):
                 return self.get_all()
 
         class HistoricoFake:
