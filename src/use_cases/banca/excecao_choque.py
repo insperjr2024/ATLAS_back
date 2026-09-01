@@ -22,7 +22,7 @@ from src.repositories.banca_repository import BancaRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import CODIGO_CHOQUE_DE_HORARIO, RegraDeNegocioError
 from src.utils.notificar import notificar
 from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
@@ -267,7 +267,8 @@ def checar_choque(
             continue
         raise RegraDeNegocioError(
             f"Já existe uma banca marcada para este horário ({outra.nome_projeto}). "
-            "Peça uma exceção de choque à diretoria para marcar mesmo assim"
+            "Peça uma exceção de choque à diretoria para marcar mesmo assim",
+            codigo=CODIGO_CHOQUE_DE_HORARIO,
         )
 
 
@@ -281,3 +282,85 @@ def excecao_liberada(db: Session, projeto_escopo_id: Optional[int], data_hora: d
     if projeto_escopo_id is None:
         return False
     return BancaExcecaoChoqueRepository(db).get_aprovada(projeto_escopo_id, data_hora) is not None
+
+
+def liberar_choque(
+    db: Session,
+    *,
+    projeto_escopo_id: Optional[int],
+    data_hora: datetime,
+    solicitado_por: int,
+    respondido_por: int,
+    justificativa: str,
+    resposta: str,
+):
+    """A diretoria concede a exceção do §8 DENTRO de outra decisão dela.
+
+    ⭐ **Por que isto não fura o desenho de "quem marca pede, a diretoria
+    decide".** O par pedido/decisão existe para separar dois ATORES, e aqui
+    não há dois: o §8 (choque) e o §13 (fora da janela) são a mesma
+    autoridade — as duas rotas cobram `require_diretor_projetos`. Quando a
+    diretoria aprova um pedido de fora da janela e a data escolhida esbarra
+    noutra banca, exigir que ela peça a si mesma não protege ninguém; só
+    trava a decisão.
+
+    ⚠ **O que ela NÃO faz é decidir sozinha.** Só roda quando a diretoria
+    marcou explicitamente que quer autorizar o choque também
+    (`autorizar_choque`), depois de a tela ter dito com QUAL banca o horário
+    conflita. É consentimento informado, não liberação automática.
+
+    Grava uma linha de verdade em `banca_excecao_choque_solicitacao`, com
+    status `aprovada`, em vez de contornar `checar_choque`: a exceção precisa
+    ficar no histórico como qualquer outra, e é essa linha que `get_aprovada`
+    encontra depois.
+
+    Devolve `None` quando não havia choque nenhum — nesse caso não há o que
+    liberar, e escrever a linha inventaria uma exceção para um horário livre.
+    """
+    if projeto_escopo_id is None:
+        return None
+
+    repository = BancaExcecaoChoqueRepository(db)
+    banca_repository = BancaRepository(db)
+
+    ja_aprovada = repository.get_aprovada(projeto_escopo_id, data_hora)
+    if ja_aprovada:
+        return ja_aprovada
+
+    # Mesma exclusão do `SolicitarExcecaoChoqueUseCase`: a própria banca do
+    # escopo não choca consigo mesma numa remarcação para o mesmo horário.
+    banca_do_escopo = banca_repository.get_by_projeto_escopo(projeto_escopo_id)
+    conflitantes = [
+        b
+        for b in banca_repository.get_por_data_hora(data_hora)
+        if (not banca_do_escopo or b.id != banca_do_escopo.id)
+        and b.excecao_choque_por is None
+    ]
+    if not conflitantes:
+        return None
+
+    # ⭐ Se quem marca já tinha pedido a exceção, esta decisão RESPONDE aquele
+    # pedido em vez de criar um segundo. Sem isto, a fila da diretoria ficaria
+    # com um pendente órfão sobre um choque que ela mesma já liberou.
+    pendente = repository.get_pendente_do_par(projeto_escopo_id, data_hora)
+    if pendente:
+        return repository.update(
+            pendente.id,
+            status="aprovada",
+            resposta=resposta,
+            respondido_por=respondido_por,
+            respondido_em=datetime.now(),
+        )
+
+    return repository.create(
+        projeto_escopo_id=projeto_escopo_id,
+        banca_id=banca_do_escopo.id if banca_do_escopo else None,
+        data_hora_pretendida=data_hora,
+        banca_conflitante_id=conflitantes[0].id,
+        justificativa=justificativa,
+        solicitado_por=solicitado_por,
+        status="aprovada",
+        resposta=resposta,
+        respondido_por=respondido_por,
+        respondido_em=datetime.now(),
+    )

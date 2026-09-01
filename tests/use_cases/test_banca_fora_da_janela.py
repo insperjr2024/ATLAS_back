@@ -31,7 +31,7 @@ from src.use_cases.banca.fora_janela import (
     SolicitarForaJanelaRequest,
     SolicitarForaJanelaUseCase,
 )
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import CODIGO_CHOQUE_DE_HORARIO, RegraDeNegocioError
 
 QUI_03_09 = date(2026, 9, 3)  # a reunião inicial
 DENTRO = datetime(2026, 9, 25, 14, 0)  # dentro dos 20 vendidos
@@ -252,24 +252,49 @@ def decidir(monkeypatch):
         # `fora_janela` não seria visto por ninguém.
         estado.marcacoes = []
 
+        # ⚠ O choque é simulado como a marcação REAL o produz: `checar_choque`
+        # roda dentro dela e só passa se já houver exceção aprovada. Por isso o
+        # dublê olha `estado.liberacoes` — é o que prende a ordem "libera o §8
+        # antes de marcar"; liberar depois não salvaria a marcação.
         class MarcarFake:
             def __init__(self, db): pass
 
             def execute(self, escopo_id, request, **kwargs):
                 if estado.marcacao_falha:
                     raise RegraDeNegocioError(estado.marcacao_falha)
+                if estado.choque_ate_liberar and not estado.liberacoes:
+                    raise RegraDeNegocioError(
+                        "Já existe uma banca marcada para este horário (PIRATININGA I). "
+                        "Peça uma exceção de choque à diretoria para marcar mesmo assim",
+                        codigo=CODIGO_CHOQUE_DE_HORARIO,
+                    )
                 estado.marcacoes.append((escopo_id, request.data_hora, request.justificativa))
                 return {"id": 555, "data_hora": request.data_hora}
 
         estado.marcacao_falha = None
+        estado.choque_ate_liberar = False
         monkeypatch.setattr(marcar_banca_escopo, "MarcarBancaEscopoUseCase", MarcarFake)
+
+        estado.liberacoes = []
+
+        def liberou(db, **campos):
+            estado.liberacoes.append(campos)
+            return SimpleNamespace(id=77, status="aprovada")
+
+        monkeypatch.setattr(fora_janela, "liberar_choque", liberou)
 
         uc = DecidirForaJanelaUseCase.__new__(DecidirForaJanelaUseCase)
         uc.__init__(db=None)
 
-        def executar(aprovar=True, resposta="Faz sentido, agenda do cliente"):
+        def executar(
+            aprovar=True, resposta="Faz sentido, agenda do cliente", autorizar_choque=False
+        ):
             return uc.execute(
-                99, DecidirForaJanelaRequest(aprovar=aprovar, resposta=resposta), DANI.id
+                99,
+                DecidirForaJanelaRequest(
+                    aprovar=aprovar, resposta=resposta, autorizar_choque=autorizar_choque
+                ),
+                DANI.id,
             )
 
         return executar, estado, pedido
@@ -343,6 +368,83 @@ class TestDecidir:
 
         with pytest.raises(RegraDeNegocioError, match="já foi respondido"):
             executar()
+
+
+class TestChoqueNaAprovacao:
+    """⭐ O beco sem saída do §8 dentro do §13.
+
+    A data pedida esbarrava na banca de outro projeto, a marcação falhava, e a
+    recusa dizia "peça uma exceção de choque à diretoria" — para quem É a
+    diretoria, numa fila que não tinha botão nenhum para conceder. Sem saída,
+    a única ação restante era Negar um pedido legítimo.
+    """
+
+    def test_choque_sem_autorizacao_devolve_o_pedido_e_preserva_o_codigo(self, decidir):
+        """⚠ O CÓDIGO precisa sobreviver: é por ele que a tela oferece a saída.
+
+        Procurar a frase na mensagem foi o que já quebrou o "registrar assim
+        mesmo" da composição de banca quando o texto mudou.
+        """
+        executar, estado, pedido = decidir()
+        estado.choque_ate_liberar = True
+
+        with pytest.raises(RegraDeNegocioError) as recusa:
+            executar(aprovar=True)
+
+        assert recusa.value.codigo == CODIGO_CHOQUE_DE_HORARIO
+        assert "PIRATININGA I" in str(recusa.value)
+        # Volta para a fila: aprovado sem banca sumiria da tela sem produzir nada.
+        assert pedido.status == "pendente"
+        assert pedido.respondido_por is None
+        assert estado.marcacoes == []
+
+    def test_autorizar_o_choque_libera_antes_de_marcar(self, decidir):
+        """A ordem é o ponto: `checar_choque` roda DENTRO da marcação."""
+        executar, estado, pedido = decidir()
+        estado.choque_ate_liberar = True
+
+        resposta = executar(aprovar=True, autorizar_choque=True)
+
+        assert len(estado.liberacoes) == 1
+        assert estado.marcacoes == [(7, FORA, "Agenda do cliente")]
+        assert pedido.status == "aprovada"
+        assert resposta["banca_marcada_em"] == FORA
+
+    def test_a_liberacao_guarda_quem_pediu_a_banca_e_quem_decidiu(self, decidir):
+        """Quem pediu a exceção é quem pediu a BANCA, não a diretora.
+
+        A exceção existe por causa do pedido dele, e é o histórico dele que
+        precisa mostrar por que aquele horário foi aberto.
+        """
+        executar, estado, _ = decidir()
+        estado.choque_ate_liberar = True
+
+        executar(aprovar=True, autorizar_choque=True)
+
+        liberacao = estado.liberacoes[0]
+        assert liberacao["solicitado_por"] == ANA.id
+        assert liberacao["respondido_por"] == DANI.id
+        assert liberacao["projeto_escopo_id"] == 7
+        assert liberacao["data_hora"] == FORA
+
+    def test_sem_choque_nenhum_a_aprovacao_normal_nao_libera_nada(self, decidir):
+        """⚠ Aprovar o §13 não pode virar liberação silenciosa do §8."""
+        executar, estado, _ = decidir()
+
+        executar(aprovar=True)
+
+        assert estado.liberacoes == []
+        assert estado.marcacoes == [(7, FORA, "Agenda do cliente")]
+
+    def test_recusar_nao_libera_choque_mesmo_marcado(self, decidir):
+        """A caixa só vale acompanhando um SIM — recusar não abre horário."""
+        executar, estado, pedido = decidir()
+
+        executar(aprovar=False, autorizar_choque=True)
+
+        assert pedido.status == "recusada"
+        assert estado.liberacoes == []
+        assert estado.marcacoes == []
 
 
 def test_fora_janela_liberada_sem_escopo_e_falso():

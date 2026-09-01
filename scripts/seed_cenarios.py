@@ -29,6 +29,9 @@ from src.models.avaliacao_model import AvaliacaoModel
 from src.models.avaliacao_nota_model import AvaliacaoNotaModel
 from src.models.pergunta_model import PerguntaModel
 from src.models.banca_excecao_choque_model import BancaExcecaoChoqueModel
+from src.models.banca_fora_janela_solicitacao_model import (
+    BancaForaJanelaSolicitacaoModel,
+)
 from src.models.candidatura_model import CandidaturaModel
 from src.models.formulario_model import FormularioModel
 from src.models.banca_remarcacao_model import BancaRemarcacaoModel
@@ -95,6 +98,12 @@ TABELAS_A_LIMPAR = [
     # os dois, e só a FK para `banca` é SET NULL — a de `projeto_escopo` é
     # restritiva e faria o delete estourar no meio da limpeza.
     "banca_excecao_choque_solicitacao",
+    # ⚠ Faltava, e pela mesma razão: `banca_fora_janela_solicitacao` tem a
+    # mesma FK restritiva para `projeto_escopo`. Enquanto nenhum cenário criava
+    # um pedido destes a ausência não aparecia — bastava o primeiro para o seed
+    # passar a estourar na limpeza, num erro de FK sem relação óbvia com o
+    # cenário que o causou.
+    "banca_fora_janela_solicitacao",
     # Antes de `banca`. A FK é CASCADE, mas a limpeza é por DELETE explícito e
     # a contagem impressa no fim só existe para quem está na lista.
     "banca_sessao",
@@ -129,6 +138,11 @@ TABELAS_A_LIMPAR = [
 #: quatro consultores ativos no total. Sem isto, nenhuma banca sinérgica
 #: passaria da validação de composição.
 PESSOAS_NOVAS = [
+    # ⚠ Faltava, e os cenários de Tech morriam com `KeyError: 'Coordenador
+    # Tech'` — 12 projetos o citam como coordenador e nenhum passo o criava. O
+    # seed só rodava em base que já tivesse essa pessoa de outro lugar, o que
+    # é o oposto do que um seed existe para fazer.
+    ("Coordenador Tech", "coord.tech@al.insper.edu.br", "coordenador", TECH),
     ("Rafa Dias", "rafa@al.insper.edu.br", "gerente", DIREITO),
     ("Lia Costa", "lia@al.insper.edu.br", "gerente", PROCESSOS),
     ("Nina Rocha", "nina@al.insper.edu.br", "consultor", BUSINESS),
@@ -223,23 +237,32 @@ class Mundo:
 
 
 def limpar(db):
-    """Apaga o dado de projeto, na ordem que respeita as FKs."""
-    from sqlalchemy import text
+    """Apaga o dado de projeto, na ordem que respeita as FKs.
+
+    ⚠ **Sem SQL preso a um dialeto.** Este bloco nasceu em MySQL e usava
+    `database()` e crase para citar identificador — nenhum dos dois existe no
+    Postgres, que é onde a plataforma roda de verdade. O seed morria na
+    primeira tabela com "function database() does not exist", então o arquivo
+    inteiro nunca tinha sido exercido contra o banco de produção.
+
+    `inspect` responde "esta tabela existe?" pelo dialeto certo, e o
+    `identifier_preparer` cita o nome do jeito de cada banco (crase no MySQL,
+    aspas no Postgres) — o mesmo script serve aos dois.
+    """
+    from sqlalchemy import inspect, text
+
+    bind = db.get_bind()
+    existentes = set(inspect(bind).get_table_names())
+    citar = bind.dialect.identifier_preparer.quote
 
     apagados = {}
     for tabela in TABELAS_A_LIMPAR:
-        existe = db.execute(
-            text(
-                "select count(*) from information_schema.tables "
-                "where table_schema=database() and table_name=:t"
-            ),
-            {"t": tabela},
-        ).scalar()
-        if not existe:
+        if tabela not in existentes:
             continue
-        n = db.execute(text(f"select count(*) from `{tabela}`")).scalar()
+        nome = citar(tabela)
+        n = db.execute(text(f"select count(*) from {nome}")).scalar()
         if n:
-            db.execute(text(f"delete from `{tabela}`"))
+            db.execute(text(f"delete from {nome}"))
             apagados[tabela] = n
     db.commit()
     return apagados
@@ -692,6 +715,32 @@ class Construtor:
         )
         self.db.flush()
 
+    def pedido_fora_da_janela(
+        self, escopo, *, quando, justificativa, status="pendente", resposta=None
+    ):
+        """§13: o pedido para marcar banca depois do fim da janela do escopo."""
+        self.db.add(
+            BancaForaJanelaSolicitacaoModel(
+                projeto_escopo_id=escopo.id,
+                # Nulo de propósito: o gate roda ANTES de a banca existir, e é
+                # a aprovação que a cria. Ver `_marcar_a_banca`.
+                banca_id=None,
+                data_hora_pretendida=quando,
+                justificativa=justificativa,
+                status=status,
+                solicitado_por=self.mundo.usuarios["Ana Souza"].id,
+                respondido_por=(
+                    self.mundo.usuarios["Dani Alves"].id if status != "pendente" else None
+                ),
+                resposta=resposta,
+                criado_em=instante(HOJE - timedelta(days=1), 9, 0),
+                respondido_em=(
+                    instante(HOJE, 10, 0) if status != "pendente" else None
+                ),
+            )
+        )
+        self.db.flush()
+
     def etapas(self, escopo, blocos):
         """Pinta o cronograma. `blocos` = [(nome, cor, inicio, fim)]."""
         for ordem, (nome, cor, inicio, fim) in enumerate(blocos):
@@ -882,7 +931,10 @@ def povoar(db, mundo):
         "06 · Estourou a janela",
         status="validacao_bancas",
         coordenador="Coordenador Tech",
-        consultores=["mateus loureiro"],
+        # Era "mateus loureiro" — um nome que sobrou de base real e não
+        # existia em pessoa nenhuma do seed. Trocado por um consultor de Tech
+        # que o próprio seed cria.
+        consultores=["Caio Ferreira"],
         frentes=[TECH],
         kickoff=inicio - timedelta(days=6),
     )
@@ -1324,6 +1376,44 @@ def povoar(db, mundo):
             votos=[True, True])
     registrar(p.nome, "2 de 3 votaram e o prazo está aberto: entrega travada com "
                       "'aguardando o voto dos avaliadores'; o 3º ainda é cobrado")
+
+    # ── 28. Fora da janela E em cima de outra banca ───────────────────────
+    #
+    # ⭐ **O cenário que faltava, e que custou uma decisão travada em
+    # produção.** É o cruzamento de duas regras que sempre foram tratadas
+    # separadamente: o pedido do §13 (data depois do fim da janela) cuja data
+    # também esbarra na banca de outro projeto (§8).
+    #
+    # Autorizar falhava com "peça uma exceção de choque à diretoria" — dito a
+    # QUEM É a diretoria, numa fila sem botão nenhum para conceder. O pedido
+    # voltava para pendente e a única saída visível era negar um pedido
+    # legítimo. A saída agora é o segundo clique da tela, "Autorizar o choque
+    # também e marcar", que grava a exceção do §8 antes de marcar a banca.
+    #
+    # ⚠ **Reusa `b_ocupa` do cenário 24 de propósito**: uma banca trava
+    # quantos pedidos caírem no horário dela, e é assim que o choque aparece
+    # na vida real. O que separa este cenário dos 25 e 26 é a JANELA — a deste
+    # escopo fecha bem antes do horário disputado, e é isso que faz o pedido
+    # ser de fora da janela em vez de exceção de choque pura.
+    inicio = HOJE - timedelta(days=40)
+    p = c.projeto(
+        "28 · Fora da janela e em cima de outra banca",
+        status="em_andamento",
+        coordenador="Ana Souza",
+        consultores=["Hugo Sá"],
+        frentes=[BUSINESS],
+        kickoff=inicio - timedelta(days=5),
+    )
+    e = c.escopo(p, catalogo="Análise Mercadológica", frente=BUSINESS, vendidos=10,
+                 inicio=inicio, entrega_planejada=d(inicio, 14))
+    c.pedido_fora_da_janela(
+        e,
+        quando=horario_disputado,
+        justificativa="Cronograma estabelecido com o comercial e acordado com o cliente.",
+    )
+    registrar(p.nome, "fila 'Bancas fora da janela' na aba Aprovações — 'Autorizar e "
+                      "marcar' esbarra no choque com o cenário 24 e oferece "
+                      "'Autorizar o choque também e marcar'")
 
     db.commit()
     return resumo
