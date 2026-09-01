@@ -9,6 +9,13 @@ from sqlalchemy.orm import Session
 
 from src.database.database import get_db
 from src.middlewares.authorization import require_pode_administrar_configuracoes
+from src.use_cases.configuracao.composicao_banca import (
+    ResolverComposicaoUseCase,
+    SalvarComposicaoRequest,
+    SalvarComposicaoUseCase,
+)
+from src.utils.combinacao_frentes import chave, ler
+from src.utils.exceptions import RegraDeNegocioError
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.dia_nao_letivo.create_dia_nao_letivo import (
     CreateDiasNaoLetivosUseCase,
@@ -390,6 +397,63 @@ def get_configuracao(db: Session = Depends(get_db)):
 @router.patch("/configuracao")
 def update_configuracao(request: UpdateConfiguracaoRequest, _=Depends(require_pode_administrar_configuracoes), db: Session = Depends(get_db)):
     return UpdateConfiguracaoUseCase(db).execute(request)
+
+
+# ------------------------------------- composição de banca por combinação
+
+@router.get("/composicao-banca/combinacoes")
+def listar_combinacoes_composicao(db: Session = Depends(get_db)):
+    """O seletor da tela: toda combinação de frentes ATIVAS, com o mínimo que
+    ela exige hoje e se já foi configurada à mão.
+
+    Sem guarda própria: qualquer pessoa logada lê (o router inteiro já exige
+    `get_current_user`). A tela de Bancas também quer dizer quantas pessoas
+    faltam, e esconder o número de quem não administra deixaria a mensagem de
+    banca incompleta sem explicação. Quem GRAVA é que precisa da permissão —
+    ver o `PUT` abaixo."""
+    return ResolverComposicaoUseCase(db).listar_combinacoes()
+
+
+@router.get("/composicao-banca/{combinacao}")
+def get_composicao(combinacao: str, db: Session = Depends(get_db)):
+    """A regra de cada frente da combinação — configurada ou o padrão.
+
+    `combinacao` é a chave normalizada (`"1-2"`). Combinação sem linha
+    gravada não é 404: devolve o padrão, que é o que está valendo."""
+    uc = ResolverComposicaoUseCase(db)
+    regras = uc.para(ler(combinacao))
+    if not regras:
+        raise HTTPException(status_code=404, detail="Combinação não encontrada")
+    return {
+        "combinacao": chave([r.frente_id for r in regras]),
+        "rotulo": " + ".join(r.frente_nome for r in regras),
+        "minimo_total": sum(r.minimo_de_pessoas for r in regras),
+        "frentes": [
+            {
+                "frente_id": r.frente_id,
+                "frente_nome": r.frente_nome,
+                "min_membros": r.min_membros,
+                "max_membros": r.max_membros,
+                "min_lideranca": r.min_lideranca,
+                "max_lideranca": r.max_lideranca,
+                "configurada": r.configurada,
+            }
+            for r in regras
+        ],
+    }
+
+
+@router.put("/composicao-banca/{combinacao}")
+def salvar_composicao(
+    combinacao: str,
+    request: SalvarComposicaoRequest,
+    _=Depends(require_pode_administrar_configuracoes),
+    db: Session = Depends(get_db),
+):
+    try:
+        return SalvarComposicaoUseCase(db).execute(ler(combinacao), request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 # ------------------------------------------------------- situações de carga
