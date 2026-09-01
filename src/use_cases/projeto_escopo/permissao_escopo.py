@@ -47,3 +47,28 @@ def exigir_pode_editar_escopos(projeto_id: int, current_user, db: Session) -> No
             "Só o coordenador deste projeto ou a diretoria de projetos "
             "mexem nos escopos vendidos"
         )
+
+
+#: Os três campos do PATCH em `/escopos-projeto/{id}` que ficam de fora do
+#: que o coordenador mexe, ver `exigir_pode_editar_tipo_e_dias`.
+CAMPOS_RESTRITOS_A_DIRETORIA = {"escopo_id", "nome_customizado", "dias_uteis_vendidos"}
+
+
+def exigir_pode_editar_tipo_e_dias(current_user, campos_enviados) -> None:
+    """Trocar o TIPO do escopo (item do catálogo, ou "Outro" com nome
+    digitado) e os dias úteis vendidos ficam de fora do que o coordenador
+    mexe (2026-09-01, a pedido): o tipo é a identidade do que foi vendido, e
+    os dias vendidos são o registro comercial, diferente de reordenar, mudar
+    o calendário base ou a entrega planejada, que continuam abertos ao
+    coordenador do projeto.
+
+    `campos_enviados` são as chaves de `UpdateEscopoProjetoRequest` que a
+    request de fato mandou (`exclude_unset`), não o corpo inteiro: só entra
+    aqui quem tentou mexer num dos três campos restritos.
+    """
+    if not (set(campos_enviados) & CAMPOS_RESTRITOS_A_DIRETORIA):
+        return
+    if not tem_posicao(current_user, *DIRETORIA_DE_PROJETOS):
+        raise RegraDeNegocioError(
+            "Trocar o tipo do escopo ou os dias úteis vendidos é restrito à diretoria de projetos"
+        )

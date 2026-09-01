@@ -25,7 +25,10 @@ from src.use_cases.projeto_escopo.create_escopo_projeto import (
     CreateEscopoProjetoUseCase,
     EscopoVendidoRequest,
 )
-from src.use_cases.projeto_escopo.permissao_escopo import exigir_pode_editar_escopos
+from src.use_cases.projeto_escopo.permissao_escopo import (
+    exigir_pode_editar_escopos,
+    exigir_pode_editar_tipo_e_dias,
+)
 from src.use_cases.projeto_escopo.get_escopos_projeto import (
     ListEscoposProjetoUseCase,
     ListTodosEscoposVendidosUseCase,
@@ -556,10 +559,14 @@ def create_escopo(projeto_id: int, request: EscopoVendidoRequest, current_user=D
 @router.patch("/escopos-projeto/{escopo_id}")
 def update_escopo(escopo_id: int, request: UpdateEscopoProjetoRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
     """Ver `create_escopo` sobre a troca de `require_gestao` por
-    `require_lideranca` + `exigir_pode_editar_escopos`."""
+    `require_lideranca` + `exigir_pode_editar_escopos`.
+
+    Trocar o tipo do escopo ou os dias úteis vendidos tem uma segunda trava,
+    mais estreita: ver `exigir_pode_editar_tipo_e_dias`."""
     projeto_id = _projeto_do_escopo(escopo_id, current_user, db)
     try:
         exigir_pode_editar_escopos(projeto_id, current_user, db)
+        exigir_pode_editar_tipo_e_dias(current_user, request.dict(exclude_unset=True))
         return UpdateEscopoProjetoUseCase(db).execute(escopo_id, request)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
