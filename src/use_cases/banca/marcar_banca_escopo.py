@@ -36,6 +36,7 @@ from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.piso_banca import calcular_piso_banca
 from src.utils.calendario_variante import apenas_globais, datas_por_escopo
 from src.utils.banca_status import calcular_status_banca
+from src.utils.escopos_da_banca import resolver_escopos
 from src.utils.exceptions import CODIGO_BANCA_ABAIXO_DO_MINIMO, RegraDeNegocioError
 from src.utils.fuso import normalizar_utc
 from src.utils.janela_escopo import (
@@ -358,23 +359,16 @@ class MarcarBancaEscopoUseCase:
         else:
             pedidos = set(request.escopo_ids) | {escopo.id}
 
-        escopos = []
-        for pedido_id in sorted(pedidos):
-            alvo = escopo if pedido_id == escopo.id else self.escopo_repository.get_by_id(pedido_id)
-            if not alvo:
-                raise RegraDeNegocioError(f"Escopo {pedido_id} não encontrado")
-            if alvo.projeto_id != escopo.projeto_id:
-                raise RegraDeNegocioError(
-                    "Uma banca só pode cobrir escopos do mesmo projeto"
-                )
-            dono = self.banca_escopo_repository.get_banca_id(alvo.id)
-            if dono is not None and (existente is None or dono != existente.id):
-                raise RegraDeNegocioError(
-                    f"O escopo '{self._nome(alvo)}' já tem banca marcada — "
-                    "desmarque a dele antes de juntar os dois"
-                )
-            escopos.append(alvo)
-        return escopos
+        # A regra mora em `utils/escopos_da_banca` porque a tela de Bancas
+        # também grava este vínculo (`update_banca`) — ver o módulo.
+        return resolver_escopos(
+            sorted(pedidos),
+            projeto_id=escopo.projeto_id,
+            banca_id=existente.id if existente else None,
+            escopo_repository=self.escopo_repository,
+            catalogo_repository=self.catalogo_repository,
+            banca_escopo_repository=self.banca_escopo_repository,
+        )
 
     def _nome(self, escopo) -> str:
         if escopo.nome_customizado:

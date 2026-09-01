@@ -1,11 +1,15 @@
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from src.models.projeto_remarcacao_banca_model import ProjetoRemarcacaoBancaModel
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
+from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.utils.escopos_da_banca import resolver_escopos
 from src.use_cases.banca.excecao_choque import checar_choque
 from src.utils.banca_status import calcular_status_banca
 from src.utils.exceptions import RegraDeNegocioError
@@ -20,6 +24,14 @@ class UpdateBancaRequest(BaseModel):
     data_hora: Optional[datetime] = None
     #: Só a diretoria altera — ver `require_diretor_projetos` no use case.
     piso_minimo_override: Optional[int] = None
+    #: ⭐ Os escopos vendidos que esta banca cobre (2026-09-01). A lista
+    #: SUBSTITUI a atual: o que não vier é removido, o que vier de novo é
+    #: acrescentado. `None` = não mexer, que é o que toda edição que só troca
+    #: nome ou coordenador manda.
+    #:
+    #: ⚠ Não confundir com `escopo_id`, que é o escopo do CATÁLOGO e é só um
+    #: rótulo da banca legada.
+    projeto_escopo_ids: Optional[List[int]] = None
 
 
 class UpdateBancaUseCase:
@@ -27,6 +39,9 @@ class UpdateBancaUseCase:
         self.db = db
         self.repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.catalogo_repository = EscopoRepository(db)
+        self.banca_frente_repository = BancaFrenteRepository(db)
 
     def execute(self, banca_id: int, request: UpdateBancaRequest, eh_diretor_projetos: bool = False):
         data = request.dict(exclude_unset=True)
@@ -72,6 +87,12 @@ class UpdateBancaUseCase:
                 projeto_escopo_id=escopo_ids[0] if escopo_ids else None,
             )
 
+        # Os escopos saem de `data` antes do update: eles não são coluna de
+        # `banca`, moram em `banca_escopo`.
+        escopos_pedidos = data.pop("projeto_escopo_ids", None)
+        if escopos_pedidos is not None:
+            escopo_ids = self._trocar_escopos(existente, escopo_ids, escopos_pedidos)
+
         banca = self.repository.update(banca_id, **data)
         if not banca:
             return None
@@ -96,6 +117,69 @@ class UpdateBancaUseCase:
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
             "piso_minimo_override": banca.piso_minimo_override,
         }
+
+
+    def _trocar_escopos(self, banca, atuais, pedidos) -> list:
+        """⭐ Troca os escopos que a banca cobre — a lista SUBSTITUI a antiga.
+
+        A validação (mesmo projeto, escopo sem outra banca) mora em
+        `utils/escopos_da_banca`, compartilhada com a marcação pelo cronograma.
+
+        ⚠ **Uma banca com escopos não pode ficar sem nenhum.** Ela existe para
+        avaliar um trabalho; esvaziá-la a deixaria órfã, invisível no
+        cronograma de todos os escopos e sem nada que a apague. Para desfazer,
+        o caminho é excluir a banca.
+
+        ⚠ **As frentes são RECALCULADAS a partir dos escopos.** A banca é das
+        frentes do trabalho que ela avalia (§8), e é isso que decide o piso
+        que a composição vai cobrar. Sem remover a frente do escopo que saiu,
+        a banca continuaria exigindo gente de uma frente que ela não avalia
+        mais — e ficaria impossível de fechar.
+        """
+        if atuais and not pedidos:
+            raise RegraDeNegocioError(
+                "Uma banca precisa cobrir ao menos um escopo. Para desfazê-la, "
+                "exclua a banca."
+            )
+        if not pedidos:
+            return atuais
+
+        # O projeto é o dos escopos que a banca já cobre; sendo legada (sem
+        # nenhum), passa a ser o do primeiro escopo pedido.
+        if atuais:
+            referencia = self.escopo_repository.get_by_id(atuais[0])
+        else:
+            referencia = self.escopo_repository.get_by_id(sorted(pedidos)[0])
+        if not referencia:
+            raise RegraDeNegocioError("Escopo não encontrado")
+
+        escopos = resolver_escopos(
+            pedidos,
+            projeto_id=referencia.projeto_id,
+            banca_id=banca.id,
+            escopo_repository=self.escopo_repository,
+            catalogo_repository=self.catalogo_repository,
+            banca_escopo_repository=self.banca_escopo_repository,
+        )
+        self.banca_escopo_repository.definir(banca.id, [e.id for e in escopos])
+        self._recalcular_frentes(banca.id, {e.frente_id for e in escopos})
+        return [e.id for e in escopos]
+
+    def _recalcular_frentes(self, banca_id: int, frente_ids: set) -> None:
+        """As frentes da banca passam a ser exatamente as dos escopos dela.
+
+        Diferente de `marcar_banca_escopo._garantir_frentes`, que só ADICIONA:
+        lá o gesto é marcar a data e tirar uma frente seria efeito colateral;
+        aqui o gesto é justamente dizer quais escopos a banca cobre.
+
+        Quem já se inscreveu não é desinscrito: `candidatura` é por banca, não
+        por frente. O que muda é o piso que a composição cobra.
+        """
+        atuais = {v.frente_id: v for v in self.banca_frente_repository.get_by_banca(banca_id)}
+        for frente_id in frente_ids - set(atuais):
+            self.banca_frente_repository.create(banca_id=banca_id, frente_id=frente_id)
+        for frente_id in set(atuais) - frente_ids:
+            self.banca_frente_repository.delete(atuais[frente_id].id)
 
 
 class DeleteBancaUseCase:
