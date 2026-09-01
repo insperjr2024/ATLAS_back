@@ -37,6 +37,7 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.fuso import para_hora_local
 from src.utils.notificar import notificar
+from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.piso_banca import calcular_piso_banca
 from src.middlewares.authorization import DIRETORIA
 
@@ -212,7 +213,25 @@ class PushAlocacaoAutomaticaUseCase:
                 and u.posicao not in DIRETORIA
             ]
             fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
-            selecionados.extend(fila_geral[:deficit_restante])
+            # ⭐ O TETO por frente vale aqui também (2026-09-02). Este bloco é
+            # o único que escala gente de qualquer frente: enchia a banca com
+            # quem estivesse na fila do rodízio, e era por ele que uma banca
+            # com "máx. 3 de Business" terminava com cinco de Business. Quem
+            # estoura é pulado, não interrompe a fila — a próxima pessoa pode
+            # ser de uma frente que ainda cabe.
+            checker = ComposicaoBancaChecker.com_dados(
+                usuarios_por_id=usuarios_por_id,
+                membros_por_frente=membros_por_frente,
+                equipe_do_projeto={banca.id: self._equipe_do_projeto(banca)},
+            )
+            regras = list(regra_por_frente.values())
+            for usuario in fila_geral:
+                if len(selecionados) >= vaga_disponivel or deficit_restante <= 0:
+                    break
+                if checker.recusa_por_teto(banca, regras, contabilizados(), usuario.id):
+                    continue
+                selecionados.append(usuario)
+                deficit_restante -= 1
 
         if not selecionados:
             return None
@@ -243,6 +262,29 @@ class PushAlocacaoAutomaticaUseCase:
             "usuarios_alocados": [u.id for u in selecionados],
         }
 
+    def _equipe_do_projeto(self, banca: BancaModel) -> Set[int]:
+        """A equipe do projeto desta banca, mais o coordenador.
+
+        Só esta parte de `_excluidos` interessa à checagem de composição: lá o
+        conjunto é mais largo (já alocados, aula no horário), e quem já está
+        alocado precisa CONTAR na composição — senão o gerente escalado
+        deixaria de cobrir a liderança da frente dele na hora de conferir o
+        teto.
+        """
+        equipe = set(
+            membros_da_banca(
+                banca,
+                self.banca_escopo_repository,
+                self.escopo_repository,
+                self.membro_repository,
+                self.equipe_projeto_repository,
+                self.vendedor_repository,
+            )
+        )
+        if banca.coordenador_id:
+            equipe.add(banca.coordenador_id)
+        return equipe
+
     def _excluidos(self, banca: BancaModel, candidaturas_atuais: list) -> Set[int]:
         """Quem o push não pode escalar nesta banca.
 
@@ -257,16 +299,7 @@ class PushAlocacaoAutomaticaUseCase:
         buraco que a inscrição manual já tinha fechado.
         """
         excluidos = {c.usuario_id for c in candidaturas_atuais}
-        excluidos.update(
-            membros_da_banca(
-                banca,
-                self.banca_escopo_repository,
-                self.escopo_repository,
-                self.membro_repository,
-                self.equipe_projeto_repository,
-                self.vendedor_repository,
-            )
-        )
+        excluidos.update(self._equipe_do_projeto(banca))
         excluidos.update(self._com_aula_no_horario(banca))
         return excluidos
 
