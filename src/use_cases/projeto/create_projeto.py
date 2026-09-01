@@ -18,6 +18,7 @@ from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
 from src.use_cases.tarefa.colunas import criar_colunas_padrao
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
     EscopoVendidoRequest,
+    validar_calendario_do_escopo,
     validar_escopo_vendido,
 )
 from src.utils.exceptions import RegraDeNegocioError
@@ -90,8 +91,17 @@ class CreateProjetoUseCase:
 
         # Valida os escopos ANTES de gravar qualquer coisa — senão um escopo
         # inválido deixa para trás um projeto meio-criado.
-        for escopo in request.escopos:
+        #
+        # ⭐ O calendário entra aqui: §5.4 exige que todo escopo declare em qual
+        # calendário os dias dele são contados, e o cadastro é o momento de
+        # perguntar. O rótulo validado é guardado para gravar o que passou pela
+        # regra, e não o que veio na requisição.
+        calendarios = {}
+        for indice, escopo in enumerate(request.escopos):
             validar_escopo_vendido(escopo, request.frente_ids, self.catalogo_repository)
+            calendarios[indice] = validar_calendario_do_escopo(
+                self.db, escopo.frente_id, escopo.calendario
+            )
 
         validar_equipe(request.equipe, self.usuario_repository, request.max_consultores)
 
@@ -126,6 +136,7 @@ class CreateProjetoUseCase:
                 escopo_id=escopo.escopo_id,
                 nome_customizado=(escopo.nome_customizado or "").strip() or None,
                 frente_id=escopo.frente_id,
+                calendario=calendarios[indice],
                 dias_uteis_vendidos=escopo.dias_uteis_vendidos,
                 data_entrega_planejada=escopo.data_entrega_planejada,
                 status="nao_iniciado",

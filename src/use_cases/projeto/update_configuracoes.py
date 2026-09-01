@@ -95,60 +95,15 @@ class UpdateMaxConsultoresUseCase:
         return {"id": atualizado.id, "max_consultores": atualizado.max_consultores}
 
 
-class UpdateCalendarioRequest(BaseModel):
-    #: O rótulo de um calendário existente na frente do projeto, ou `None` para
-    #: seguir o padrão dela. Ver `dia_nao_letivo.variante`.
-    calendario: Optional[str] = Field(default=None, max_length=30)
-
-
-class UpdateCalendarioUseCase:
-    """Qual calendário acadêmico este projeto segue (§5.4).
-
-    Uma frente pode cobrir cursos com calendários diferentes — dentro da Tech,
-    Ciência da Computação não tem as semanas de avaliação das engenharias. O
-    calendário escolhido aqui é o que a contagem de dias úteis do projeto usa:
-    janela de escopo, atraso, ambientação e o cinza do cronograma.
-
-    Só aceita nome de calendário que EXISTA em alguma frente do projeto. Um
-    rótulo digitado errado não daria erro nenhum na hora — simplesmente não
-    casaria com dia algum, e o projeto passaria a contar a semana de provas de
-    ninguém.
-    """
-
-    def __init__(self, db: Session):
-        self.repository = ProjetoRepository(db)
-        self.escopo_repository = ProjetoEscopoRepository(db)
-        self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
-        self.semestre_repository = SemestreRepository(db)
-
-    def execute(self, projeto_id: int, request: UpdateCalendarioRequest):
-        projeto = self.repository.get_by_id(projeto_id)
-        if not projeto:
-            return None
-
-        escolhido = (request.calendario or "").strip() or None
-        if escolhido:
-            semestre = self.semestre_repository.get_ativo()
-            if not semestre:
-                raise RegraDeNegocioError(
-                    "Não há gestão ativa, então ainda não existe calendário para escolher"
-                )
-            frentes = {e.frente_id for e in self.escopo_repository.get_by_projeto(projeto_id)}
-            disponiveis = {
-                nome
-                for frente_id in frentes
-                for nome in self.dia_nao_letivo_repository.listar_variantes(
-                    semestre.id, frente_id
-                )
-            }
-            if escolhido not in disponiveis:
-                raise RegraDeNegocioError(
-                    f"Nenhuma frente deste projeto tem um calendário chamado {escolhido}. "
-                    "Carregue o calendário em Calendários base antes de apontar para ele."
-                )
-
-        atualizado = self.repository.update(projeto_id, calendario=escolhido)
-        return {"id": atualizado.id, "calendario": atualizado.calendario}
+# ⚠ `UpdateCalendarioRequest`/`UpdateCalendarioUseCase` saíram daqui na
+# `e5c1a9f37b64`. O calendário acadêmico deixou de ser um override do PROJETO e
+# virou a BASE de cada ESCOPO: quem o escolhe é o cadastro do escopo vendido, e
+# quem o troca é `PATCH /escopos-projeto/{id}` (`UpdateEscopoProjetoUseCase`).
+#
+# O motivo é o projeto sinérgico: os escopos dele estão em frentes diferentes,
+# cada uma com o calendário do curso dela, e um campo só no projeto não
+# representa os dois. O campo opcional também não funcionava na prática —
+# ninguém era perguntado, e os 22 projetos em produção estavam todos nulos.
 
 
 class UpdateEntregaPrevistaClienteRequest(BaseModel):

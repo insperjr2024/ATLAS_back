@@ -262,12 +262,22 @@ def calcular_contagem_projeto(
     etapas_por_escopo: Optional[Dict[int, list]] = None,
     bancas_por_escopo: Optional[Dict[int, object]] = None,
     sessoes_por_banca: Optional[Dict[int, list]] = None,
+    dias_nao_letivos_por_escopo: Optional[Dict[int, Iterable[date]]] = None,
 ) -> Dict[int, ContagemEscopo]:
     """A contagem de todos os escopos de um projeto, por `projeto_escopo.id`.
 
     Deriva as janelas de pausa **uma vez** e aplica a mesma lista a todos os
     escopos — é o que mantém a regra 4 (paralelo) coerente: dois escopos
     correndo ao mesmo tempo descontam a mesma pausa, cada um na sua janela.
+
+    ⭐ O CALENDÁRIO, ao contrário das pausas, é de cada escopo: a base de
+    contagem é `projeto_escopo.calendario` dentro da frente dele
+    (`calendario_variante.datas_por_escopo` resolve o par). Num projeto
+    sinérgico o escopo de Business não para na semana de avaliação da Tech, e
+    aplicar uma lista só aos dois daria a mesma janela para calendários
+    diferentes. `dias_nao_letivos` fica como o calendário de quem não aparece
+    no mapa — é o que serve o chamador de um projeto de frente única e os
+    testes, que montam um calendário só.
 
     `etapas_por_escopo` e `bancas_por_escopo` são opcionais para quem só quer a
     barra de progresso não precisar carregar as duas tabelas: sem elas o
@@ -278,6 +288,7 @@ def calcular_contagem_projeto(
     etapas_por_escopo = etapas_por_escopo or {}
     bancas_por_escopo = bancas_por_escopo or {}
     sessoes_por_banca = sessoes_por_banca or {}
+    dias_nao_letivos_por_escopo = dias_nao_letivos_por_escopo or {}
 
     return {
         escopo.id: calcular_contagem_escopo(
@@ -285,7 +296,7 @@ def calcular_contagem_projeto(
             data_entrega_real=escopo.data_entrega_real,
             dias_uteis_vendidos=escopo.dias_uteis_vendidos,
             dias_uteis_ajustados=escopo.dias_uteis_ajustados,
-            dias_nao_letivos=dias_nao_letivos,
+            dias_nao_letivos=dias_nao_letivos_por_escopo.get(escopo.id, dias_nao_letivos),
             janelas_pausa=janelas,
             referencia=referencia,
             etapas=etapas_por_escopo.get(escopo.id, ()),

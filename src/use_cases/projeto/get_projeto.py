@@ -70,7 +70,6 @@ def serializar_projeto_resumo(
         "data_inicio_ambientacao": projeto.data_inicio_ambientacao,
         # Qual calendário acadêmico o time deste projeto segue. `None` = o
         # padrão da frente, o caso normal. Só a Tech tem mais de um hoje.
-        "calendario": projeto.calendario,
         "arquivado_em": projeto.arquivado_em,
         # "Limpar histórico" (§4): corte de exibição da timeline, não exclusão.
         "historico_oculto_ate": projeto.historico_oculto_ate,

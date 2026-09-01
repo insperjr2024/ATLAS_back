@@ -250,7 +250,7 @@ class SolicitarReajusteUseCase:
 
     def _janela(self, escopo, referencia: Optional[object] = None, prazo_do_kickoff=None):
         dias_nao_letivos = [
-            d.data for d in self.dia_nao_letivo_repository.get_do_projeto(escopo.projeto_id)
+            d.data for d in self.dia_nao_letivo_repository.get_do_escopo(escopo)
         ]
         # ⚠ **A pausa desloca o prazo do pedido, não só o fim da janela.**
         #

@@ -1,9 +1,9 @@
 """Renomeia um calendário de curso dentro de uma frente.
 
 O rótulo É a chave — `dia_nao_letivo.variante`, `frente.calendario_padrao` e
-`projeto.calendario` guardam a mesma string. Foi a troca deliberada por não ter
-tabela de domínio, e o preço é este arquivo: renomear não é um UPDATE, são
-três, e deixar um para trás desliga o calendário dos projetos que apontavam
+`projeto_escopo.calendario` guardam a mesma string. Foi a troca deliberada por
+não ter tabela de domínio, e o preço é este arquivo: renomear não é um UPDATE,
+são três, e deixar um para trás desliga o calendário dos escopos que apontavam
 para o nome antigo sem erro nenhum aparecer na tela.
 """
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.models.frente_model import FrenteModel
-from src.models.projeto_model import ProjetoModel
+from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.semestre_repository import SemestreRepository
@@ -57,18 +57,25 @@ class RenomearCalendarioUseCase:
         dias = self.repository.renomear_variante(semestre_id, request.frente_id, atual, novo)
 
         # Os dois vínculos que apontam para o rótulo. Não são por semestre: a
-        # escolha do projeto e o padrão da frente atravessam a virada de gestão,
+        # base do escopo e o padrão da frente atravessam a virada de gestão,
         # então renomear num semestre renomeia o vínculo para todos. É o
         # comportamento certo enquanto o nome do calendário for o mesmo entre
         # semestres, que é o caso ("Engenharias" não muda em julho).
+        #
+        # ⚠ O escopo é filtrado também pela FRENTE: o rótulo só é único dentro
+        # dela, e sem esse recorte renomear "Engenharias" na Tech renomearia um
+        # calendário de mesmo nome de outra frente.
         self.db.query(FrenteModel).filter(
             FrenteModel.id == request.frente_id,
             FrenteModel.calendario_padrao == atual,
         ).update({FrenteModel.calendario_padrao: novo})
-        projetos = (
-            self.db.query(ProjetoModel)
-            .filter(ProjetoModel.calendario == atual)
-            .update({ProjetoModel.calendario: novo})
+        escopos = (
+            self.db.query(ProjetoEscopoModel)
+            .filter(
+                ProjetoEscopoModel.frente_id == request.frente_id,
+                ProjetoEscopoModel.calendario == atual,
+            )
+            .update({ProjetoEscopoModel.calendario: novo})
         )
 
         self.db.commit()
@@ -76,5 +83,5 @@ class RenomearCalendarioUseCase:
             "frente_id": frente.id,
             "nome": novo,
             "dias_renomeados": dias,
-            "projetos_renomeados": projetos,
+            "escopos_renomeados": escopos,
         }

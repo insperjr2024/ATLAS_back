@@ -21,6 +21,7 @@ from src.use_cases.dia_nao_letivo.delete_dia_nao_letivo import (
 from src.use_cases.dia_nao_letivo.get_dia_nao_letivo import (
     GetDiasNaoUteisUseCase,
     ListCalendariosDaFrenteUseCase,
+    ListCalendariosParaEscolhaUseCase,
     ListDiasNaoLetivosUseCase,
 )
 from src.use_cases.dia_nao_letivo.ler_calendario_pdf import LerCalendarioPdfUseCase
@@ -245,6 +246,20 @@ def list_dias_nao_letivos(
     return ListDiasNaoLetivosUseCase(db).execute(
         semestre_id, frente_id, apenas_da_frente, variante
     )
+
+
+@router.get("/calendarios-para-escolha")
+def list_calendarios_para_escolha(db: Session = Depends(get_db)):
+    """Os calendários escolhíveis de cada frente, para o cadastro do escopo.
+
+    Sem `semestre_id`: quem cadastra escopo está sempre na gestão ativa, e
+    pedir o semestre aqui só empurraria mais uma chamada para a tela.
+
+    Toda frente vem com ao menos uma opção — a de calendário único tem `valor`
+    nulo. É de propósito: lista vazia faria a tela esconder o campo, e é isso
+    que deixava projeto sem calendário nenhum.
+    """
+    return ListCalendariosParaEscolhaUseCase(db).execute()
 
 
 @router.get("/semestres/{semestre_id}/calendarios")

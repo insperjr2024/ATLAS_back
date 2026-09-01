@@ -1,14 +1,14 @@
-"""O calendário que cada projeto enxerga, contra o banco de verdade.
+"""O calendário que cada ESCOPO enxerga, contra o banco de verdade.
 
 `tests/utils/test_calendario_variante.py` prova a regra de escolha com objetos
 soltos. Aqui a mesma regra passa pelo model, pela unicidade e pela query — que
 é onde ela de fato roda.
 
-O caso central é o de baixo, `TestInvariante`: o estado exato em que a
-migration deixa a base (dias da Tech marcados como "Engenharias", a frente
-apontando para ela, nenhum projeto escolhendo nada) tem de devolver as MESMAS
-datas que devolvia antes da coluna existir. Essa é a promessa que a mudança
-inteira faz.
+⭐ O caso central é `TestOCorteRealmenteCorta`. A versão anterior resolvia o
+calendário por PROJETO e cortava só por variante, nunca por frente: todo
+projeto enxergava a união dos dias de todas as frentes, e um escopo de Business
+parava na semana de avaliação da Tech. É essa união que os testes daqui
+proíbem de voltar.
 """
 
 from datetime import date
@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from src.database.database import Base
 from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
 from src.models.frente_model import FrenteModel
+from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.frente_repository import FrenteRepository
@@ -35,6 +36,7 @@ PROVA_BUSINESS = date(2026, 9, 30)
 
 TABELAS = [
     ProjetoModel.__table__,
+    ProjetoEscopoModel.__table__,
     FrenteModel.__table__,
     DiaNaoLetivoModel.__table__,
 ]
@@ -94,45 +96,76 @@ def base(db):
     return {"business": business.id, "tech": tech.id}
 
 
-def projeto(db, calendario=None):
+def escopo(db, frente_id, calendario=None):
+    """Um escopo vendido, que é quem declara o calendário base (§5.4)."""
     p = ProjetoModel(
         nome="Projeto Alfa",
         cliente="Cliente",
         criado_por=1,
         status="em_andamento",
         dias_ambientacao=5,
-        calendario=calendario,
     )
     db.add(p)
+    db.flush()
+    e = ProjetoEscopoModel(
+        projeto_id=p.id,
+        frente_id=frente_id,
+        nome_customizado="Escopo",
+        calendario=calendario,
+        dias_uteis_vendidos=20,
+    )
+    db.add(e)
     db.commit()
-    return p
+    return e
 
 
 def datas(registros):
     return sorted(d.data for d in registros)
 
 
-class TestInvariante:
-    def test_projeto_sem_escolha_ve_o_que_via_antes(self, db, base):
-        """Feriado + prova de Business + prova das engenharias.
+class TestOCorteRealmenteCorta:
+    """⚠ A regressão: o dia de OUTRA FRENTE não entra na conta."""
 
-        É exatamente a lista que `get_all()` devolvia antes desta mudança,
-        quando os dias da Tech não tinham rótulo nenhum.
-        """
-        p = projeto(db)
-        vistos = DiaNaoLetivoRepository(db).get_do_projeto(p.id)
-        assert datas(vistos) == sorted([FERIADO, PROVA_BUSINESS, PROVA_ENG])
+    def test_escopo_de_business_nao_ve_a_prova_da_tech(self, db, base):
+        e = escopo(db, base["business"])
+        vistos = datas(DiaNaoLetivoRepository(db).get_do_escopo(e))
 
-    def test_a_prova_de_computacao_nao_entra_sem_alguem_pedir(self, db, base):
-        """Carregar o calendário de CC não pode mexer em quem não é de CC."""
-        p = projeto(db)
-        assert PROVA_CC not in datas(DiaNaoLetivoRepository(db).get_do_projeto(p.id))
+        assert vistos == sorted([FERIADO, PROVA_BUSINESS])
 
-    def test_projeto_que_nao_existe_cai_no_padrao_de_cada_frente(self, db, base):
-        """Sem projeto não há escolha, e o padrão da frente responde."""
-        assert datas(DiaNaoLetivoRepository(db).get_do_projeto(9999)) == sorted(
-            [FERIADO, PROVA_BUSINESS, PROVA_ENG]
-        )
+    def test_escopo_da_tech_nao_ve_a_prova_de_business(self, db, base):
+        e = escopo(db, base["tech"], calendario=ENGENHARIAS)
+        vistos = datas(DiaNaoLetivoRepository(db).get_do_escopo(e))
+
+        assert vistos == sorted([FERIADO, PROVA_ENG])
+
+    def test_o_curso_vizinho_da_mesma_frente_tambem_fica_de_fora(self, db, base):
+        e = escopo(db, base["tech"], calendario=ENGENHARIAS)
+
+        assert PROVA_CC not in datas(DiaNaoLetivoRepository(db).get_do_escopo(e))
+
+    def test_por_id_resolve_igual(self, db, base):
+        e = escopo(db, base["business"])
+        repo = DiaNaoLetivoRepository(db)
+
+        assert datas(repo.get_do_escopo_id(e.id)) == datas(repo.get_do_escopo(e))
+
+    def test_escopo_que_nao_existe_recebe_so_os_globais(self, db, base):
+        """O calendário mais conservador possível, em vez de estourar."""
+        assert datas(DiaNaoLetivoRepository(db).get_do_escopo_id(9999)) == [FERIADO]
+
+
+class TestEscopoDeComputacao:
+    def test_troca_a_semana_de_provas_das_engenharias_pela_dele(self, db, base):
+        e = escopo(db, base["tech"], calendario=COMPUTACAO)
+        vistos = datas(DiaNaoLetivoRepository(db).get_do_escopo(e))
+
+        assert PROVA_CC in vistos
+        assert PROVA_ENG not in vistos
+
+    def test_continua_vendo_o_feriado_nacional(self, db, base):
+        e = escopo(db, base["tech"], calendario=COMPUTACAO)
+
+        assert FERIADO in datas(DiaNaoLetivoRepository(db).get_do_escopo(e))
 
 
 class TestOrdemDasFrentes:
@@ -162,23 +195,6 @@ class TestOrdemDasFrentes:
         assert nomes == ["Business", "Tech"]
 
 
-class TestProjetoDeComputacao:
-    def test_troca_a_semana_de_provas_das_engenharias_pela_dele(self, db, base):
-        p = projeto(db, calendario=COMPUTACAO)
-        vistos = datas(DiaNaoLetivoRepository(db).get_do_projeto(p.id))
-        assert PROVA_CC in vistos
-        assert PROVA_ENG not in vistos
-
-    def test_continua_vendo_o_feriado_nacional(self, db, base):
-        p = projeto(db, calendario=COMPUTACAO)
-        assert FERIADO in datas(DiaNaoLetivoRepository(db).get_do_projeto(p.id))
-
-    def test_nao_esvazia_business_num_projeto_sinergico(self, db, base):
-        """Business não tem calendário de curso, então nada dela pode sumir."""
-        p = projeto(db, calendario=COMPUTACAO)
-        assert PROVA_BUSINESS in datas(DiaNaoLetivoRepository(db).get_do_projeto(p.id))
-
-
 class TestCargaPorCalendario:
     def test_a_mesma_data_cabe_em_dois_calendarios_da_mesma_frente(self, db, base):
         """O que a unicidade antiga proibia, e que motivou a mudança.
@@ -197,8 +213,8 @@ class TestCargaPorCalendario:
         )
         db.commit()
 
-        eng = projeto(db)
-        assert PROVA_ENG in datas(DiaNaoLetivoRepository(db).get_do_projeto(eng.id))
+        eng = escopo(db, base["tech"], calendario=ENGENHARIAS)
+        assert PROVA_ENG in datas(DiaNaoLetivoRepository(db).get_do_escopo(eng))
 
     def test_listar_variantes_nao_inventa_calendario_em_frente_sem_curso(self, db, base):
         repo = DiaNaoLetivoRepository(db)
@@ -217,5 +233,5 @@ class TestCargaPorCalendario:
     def test_apagar_o_calendario_da_frente_nao_toca_no_global(self, db, base):
         repo = DiaNaoLetivoRepository(db)
         repo.delete_da_frente(SEMESTRE, base["tech"], ENGENHARIAS)
-        p = projeto(db)
-        assert FERIADO in datas(repo.get_do_projeto(p.id))
+        e = escopo(db, base["tech"], calendario=ENGENHARIAS)
+        assert FERIADO in datas(repo.get_do_escopo(e))

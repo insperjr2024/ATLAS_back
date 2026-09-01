@@ -38,11 +38,18 @@ def projeto(kickoff=None, dias_ambientacao=0, inicio_ambientacao=None):
     )
 
 
-def escopo(id=1, inicio=SEG_10_08, entrega_real=None, vendidos=10, ajustados=0):
+def escopo(id=1, inicio=SEG_10_08, entrega_real=None, vendidos=10, ajustados=0,
+           frente_id=1, calendario=None):
     return SimpleNamespace(
         id=id,
+        # A frente e o rótulo formam o calendário base do escopo (§5.4).
+        frente_id=frente_id,
+        calendario=calendario,
         data_inicio=inicio,
         data_entrega_real=entrega_real,
+        # Só `_janela` lê esta: é uma das datas que abrem o intervalo de meses
+        # que a aba desenha.
+        data_entrega_planejada=None,
         dias_uteis_vendidos=vendidos,
         dias_uteis_ajustados=ajustados,
     )
@@ -51,6 +58,52 @@ def escopo(id=1, inicio=SEG_10_08, entrega_real=None, vendidos=10, ajustados=0):
 def janelas(escopos, calendario=()):
     faixas = CASO._faixas_derivadas(projeto(), escopos, list(calendario))
     return [f for f in faixas if f["tipo"] == "escopo"]
+
+
+def dia_de_frente(data, frente_id=1):
+    """Um dia não letivo de CURSO — semana de avaliação, recesso, aula cancelada.
+
+    O que separa os dois calendários é só `frente_id`: nulo vale para todas as
+    frentes (feriado), preenchido é do curso.
+    """
+    return SimpleNamespace(data=data, tipo="prova", descricao=None, frente_id=frente_id)
+
+
+def _faixas_do_execute(monkeypatch, escopos, calendario, projeto_=None):
+    """`GetCronogramaUseCase.execute` com todos os repositórios em stub.
+
+    Não há banco nos testes desta base, e a faixa que interessa é montada em
+    `execute` — é lá que os dois calendários são separados. Os repositórios
+    entram vazios; só o de dia não letivo e o de escopo carregam dado.
+    """
+    from src.use_cases.cronograma import get_cronograma as mod
+
+    alvo = projeto_ or projeto()
+    alvo.id = 1
+    alvo.calendario = None
+
+    caso = GetCronogramaUseCase.__new__(GetCronogramaUseCase)
+    caso.db = None
+    caso.projeto_repository = SimpleNamespace(get_by_id=lambda _id: alvo)
+    caso.escopo_repository = SimpleNamespace(get_by_projeto=lambda _id: escopos)
+    caso.etapa_repository = SimpleNamespace(get_by_escopos=lambda _ids: [])
+    caso.marco_repository = SimpleNamespace(get_by_projeto=lambda _id: [])
+    caso.banca_repository = SimpleNamespace(get_by_projeto_escopos=lambda _ids: [])
+    caso.reuniao_repository = SimpleNamespace(get_by_projeto=lambda _id: [])
+    caso.historico_repository = SimpleNamespace(get_by_projeto=lambda _id: [])
+    caso.semestre_repository = SimpleNamespace(get_ativo=lambda: None)
+    caso.frente_repository = SimpleNamespace(get_all=lambda: [])
+    caso.dia_nao_letivo_repository = SimpleNamespace(
+        get_por_intervalo=lambda _i, _f: list(calendario)
+    )
+    # Os escopos serializados vêm de outro use case, com banco próprio; a faixa
+    # não depende deles.
+    monkeypatch.setattr(
+        mod, "ListEscoposProjetoUseCase", lambda _db: SimpleNamespace(
+            execute=lambda _pid, _ref: []
+        )
+    )
+    return caso.execute(1, referencia=SEG_10_08)["faixas_derivadas"]
 
 
 class TestJanelaDoEscopo:
@@ -105,3 +158,53 @@ class TestJanelaDoEscopo:
         """A janela continua no calendário depois da entrega — é o histórico do
         que foi prometido, não um estado atual."""
         assert len(janelas([escopo(entrega_real=SEX_21_08)])) == 1
+
+
+class TestCalendarioDeCursoNaJanela:
+    """⭐ A regressão do calendário: semana de avaliação e recesso entram na janela.
+
+    Semana de avaliação e recesso são do CURSO — nascem com `frente_id`
+    preenchido (`calendario_pdf.CATEGORIAS` marca as duas como escopo
+    "frente"). Feriado é o único que vem global.
+
+    `execute` passava para cá **só os globais**, e o efeito era a faixa do
+    escopo fechando antes da hora: um escopo que atravessa a semana de provas
+    consumia como trabalhados justamente os dias em que ninguém trabalha. Pior,
+    era o mesmo payload se contradizendo — `escopos[].fim_janela_prevista`, de
+    `ListEscoposProjetoUseCase`, sempre contou o calendário inteiro, então a
+    faixa desenhada terminava dias antes do número escrito ao lado dela.
+
+    A ambientação continua com o recorte global, e por isso ela ganha um teste
+    próprio: as duas contas usam calendários diferentes de propósito.
+    """
+
+    #: Uma semana de avaliação de 3 dias no meio da janela de 10 dias úteis.
+    SEMANA_DE_PROVAS = [date(2026, 8, 12), date(2026, 8, 13), date(2026, 8, 14)]
+
+    def test_a_janela_do_escopo_conta_o_calendario_do_curso(self, monkeypatch):
+        """⚠ O teste tem de passar por `execute`: `_faixas_derivadas` sempre
+        contou o calendário que recebe, e era o CALLSITE que entregava a ela
+        apenas os globais."""
+        faixas = _faixas_do_execute(
+            monkeypatch,
+            escopos=[escopo()],
+            calendario=[dia_de_frente(d) for d in self.SEMANA_DE_PROVAS],
+        )
+        (faixa,) = [f for f in faixas if f["tipo"] == "escopo"]
+
+        # 21/08 sem as provas; com elas, três dias úteis à frente.
+        assert faixa["fim"] == date(2026, 8, 26)
+
+    def test_a_ambientacao_ignora_o_que_e_de_uma_frente_so(self):
+        """A ambientação é do PROJETO: o calendário de uma frente não pode
+        esticá-la, senão o mesmo projeto termina a ambientação em datas
+        diferentes conforme o escopo que estiver selecionado na tela."""
+        faixas = CASO._faixas_derivadas(
+            projeto(kickoff=SEG_10_08, dias_ambientacao=5),
+            [],
+            self.SEMANA_DE_PROVAS,
+            dias_nao_letivos_globais=[],
+        )
+        (ambientacao,) = [f for f in faixas if f["tipo"] == "ambientacao"]
+
+        assert ambientacao["fim"] == date(2026, 8, 14)

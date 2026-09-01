@@ -82,8 +82,6 @@ from src.use_cases.projeto.update_configuracoes import (
     UpdateFrentesRequest,
     UpdateFrentesUseCase,
     UpdateMaxConsultoresRequest,
-    UpdateCalendarioRequest,
-    UpdateCalendarioUseCase,
     UpdateMaxConsultoresUseCase,
 )
 from src.use_cases.projeto.excluir_justificativa_atraso import ExcluirJustificativaAtrasoUseCase
@@ -277,24 +275,6 @@ def update_max_consultores(projeto_id: int, request: UpdateMaxConsultoresRequest
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
     try:
         result = UpdateMaxConsultoresUseCase(db).execute(projeto_id, request)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    if not result:
-        raise HTTPException(status_code=404, detail="Projeto não encontrado")
-    return result
-
-
-@router.patch("/projetos/{projeto_id}/calendario")
-def update_calendario(projeto_id: int, request: UpdateCalendarioRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
-    """Qual calendário acadêmico o time deste projeto segue.
-
-    Mesma permissão do resto da configuração do projeto. O efeito não é
-    cosmético: muda a contagem de dias úteis, a janela dos escopos e o cinza do
-    cronograma deste projeto.
-    """
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
-    try:
-        result = UpdateCalendarioUseCase(db).execute(projeto_id, request)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:
