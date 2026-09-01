@@ -83,7 +83,7 @@ def montar(
             pass
 
         def get(self):
-            return SimpleNamespace(lideranca_minima_por_frente=1)
+            return SimpleNamespace(lideranca_minima_por_frente=1, vagas_por_banca=vagas)
 
     class FakeUsuarioFrenteRepo:
         def __init__(self, db):
@@ -143,6 +143,7 @@ def montar(
     uc.banca_frente_repository = SimpleNamespace(
         get_by_banca=lambda _id: [SimpleNamespace(frente_id=fid) for fid in frente_ids]
     )
+    uc.frente_repository = SimpleNamespace(get_by_id=lambda fid: frentes.get(fid))
     # A banca destes testes não cobre escopo nenhum: o assunto é a frente de
     # quem se aloca, e `membros_da_banca` sem escopo devolve só o coordenador.
     uc.banca_escopo_repository = SimpleNamespace(get_escopo_ids=lambda _id: [])
@@ -281,3 +282,72 @@ class TestOQueONovoAlocadoNaoPiora:
         alocar(uc, 10)
 
         assert candidaturas.criadas == [10]
+
+
+class TestATrocaDeVaga:
+    """A troca é a TERCEIRA porta que põe gente numa banca (inscrição, push e
+    ela). Sem o teto aqui, a regra seria contornável: bastava entrar por uma
+    troca em vez da inscrição."""
+
+    def montar_troca(self, monkeypatch, *, por_frente, usuarios, gravadas, alocados, sai):
+        from src.use_cases.solicitacao_troca.confirmar_solicitacao_troca import (
+            ConfirmarSolicitacaoTrocaUseCase,
+        )
+
+        uc_base, _ = montar(
+            monkeypatch,
+            frente_ids=[BUSINESS, TECH],
+            frentes={
+                BUSINESS: frente(BUSINESS, "Business", 3),
+                TECH: frente(TECH, "Tech", 2),
+            },
+            por_frente=por_frente,
+            usuarios=usuarios,
+            gravadas=gravadas,
+            alocados=alocados,
+        )
+
+        uc = ConfirmarSolicitacaoTrocaUseCase.__new__(ConfirmarSolicitacaoTrocaUseCase)
+        uc.db = None
+        uc.banca_frente_repository = uc_base.banca_frente_repository
+        uc.candidatura_repository = uc_base.repository
+        banca = SimpleNamespace(id=1, coordenador_id=None)
+        solicitacao = SimpleNamespace(usuario_original_id=sai)
+        return uc, banca, solicitacao
+
+    def test_quem_sai_da_banca_sai_da_conta_antes(self, monkeypatch):
+        """Business com teto 3 e 3 alocados: o consultor que passa a vaga
+        para outro de Business devolve a vaga, não estoura o teto."""
+        uc, banca, solicitacao = self.montar_troca(
+            monkeypatch,
+            por_frente={BUSINESS: [10, 11, 12, 13], TECH: []},
+            usuarios=[usuario(i) for i in (10, 11, 12, 13)],
+            gravadas=[
+                regra_gravada(BUSINESS, min_membros=1, max_membros=3, min_lideranca=0),
+                regra_gravada(TECH, min_membros=1, max_membros=3, min_lideranca=0),
+            ],
+            alocados=(10, 11, 12),
+            sai=10,
+        )
+
+        candidaturas = uc.candidatura_repository.get_by_banca(1)
+
+        assert uc._recusa_por_teto(banca, candidaturas, solicitacao, 13) is None
+
+    def test_a_troca_que_estoura_a_frente_de_quem_entra_e_recusada(self, monkeypatch):
+        """Sai um de Business, entra um de Tech — e Tech já está no teto."""
+        uc, banca, solicitacao = self.montar_troca(
+            monkeypatch,
+            por_frente={BUSINESS: [10, 11], TECH: [20, 21]},
+            usuarios=[usuario(i) for i in (10, 11, 20, 21)],
+            gravadas=[
+                regra_gravada(BUSINESS, min_membros=1, max_membros=3, min_lideranca=0),
+                regra_gravada(TECH, min_membros=1, max_membros=1, min_lideranca=0),
+            ],
+            alocados=(10, 11, 20),
+            sai=10,
+        )
+
+        candidaturas = uc.candidatura_repository.get_by_banca(1)
+
+        assert "Tech" in (uc._recusa_por_teto(banca, candidaturas, solicitacao, 21) or "")

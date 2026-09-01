@@ -8,6 +8,7 @@ from src.repositories.semestre_repository import SemestreRepository
 from src.utils.banca_status import calcular_status_banca
 from src.utils.identificar_semestre import identificar_semestre
 from src.utils.piso_banca import calcular_piso_banca
+from src.utils.teto_banca import calcular_vagas_banca
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.frente_repository import FrenteRepository
@@ -73,8 +74,13 @@ class GetBancaUseCase:
         if not banca:
             return None
         candidaturas = self.candidatura_repository.get_by_banca(banca_id)
-        configuracao = self.configuracao_repository.get()
-        vagas = configuracao.vagas_por_banca if configuracao else 5
+        # Uma vez só: os três números abaixo (teto, piso e composição) saem
+        # todos das frentes vinculadas, e cada `_frentes` é uma consulta.
+        frentes = self._frentes(banca)
+        # ⭐ O teto é da COMBINAÇÃO de frentes desde 2026-09-02 (antes era o
+        # global `configuracao.vagas_por_banca`, o mesmo em toda banca). Quem
+        # não configurou continua no global — ver `utils/teto_banca.py`.
+        vagas = calcular_vagas_banca(frentes, self.db)
         semestres = self.semestre_repository.get_all()
         semestre = identificar_semestre(banca.data_hora, semestres)
         return {
@@ -97,10 +103,10 @@ class GetBancaUseCase:
             # soma do `piso_banca` das frentes. `vagas` acima é outra coisa —
             # é o teto de quantos cabem. Sem este campo a tela tinha de
             # reimplementar a regra, e usava o teto por engano.
-            "piso_minimo": self._piso(banca),
+            "piso_minimo": calcular_piso_banca(banca, frentes, self.db),
             # A mesma exigência do `piso_minimo` acima, aberta por frente —
             # ver `composicao_da_banca`.
-            "composicao": self._composicao(banca, candidaturas),
+            "composicao": self._composicao(banca, frentes, candidaturas),
             # ⭐ §8: quem NÃO pode avaliar esta banca por ser do grupo dela.
             # Sai daqui, e não do `equipe_projeto` sozinho, porque banca
             # marcada pelo cronograma não escreve naquela tabela legada — a
@@ -119,19 +125,16 @@ class GetBancaUseCase:
             "semestre_nome": semestre.nome if semestre else None
         }
 
-    def _piso(self, banca) -> int:
-        return calcular_piso_banca(banca, self._frentes(banca), self.db)
-
     def _frentes(self, banca):
         vinculos = self.banca_frente_repository.get_by_banca(banca.id)
         return [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f]
 
-    def _composicao(self, banca, candidaturas) -> list:
+    def _composicao(self, banca, frentes, candidaturas) -> list:
         from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
 
         return composicao_da_banca(
             banca,
-            self._frentes(banca),
+            frentes,
             [c.usuario_id for c in candidaturas],
             ComposicaoBancaChecker(self.db),
             ResolverComposicaoUseCase(self.db),
@@ -171,8 +174,6 @@ class ListBancasUseCase:
         # `execute` evita desde sempre.
         checker = ComposicaoBancaChecker(self.db)
         resolver = ResolverComposicaoUseCase(self.db)
-        configuracao = self.configuracao_repository.get()
-        vagas = configuracao.vagas_por_banca if configuracao else 5
         semestres = self.semestre_repository.get_all()
         escopos_por_banca = self.banca_escopo_repository.get_escopo_ids_por_banca(
             [b.id for b in bancas]
@@ -199,7 +200,10 @@ class ListBancasUseCase:
                 "realizado_em": b.realizado_em,
                 "resultado": b.resultado,
                 "status": calcular_status_banca(b.data_hora, b.realizado_em),
-                "vagas": vagas,
+                # O teto da combinação desta banca — o resolver acima já
+                # guarda em cache o que leu, então a lista não repete a
+                # consulta por linha.
+                "vagas": resolver.vagas_da_combinacao([f.id for f in frentes_da_banca]),
                 "alocados": len(candidaturas),
                 "piso_minimo_override": b.piso_minimo_override,
                 "descricao_coordenador": b.descricao_coordenador,

@@ -60,3 +60,13 @@ class BancaComposicaoRegraModel(Base):
     #: Teto de lideranças desta frente — a banca é para avaliar, não para
     #: reunir a gestão inteira.
     max_lideranca = Column(Integer, nullable=False, default=99, server_default="99")
+
+    #: ⭐ Quantas pessoas cabem NESTA banca (2026-09-02). Diferente das quatro
+    #: colunas acima, é da COMBINAÇÃO e não da frente: fica repetido em todas
+    #: as linhas dela, que são gravadas juntas (ver `definir` no repositório) e
+    #: por isso não têm como divergir.
+    #:
+    #: ⚠ `NULL` = usa `configuracao.vagas_por_banca`, o teto global, que
+    #: continua sendo o padrão de quem não configurou e da banca legada (sem
+    #: frente vinculada, e portanto sem combinação).
+    vagas = Column(Integer, nullable=True)

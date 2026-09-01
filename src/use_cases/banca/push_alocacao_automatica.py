@@ -99,16 +99,6 @@ class PushAlocacaoAutomaticaUseCase:
         if piso_total <= 0:
             return None
 
-        candidaturas_atuais = self.candidatura_repository.get_by_banca(banca.id)
-        alocados_antes = len(candidaturas_atuais)
-        vaga_disponivel = teto - alocados_antes
-        if vaga_disponivel <= 0:
-            return None
-
-        excluidos = self._excluidos(banca, candidaturas_atuais)
-        ja_presentes = {c.usuario_id for c in candidaturas_atuais}
-
-        configuracao = self.configuracao_repository.get()
         # ⭐ A régua de cada frente vem da MATRIZ por combinação (2026-09-01),
         # a mesma que `calcular_piso_banca` somou acima. Ler
         # `configuracao.lideranca_minima_por_frente` e `frente.piso_banca`
@@ -117,10 +107,24 @@ class PushAlocacaoAutomaticaUseCase:
         # no registro, ou o contrário.
         from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
 
-        regra_por_frente = {
-            r.frente_id: r
-            for r in ResolverComposicaoUseCase(self.db).para([f.id for f in frentes])
-        }
+        resolver = ResolverComposicaoUseCase(self.db)
+        regra_por_frente = {r.frente_id: r for r in resolver.para([f.id for f in frentes])}
+
+        # ⭐ E o TETO também pode ser da combinação (2026-09-02). `teto` é o
+        # global, lido uma vez para a passada inteira; a combinação que tem
+        # número próprio manda nele.
+        propria = resolver.vagas_proprias_da_combinacao([f.id for f in frentes])
+        if propria is not None:
+            teto = propria
+
+        candidaturas_atuais = self.candidatura_repository.get_by_banca(banca.id)
+        alocados_antes = len(candidaturas_atuais)
+        vaga_disponivel = teto - alocados_antes
+        if vaga_disponivel <= 0:
+            return None
+
+        excluidos = self._excluidos(banca, candidaturas_atuais)
+        ja_presentes = {c.usuario_id for c in candidaturas_atuais}
 
         ativos = self.usuario_repository.get_ativos()
         usuarios_por_id = {u.id: u for u in ativos}

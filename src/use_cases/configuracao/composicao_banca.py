@@ -65,6 +65,7 @@ class ResolverComposicaoUseCase:
         self._cache: Dict[str, List[RegraDaFrente]] = {}
         self._cache_frentes: Optional[Dict[int, object]] = None
         self._cache_lideranca: Optional[int] = None
+        self._cache_vagas: Dict[str, Optional[int]] = {}
 
     def para(self, frente_ids: List[int]) -> List[RegraDaFrente]:
         """A regra de cada frente da combinação, na ordem dos ids.
@@ -115,6 +116,45 @@ class ResolverComposicaoUseCase:
         self._cache[combinacao] = regras
         return regras
 
+    def vagas_da_combinacao(self, frente_ids: List[int]) -> int:
+        """⭐ Quantas pessoas cabem numa banca desta combinação (2026-09-02).
+
+        O teto era um número só para a plataforma inteira: a banca de Direito
+        sozinha (que exige 2 pessoas) e a de Business + Tech + Processos (que
+        exige 9) cabiam o mesmo tanto de gente.
+
+        Combinação sem valor próprio cai em `configuracao.vagas_por_banca` —
+        o global continua sendo o padrão, e é o que vale também para a banca
+        legada, que não tem frente vinculada e por isso não cai em combinação
+        nenhuma.
+        """
+        propria = self.vagas_proprias_da_combinacao(frente_ids)
+        return propria if propria is not None else self._vagas_padrao()
+
+    def vagas_proprias_da_combinacao(self, frente_ids: List[int]) -> Optional[int]:
+        """O teto GRAVADO desta combinação, ou `None` se ela não tem um.
+
+        Separado de `vagas_da_combinacao` para quem já tem em mãos o padrão a
+        aplicar e só quer saber se a combinação manda outra coisa — é o caso
+        do push automático, que lê o global uma vez para a passada inteira.
+        """
+        combinacao = chave(frente_ids)
+        if not combinacao:
+            return None
+        if combinacao not in self._cache_vagas:
+            gravadas = self.repository.get_por_frente(combinacao)
+            self._cache_vagas[combinacao] = next(
+                (r.vagas for r in gravadas.values() if getattr(r, "vagas", None) is not None),
+                None,
+            )
+        return self._cache_vagas[combinacao]
+
+    def _vagas_padrao(self) -> int:
+        config = self.configuracao_repository.get()
+        # `getattr` com padrão: o mesmo motivo de `_lideranca_padrao` — a
+        # configuração pode não existir ainda em base recém-criada.
+        return getattr(config, "vagas_por_banca", 5) if config else 5
+
     def _frentes(self) -> Dict[int, object]:
         if self._cache_frentes is None:
             self._cache_frentes = {f.id: f for f in self.frente_repository.get_all()}
@@ -143,6 +183,7 @@ class ResolverComposicaoUseCase:
                     "rotulo": " + ".join(r.frente_nome for r in regras),
                     "sinergica": len(ids) > 1,
                     "minimo_total": sum(r.minimo_de_pessoas for r in regras),
+                    "vagas": self.vagas_da_combinacao(ids),
                     "configurada": any(r.configurada for r in regras),
                 }
             )
@@ -159,6 +200,9 @@ class SalvarComposicaoRequest(BaseModel):
     """
 
     frentes: List["FrenteRegraRequest"]
+    #: O teto de quantos cabem numa banca desta combinação. `None` = seguir o
+    #: global (`configuracao.vagas_por_banca`), que é o padrão de sempre.
+    vagas: Optional[int] = None
 
 
 class FrenteRegraRequest(BaseModel):
@@ -196,6 +240,19 @@ class SalvarComposicaoUseCase:
         for f in request.frentes:
             self._validar(f)
 
+        minimo_total = sum(f.min_membros + f.min_lideranca for f in request.frentes)
+        if request.vagas is not None:
+            if request.vagas < 1:
+                raise RegraDeNegocioError("O teto de vagas precisa ser de ao menos 1")
+            # ⚠ Teto menor que o mínimo é uma banca impossível: ela nunca
+            # fecharia a composição, e a inscrição recusaria com "banca
+            # lotada" antes de alguém completar o que ela exige.
+            if request.vagas < minimo_total:
+                raise RegraDeNegocioError(
+                    f"O teto de {request.vagas} vagas é menor que o mínimo que esta "
+                    f"combinação exige ({minimo_total} pessoas)"
+                )
+
         self.repository.definir(
             combinacao,
             [
@@ -208,8 +265,13 @@ class SalvarComposicaoUseCase:
                 }
                 for f in request.frentes
             ],
+            vagas=request.vagas,
         )
-        return {"combinacao": combinacao, "frentes": len(request.frentes)}
+        return {
+            "combinacao": combinacao,
+            "frentes": len(request.frentes),
+            "vagas": request.vagas,
+        }
 
     def _validar(self, f: "FrenteRegraRequest") -> None:
         if f.min_membros < 0 or f.min_lideranca < 0:
