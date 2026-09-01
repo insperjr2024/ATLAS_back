@@ -225,3 +225,85 @@ class TestRedacao:
         _, texto, html = montar_email_notificacao("Bia", "Banca remarcada", "De 06/08 para 20/08.", "#")
         assert "De 06/08 para 20/08." in texto
         assert "De 06/08 para 20/08." in html
+
+
+class TestConexaoDuranteOEnvio:
+    """A regra que faltava: o envio não pode segurar conexão de banco.
+
+    O pool tem 5 conexões para a instância inteira e este módulo manda por 4
+    threads. Enquanto cada uma segurava a sessão durante os até 15s da chamada
+    ao Resend, sobrava uma conexão para todas as requisições — e quem estava
+    no meio de um POST tomava `TimeoutError` do pool na primeira query depois
+    do `commit()`. A tarefa entrava no banco e a request morria com 500 logo
+    em seguida.
+
+    O teste olha o único sintoma observável sem banco de verdade: nenhuma
+    sessão pode estar aberta no instante em que o e-mail sai.
+    """
+
+    def test_nenhuma_sessao_aberta_quando_o_email_sai(self, montar):
+        _, carimbos, _ = montar()
+        abertas = []
+
+        class SessaoRastreada(SessaoFake):
+            def __init__(self):
+                super().__init__()
+                abertas.append(self)
+
+        class SenderEspiao:
+            def __init__(self):
+                self.abertas_no_envio = None
+
+            def enviar(self, destino, assunto, corpo_texto, corpo_html):
+                self.abertas_no_envio = [s for s in abertas if not s.fechada]
+
+        espiao = SenderEspiao()
+        saiu = enviar(
+            notificacao_id=99,
+            usuario_id=7,
+            tipo="banca_remarcada",
+            titulo="Banca de Alfa remarcada",
+            corpo=None,
+            rota=None,
+            sender=espiao,
+            session_factory=SessaoRastreada,
+        )
+
+        assert saiu is True
+        assert espiao.abertas_no_envio == []
+        # Duas sessões curtas (ler o destinatário, carimbar), nunca uma só
+        # atravessando o envio — e as duas fechadas no fim.
+        assert len(abertas) == 2
+        assert all(s.fechada for s in abertas)
+        assert [id_ for id_, _ in carimbos] == [99]
+
+    def test_envio_que_falha_nao_deixa_sessao_pendurada(self, montar):
+        """Uma sessão vazando por request de erro esgota o pool igual — ou
+        pior, porque erro de SMTP costuma vir em rajada."""
+        _, carimbos, _ = montar()
+        abertas = []
+
+        class SessaoRastreada(SessaoFake):
+            def __init__(self):
+                super().__init__()
+                abertas.append(self)
+
+        class SenderQueFalha:
+            def enviar(self, destino, assunto, corpo_texto, corpo_html):
+                raise RuntimeError("SMTP fora do ar")
+
+        saiu = enviar(
+            notificacao_id=99,
+            usuario_id=7,
+            tipo="banca_remarcada",
+            titulo="Banca de Alfa remarcada",
+            corpo=None,
+            rota=None,
+            sender=SenderQueFalha(),
+            session_factory=SessaoRastreada,
+        )
+
+        assert saiu is False
+        assert all(s.fechada for s in abertas)
+        # Sem envio não há o que carimbar: a coluna responde "chegou?".
+        assert carimbos == []
