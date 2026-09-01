@@ -94,7 +94,7 @@ class PushAlocacaoAutomaticaUseCase:
         if not frentes and banca.piso_minimo_override is None:
             return None
 
-        piso_total = calcular_piso_banca(banca, frentes)
+        piso_total = calcular_piso_banca(banca, frentes, self.db)
         if piso_total <= 0:
             return None
 
@@ -108,7 +108,18 @@ class PushAlocacaoAutomaticaUseCase:
         ja_presentes = {c.usuario_id for c in candidaturas_atuais}
 
         configuracao = self.configuracao_repository.get()
-        lideranca_minima = configuracao.lideranca_minima_por_frente if configuracao else 1
+        # ⭐ A régua de cada frente vem da MATRIZ por combinação (2026-09-01),
+        # a mesma que `calcular_piso_banca` somou acima. Ler
+        # `configuracao.lideranca_minima_por_frente` e `frente.piso_banca`
+        # direto aqui, como era, fazia o push preencher por uma régua e o
+        # registro cobrar por outra — a banca fechava no push e era recusada
+        # no registro, ou o contrário.
+        from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
+
+        regra_por_frente = {
+            r.frente_id: r
+            for r in ResolverComposicaoUseCase(self.db).para([f.id for f in frentes])
+        }
 
         ativos = self.usuario_repository.get_ativos()
         usuarios_por_id = {u.id: u for u in ativos}
@@ -146,6 +157,8 @@ class PushAlocacaoAutomaticaUseCase:
                     or usuarios_por_id[uid].posicao in DIRETORIA
                 )
             }
+            regra = regra_por_frente.get(frente.id)
+            lideranca_minima = regra.min_lideranca if regra else 1
             falta_lideranca = max(0, lideranca_minima - len(lideres_presentes))
             if falta_lideranca > 0:
                 # Só puxa GERENTE automaticamente — diretor conta pra
@@ -164,7 +177,13 @@ class PushAlocacaoAutomaticaUseCase:
 
             if vagas_restantes() <= 0:
                 continue
-            falta_piso = max(0, frente.piso_banca - len(contabilizados() & membros_ids))
+            # ⚠ A liderança já puxada acima NÃO abate o piso: ela é vaga a
+            # mais desde 2026-09-01, e descontá-la aqui devolveria o
+            # comportamento antigo por uma porta lateral.
+            min_membros = regra.min_membros if regra else frente.piso_banca
+            ja_da_frente = len(contabilizados() & membros_ids)
+            lideres_da_frente = len(lideres_presentes & membros_ids)
+            falta_piso = max(0, min_membros - max(0, ja_da_frente - lideres_da_frente))
             if falta_piso > 0:
                 pool_frente = [
                     u
@@ -179,7 +198,19 @@ class PushAlocacaoAutomaticaUseCase:
         # bater o mínimo total.
         deficit_restante = min(max(0, piso_total - len(contabilizados())), vagas_restantes())
         if deficit_restante > 0:
-            pool_geral = [u for u in ativos if u.id not in excluidos and u.id not in contabilizados()]
+            # ⚠ **Diretoria fica de fora daqui também** (2026-09-01). A regra
+            # já valia para a cota de liderança logo acima — "o push não escala
+            # diretoria pra rotina de banca" — mas este preenchimento final
+            # ignorava a posição e alcançava um diretor sempre que o piso não
+            # fechasse. Só não aparecia porque o piso era pequeno; com a
+            # liderança virando vaga a mais, o caso passou a ser rotina.
+            pool_geral = [
+                u
+                for u in ativos
+                if u.id not in excluidos
+                and u.id not in contabilizados()
+                and u.posicao not in DIRETORIA
+            ]
             fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
             selecionados.extend(fila_geral[:deficit_restante])
 

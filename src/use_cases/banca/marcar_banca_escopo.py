@@ -762,7 +762,7 @@ class RegistrarRealizacaoBancaUseCase:
         frentes = [
             f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos) if f
         ]
-        minimo = calcular_piso_banca(banca, frentes)
+        minimo = calcular_piso_banca(banca, frentes, self.db)
         candidaturas = self.candidatura_repository.get_by_banca(banca.id)
         alocados = len(candidaturas)
 
