@@ -18,10 +18,10 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.tarefa_coluna_repository import TarefaColunaRepository
 from src.repositories.tarefa_repository import ReuniaoSemanalRepository, TarefaRepository
 from src.repositories.usuario_repository import UsuarioRepository
-from src.use_cases.cronograma.zerar_escopo import (
-    exigir_reset_permitido,
-    resumir_o_que_sera_apagado,
-    zerar_cronograma_do_escopo,
+from src.use_cases.cronograma.podar_escopo import (
+    exigir_poda_permitida,
+    podar_cronograma_do_escopo,
+    resumir_a_poda,
 )
 from src.use_cases.tarefa.comentarios import exigir_permissao_de_edicao
 from src.utils.exceptions import RegraDeNegocioError
@@ -343,9 +343,9 @@ class UpdateReuniaoUseCase:
     """Mover a reunião de dia (registrou quarta, aconteceu quinta) ou corrigir
     sobre qual escopo ela foi.
 
-    ⚠ **Mover a reunião INICIAL zera o cronograma do escopo** (ver
-    `cronograma/zerar_escopo.py`): a data dela é a origem da janela, e tudo o
-    que foi desenhado a partir da origem antiga deixa de fazer sentido. Só a
+    **Mover a reunião INICIAL poda o cronograma do escopo** (ver
+    `cronograma/podar_escopo.py`): a data dela é a origem da janela, e o que
+    fica fora da janela nova é apagado. O que continua dentro fica. Só a
     diretoria faz isso direto; para os demais é pedido.
     """
 
@@ -359,24 +359,28 @@ class UpdateReuniaoUseCase:
             return None
         escopo_anterior = reuniao.projeto_escopo_id
 
-        # ⭐ A largada mudou de dia: é reset, não ajuste.
-        muda_a_largada = (
-            escopo_anterior is not None and reuniao.data_reuniao != request.data_reuniao
-        )
-        if muda_a_largada:
-            exigir_reset_permitido(self.db, escopo_anterior)
-            if not eh_diretor_projetos:
-                resumo = resumir_o_que_sera_apagado(self.db, escopo_anterior)
-                perda = _descrever_perda(resumo)
-                raise RegraDeNegocioError(
-                    "Mudar a data da reunião inicial zera o cronograma deste escopo"
-                    f"{perda}. Por isso a mudança é decisão da diretoria — peça a ela, "
-                    "explicando por que a data precisa mudar."
-                )
         # `exclude_unset`: quem só move o dia não manda o escopo, e não pode
         # perder o vínculo por omissão. Mandar `null` explícito é que desliga.
         dados = request.dict(exclude_unset=True)
         escopo_alvo = dados.get("projeto_escopo_id", escopo_anterior)
+
+        # A largada mudou de dia: a janela anda, e o que não couber nela é
+        # podado. `nova_largada` é a data que o escopo VAI ter — `None` quando
+        # a reunião vai para outro escopo e este fica sem largada nenhuma, e aí
+        # nada cabe (é o reset inteiro, o único caso em que ele ainda acontece).
+        muda_a_largada = (
+            escopo_anterior is not None and reuniao.data_reuniao != request.data_reuniao
+        )
+        nova_largada = request.data_reuniao if escopo_alvo == escopo_anterior else None
+        if muda_a_largada:
+            exigir_poda_permitida(self.db, escopo_anterior)
+            if not eh_diretor_projetos:
+                resumo = resumir_a_poda(self.db, escopo_anterior, nova_largada)
+                raise RegraDeNegocioError(
+                    "Mudar a data da reunião inicial reposiciona a janela deste escopo"
+                    f"{_descrever_perda(resumo)}. Por isso a mudança é decisão da "
+                    "diretoria — peça a ela, explicando por que a data precisa mudar."
+                )
 
         existente = self.repository.get_por_data(
             reuniao.projeto_id, request.data_reuniao, escopo_alvo
@@ -395,10 +399,14 @@ class UpdateReuniaoUseCase:
         if "observacoes" in dados:
             campos["observacoes"] = (request.observacoes or "").strip() or None
 
-        # ⚠ ANTES do update: o reset lê o que existe hoje (etapas, banca) para
-        # apagar. Depois de mover a data, `data_inicio` já teria mudado e a
-        # janela nova esconderia parte do que precisa sair.
-        zerado = zerar_cronograma_do_escopo(self.db, escopo_anterior) if muda_a_largada else None
+        # A poda recebe a largada nova de fora, então não depende de o update já
+        # ter rodado — mas continua ANTES dele porque `data_entrega_planejada` e
+        # a data da banca são lidas do estado atual.
+        podado = (
+            podar_cronograma_do_escopo(self.db, escopo_anterior, nova_largada)
+            if muda_a_largada
+            else None
+        )
 
         atualizada = self.repository.update(reuniao_id, **campos)
         # Os DOIS lados: o escopo que perdeu a reunião pode ter perdido a
@@ -409,9 +417,9 @@ class UpdateReuniaoUseCase:
         return {
             **serializar_reuniao(atualizada),
             "escopo_iniciado": iniciou,
-            # A tela usa isto para contar o que foi apagado — silêncio depois
-            # de um reset destrutivo é o pior desfecho possível.
-            "cronograma_zerado": zerado,
+            # A tela usa isto para contar o que a poda mexeu — silêncio depois
+            # de apagar ou encurtar etapa é o pior desfecho possível.
+            "cronograma_podado": podado,
         }
 
 
@@ -430,19 +438,30 @@ class DeleteReuniaoUseCase:
 
 
 def _descrever_perda(resumo: dict) -> str:
-    """"— 3 etapas pintadas e a banca de 20/08" ou "" quando não há nada.
+    """"— apagando 1 etapa, encurtando 2 e desmarcando a banca de 20/08".
 
-    📐 A frase entra no meio da recusa, então ela nasce vazia quando o escopo
-    ainda não tem nada desenhado: dizer "zera o cronograma, apagando 0 etapas"
-    faria a pessoa achar que a plataforma está confusa.
+    A frase entra no meio da recusa, e nasce vazia quando a poda não mexe em
+    nada: dizer "reposiciona a janela, apagando 0 etapas" faria a pessoa achar
+    que a plataforma está confusa. E agora ela costuma nascer vazia mesmo — o
+    caso comum de mover a largada um ou dois dias não perde etapa nenhuma.
+
+    Apagar e encurtar são frases separadas de propósito: a diferença entre
+    "some" e "encolhe" é exatamente o que a pessoa precisa para decidir se vale
+    pedir à diretoria.
     """
     partes = []
-    if resumo["etapas"]:
-        n = resumo["etapas"]
-        partes.append(f"{n} etapa{'s' if n > 1 else ''} pintada{'s' if n > 1 else ''}")
-    if resumo["banca_marcada"]:
-        dia = resumo["banca_marcada"][8:10] + "/" + resumo["banca_marcada"][5:7]
-        partes.append(f"a banca de {dia}")
+    apagadas = resumo.get("etapas_apagadas") or 0
+    if apagadas:
+        partes.append(
+            f"apagando {apagadas} etapa{'s' if apagadas > 1 else ''} "
+            f"que fica{'m' if apagadas > 1 else ''} fora dela"
+        )
+    aparadas = resumo.get("etapas_aparadas") or 0
+    if aparadas:
+        partes.append(f"encurtando outra{'s' if aparadas > 1 else ''} {aparadas}")
+    if resumo.get("banca_desmarcada"):
+        dia = resumo["banca_desmarcada"][8:10] + "/" + resumo["banca_desmarcada"][5:7]
+        partes.append(f"desmarcando a banca de {dia}")
     if not partes:
         return ""
-    return ", apagando " + (" e ".join(partes) if len(partes) < 3 else ", ".join(partes))
+    return " — " + (" e ".join(partes) if len(partes) < 3 else ", ".join(partes))
