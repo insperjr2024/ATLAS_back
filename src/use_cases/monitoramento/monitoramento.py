@@ -458,6 +458,11 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         # em um dia por feriado. `dias_parados` abaixo só olha o passado e não
         # se importa, mas divide o mesmo calendário.
         nao_letivos = self._calendario_de_janela()
+        # O recorte GLOBAL, a mesma regua da ambientacao e do `_dias_uteis_sem_tarefa`:
+        # `dias_parados` e uma pergunta sobre o PROJETO inteiro, e um projeto sinergico
+        # tem escopos em calendarios diferentes. O calendario de cada escopo entra so
+        # em `por_escopo`, abaixo, onde a contagem e por escopo.
+        globais = [d.data for d in apenas_globais(nao_letivos)]
 
         # ⚠ **Aqui havia uma TERCEIRA implementação da contagem**, montada à
         # mão com `calcular_janela` + `dias_de_atraso`, e ela divergia da
@@ -485,7 +490,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             contagens = calcular_contagem_projeto(
                 do_projeto,
                 historico_por_projeto.get(projeto.id, []),
-                [d.data for d in apenas_globais(nao_letivos)],
+                globais,
                 referencia=hoje,
                 bancas_por_escopo=ctx["bancas_por_escopo"],
                 sessoes_por_banca=ctx["sessoes_por_banca"],
@@ -553,7 +558,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
                             reunioes_por_projeto,
                             ctx["bancas_por_escopo"],
                         ),
-                        do_calendario,
+                        globais,
                         referencia=hoje,
                     ),
                 }
