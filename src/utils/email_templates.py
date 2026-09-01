@@ -87,7 +87,7 @@ def get_senha_provisoria_html(nome: str, senha: str, link_login: str) -> str:
                                         <p style="margin: 0 0 24px 0; font-size: 18px; font-weight: 600; color: {TEXT_COLOR};">Olá, {nome}!</p>
                                         <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: {TEXT_COLOR};">A sua conta no ATLAS foi criada. Entre com esta senha provisória:</p>
                                         <div style="background-color: {BG_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 8px; padding: 20px; margin: 0 0 24px 0; text-align: center;">
-                                            <p style="margin: 0; font-size: 20px; font-weight: 600; color: {TEXT_COLOR}; font-family: monospace; letter-spacing: 1px;">{senha}</p>
+                                            <p style="margin: 0; font-size: 22px; font-weight: 700; color: {TEXT_COLOR}; font-family: 'SF Mono', 'Courier New', Courier, monospace;">{senha}</p>
                                         </div>
                                         {_botao_cta(link_login, "Acessar o ATLAS")}
                                         <p style="margin: 24px 0 0 0; font-size: 14px; line-height: 1.5; color: {TEXT_MUTED};">Assim que entrar, o sistema vai pedir para você escolher a <strong>sua</strong> senha — a provisória deixa de valer nesse momento, e até lá o resto da plataforma fica bloqueado.</p>
