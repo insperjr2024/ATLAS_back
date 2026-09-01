@@ -42,6 +42,17 @@ def _nome_escopo(escopo, catalogo_repository) -> str:
 
 
 class UpdateEscopoProjetoRequest(BaseModel):
+    #: Qual item do catálogo este escopo é. Editável porque o cadastro erra o
+    #: tipo (um escopo entra como "Pesquisa de mercado" quando devia ser
+    #: "Plano de marketing"), e sem isso a correção só existia apagando a
+    #: linha e recriando, o que também apaga reunião inicial e banca já
+    #: pendurados nela.
+    #:
+    #: Vale junto de `nome_customizado`: os dois formam a mesma invariante do
+    #: cadastro (exatamente um preenchido), e por isso os dois dependem de
+    #: `exclude_unset` para mandar só um não deixar o outro num valor antigo
+    #: que quebra a invariante.
+    escopo_id: Optional[int] = None
     nome_customizado: Optional[str] = None
     dias_uteis_vendidos: Optional[int] = None
     data_entrega_planejada: Optional[date] = None
@@ -55,6 +66,53 @@ class UpdateEscopoProjetoRequest(BaseModel):
     #: campo depende de `exclude_unset` para distinguir "não mandei" de "mandei
     #: nulo" — é por isso que ele não pode ganhar um default diferente.
     calendario: Optional[str] = None
+
+
+def _normalizar_tipo_escopo(dados: dict, anterior, catalogo_repository) -> None:
+    """Troca de tipo do escopo: qual item do catálogo ele é, ou "Outro" com
+    nome digitado.
+
+    Mexe nos dois campos juntos porque a invariante é dos dois: exatamente um
+    preenchido, nunca os dois nem nenhum. Mandar só `escopo_id` teria que
+    limpar o `nome_customizado` antigo, e vice-versa, senão o banco fica com
+    os dois preenchidos mesmo que o front só quisesse trocar um lado.
+
+    A frente não entra aqui: continua fixa no que já está gravado, a mesma
+    régua do `calendario` logo acima.
+    """
+    if "escopo_id" not in dados and "nome_customizado" not in dados:
+        return
+
+    escopo_id_veio = "escopo_id" in dados
+    nome_veio = "nome_customizado" in dados
+
+    novo_escopo_id = dados["escopo_id"] if escopo_id_veio else anterior.escopo_id
+    novo_nome = dados["nome_customizado"] if nome_veio else anterior.nome_customizado
+    novo_nome = (novo_nome or "").strip() or None
+
+    # Escolher um lado apaga o outro automaticamente quando só ELE veio na
+    # request. Sem isso, mandar só `escopo_id` (trocar de item do catálogo,
+    # ou sair de "Outro") batia no `nome_customizado` que sobrou do estado
+    # anterior, e os dois ficavam preenchidos ao mesmo tempo.
+    if escopo_id_veio and novo_escopo_id is not None and not nome_veio:
+        novo_nome = None
+    elif nome_veio and novo_nome is not None and not escopo_id_veio:
+        novo_escopo_id = None
+
+    tem_catalogo = novo_escopo_id is not None
+    tem_customizado = bool(novo_nome)
+
+    if tem_catalogo and tem_customizado:
+        raise RegraDeNegocioError(
+            "Escolha um escopo do catálogo OU digite um nome customizado, não os dois"
+        )
+    if not tem_catalogo and not tem_customizado:
+        raise RegraDeNegocioError("Escolha um escopo do catálogo ou digite o nome de um 'Outro'")
+    if tem_catalogo and not catalogo_repository.get_by_id(novo_escopo_id):
+        raise RegraDeNegocioError(f"Escopo {novo_escopo_id} não encontrado no catálogo")
+
+    dados["escopo_id"] = novo_escopo_id
+    dados["nome_customizado"] = novo_nome
 
 
 class UpdateEscopoProjetoUseCase:
@@ -74,6 +132,9 @@ class UpdateEscopoProjetoUseCase:
         # onde, e depois de gravar ela já se perdeu.
         anterior = self.repository.get_by_id(escopo_id)
         data_antiga = anterior.data_entrega_planejada if anterior else None
+
+        if anterior:
+            _normalizar_tipo_escopo(dados, anterior, self.catalogo_repository)
 
         # O calendário é validado contra a frente do escopo que ESTÁ no banco —
         # a frente não é editável por aqui, então não há como a dupla divergir.
