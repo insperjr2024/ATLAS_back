@@ -51,6 +51,29 @@ STATUS_VALIDOS = tuple(STATUS_ORDEM) + ("pausado",)
 
 STATUS_PAUSAVEIS = {"ambientacao", "em_andamento", "validacao_bancas", "envio_tep", "periodo_ajustes"}
 
+#: Como cada etapa se CHAMA para quem lê. Espelha `ROTULO_STATUS` em
+#: `lib/projetos.ts` — as duas pontas têm que dizer a mesma palavra.
+#:
+#: ⚠ A chave é o valor da coluna, o rótulo é o nome na tela, e os dois
+#: divergem em `validacao_bancas` → "Aguardando bancas". Mensagem de erro que
+#: entrega a chave crua manda a pessoa procurar na tela uma etapa chamada
+#: "validacao_bancas", que não existe em lugar nenhum da interface.
+ROTULO_STATUS = {
+    "vendido": "Vendido",
+    "ambientacao": "Ambientação",
+    "em_andamento": "Em andamento",
+    "validacao_bancas": "Aguardando bancas",
+    "envio_tep": "Envio do TEP",
+    "periodo_ajustes": "Período de ajustes",
+    "finalizado": "Finalizado",
+    "pausado": "Pausado",
+}
+
+
+def rotulo(status: Optional[str]) -> str:
+    """O nome de tela de uma etapa; a chave crua se ela for desconhecida."""
+    return ROTULO_STATUS.get(status or "", status or "—")
+
 
 def pode_pausar(status_atual: str) -> bool:
     return status_atual in STATUS_PAUSAVEIS

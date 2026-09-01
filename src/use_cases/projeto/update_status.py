@@ -11,8 +11,56 @@ from src.utils.status_projeto import (
     destinos_validos,
     pausar,
     retomar,
+    rotulo,
     transicao_manual_valida,
 )
+
+
+def _erro_de_transicao(anterior: str, novo: str, tem_kickoff: bool) -> str:
+    """A mensagem que a pessoa lê quando o arrasto (ou o seletor) é recusado.
+
+    ⭐ Fala em ETAPAS, com o nome que está na tela — nunca com a chave da
+    coluna. A versão antiga devolvia `'validacao_bancas' não é um destino
+    válido a partir de 'validacao_bancas'`: uma tautologia, escrita num
+    vocabulário que não existe na interface, e que não dizia o que fazer.
+
+    Cada recusa tem uma causa diferente, e cada causa tem uma saída diferente
+    — por isso são mensagens separadas, e não uma só com a lista de destinos
+    grudada no fim.
+    """
+    de, para = rotulo(anterior), rotulo(novo)
+
+    # O caso mais comum, e o que a mensagem antiga tratava pior. Quem lê
+    # acabou de arrastar o card e está vendo a etapa antiga na tela: o que ela
+    # precisa saber é que a página está atrasada, não que "X não vai para X".
+    if anterior == novo:
+        return (
+            f"Este projeto já está em {de}. Se o card aparecia em outra coluna, "
+            "recarregue a página: a etapa mudou depois que a tela carregou."
+        )
+
+    if anterior == "pausado":
+        return (
+            f"Este projeto está {de}. Use Retomar para devolvê-lo à etapa em que "
+            "parou — de Pausado não dá para ir direto para outra etapa."
+        )
+
+    if anterior == "vendido" and not tem_kickoff:
+        return (
+            f"{de} só avança para {rotulo('ambientacao')}, e só depois do kickoff "
+            "marcado: é ele que dá a data de início da ambientação. Marque o "
+            "kickoff na página do projeto e tente de novo."
+        )
+
+    destinos = destinos_validos(anterior, tem_kickoff)
+    if not destinos:
+        return f"Um projeto em {de} não pode mudar de etapa."
+
+    return (
+        f"Não dá para ir de {de} para {para}. "
+        f"A partir de {de}, as etapas possíveis são: "
+        f"{', '.join(rotulo(d) for d in destinos)}."
+    )
 
 
 class UpdateStatusRequest(BaseModel):
@@ -54,11 +102,8 @@ class UpdateStatusUseCase:
             self.repository.update(projeto_id, status=novo_status)
 
         else:
-            destinos = destinos_validos(anterior, tem_kickoff)
-            descricao = ", ".join(f"'{d}'" for d in destinos) if destinos else "nenhuma (kickoff ainda não marcado)"
             raise RegraDeNegocioError(
-                f"'{request.status_novo}' não é um destino válido a partir de "
-                f"'{anterior}'. Etapas disponíveis: {descricao}."
+                _erro_de_transicao(anterior, request.status_novo, tem_kickoff)
             )
 
         self.historico_repository.create(
