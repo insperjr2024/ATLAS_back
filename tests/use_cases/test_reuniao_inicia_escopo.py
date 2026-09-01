@@ -21,8 +21,10 @@ from src.database.database import Base
 from src.models.banca_escopo_model import BancaEscopoModel
 from src.models.banca_model import BancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel
+from src.models.dia_nao_letivo_model import DiaNaoLetivoModel
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
+from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.tarefa_model import ReuniaoSemanalModel
 from src.use_cases.tarefa.tarefas import (
     CreateReuniaoUseCase,
@@ -45,12 +47,16 @@ TABELAS = [
     BancaModel.__table__,
     BancaEscopoModel.__table__,
     CronogramaEtapaModel.__table__,
+    # A poda calcula a janela nova, e a janela lê o calendário não letivo e as
+    # pausas do projeto — vazios aqui, que é o caso de quem só move uma data.
+    DiaNaoLetivoModel.__table__,
+    ProjetoStatusHistoricoModel.__table__,
 ]
 
 
 @pytest.fixture
 def db():
-    """SQLite na memória com as seis tabelas que a regra toca.
+    """SQLite na memória com as tabelas que a regra toca.
 
     As FKs para `usuario` e `escopo` ficam apontando para tabelas ausentes de
     propósito: o SQLite não as cobra com o pragma desligado (o padrão), e criar

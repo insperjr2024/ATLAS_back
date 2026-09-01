@@ -257,8 +257,9 @@ def update_reuniao(reuniao_id: int, request: ReuniaoRequest, current_user=Depend
     """Mover a reunião de dia — registrou quarta, aconteceu quinta — ou
     corrigir sobre qual escopo ela foi. A `data_inicio` do escopo acompanha.
 
-    ⚠ Mover a reunião INICIAL **zera o cronograma do escopo**, e por isso é
-    decisão da diretoria: o `eh_diretor_projetos` abaixo é o que separa quem executa de
+    Mover a reunião INICIAL **poda o cronograma do escopo** — o que não cabe
+    na janela nova é apagado, o resto fica —, e por isso continua sendo decisão
+    da diretoria: o `eh_diretor_projetos` abaixo é o que separa quem executa de
     quem precisa pedir.
     """
     _acesso_pela_reuniao(reuniao_id, current_user, db)
