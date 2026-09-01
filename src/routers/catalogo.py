@@ -428,6 +428,12 @@ def get_composicao(combinacao: str, db: Session = Depends(get_db)):
         "combinacao": chave([r.frente_id for r in regras]),
         "rotulo": " + ".join(r.frente_nome for r in regras),
         "minimo_total": sum(r.minimo_de_pessoas for r in regras),
+        # O teto DESTA combinação — o próprio, ou o global de quem não
+        # configurou. `vagas_propria` diz qual dos dois é, para a tela poder
+        # avisar que o número está herdado.
+        "vagas": uc.vagas_da_combinacao([r.frente_id for r in regras]),
+        "vagas_propria": uc.vagas_proprias_da_combinacao([r.frente_id for r in regras])
+        is not None,
         "frentes": [
             {
                 "frente_id": r.frente_id,
