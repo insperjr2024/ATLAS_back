@@ -34,3 +34,12 @@ class RegraDeNegocioError(Exception):
 #: destrava o "registrar assim mesmo" no modal de realizar banca e na aba
 #: Banca do projeto.
 CODIGO_BANCA_ABAIXO_DO_MINIMO = "banca_abaixo_do_minimo"
+
+
+#: Choque de horário (§8): já existe banca de OUTRO projeto na data pretendida.
+#:
+#: A interface reage a esta recusa em vez de só exibi-la, e por dois leitores
+#: diferentes: quem marca a banca pelo cronograma precisa PEDIR a exceção, e a
+#: diretoria, decidindo um pedido de fora da janela (§13), pode conceder as
+#: duas coisas no mesmo ato — ela é a autoridade das duas regras.
+CODIGO_CHOQUE_DE_HORARIO = "choque_de_horario"

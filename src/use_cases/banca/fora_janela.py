@@ -47,6 +47,7 @@ from src.repositories.projeto_status_historico_repository import (
     ProjetoStatusHistoricoRepository,
 )
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.banca.excecao_choque import liberar_choque
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.janela_escopo import calcular_janela, dentro_da_janela
@@ -66,6 +67,14 @@ class DecidirForaJanelaRequest(BaseModel):
     #: recusa sem motivo não ensina o que mudar, uma aprovação sem motivo
     #: apaga por que o §13 foi aberto naquele caso.
     resposta: str
+    #: ⭐ Autorizar TAMBÉM o choque de horário (§8), quando a data pedida
+    #: esbarra na banca de outro projeto.
+    #:
+    #: ⚠ Nasce `False` e é a tela que o liga, num segundo clique, depois de a
+    #: recusa dizer com QUAL banca o horário conflita. Ligá-lo por padrão
+    #: transformaria toda aprovação de §13 numa liberação silenciosa de §8 —
+    #: duas regras diferentes decididas por um clique que só mencionava uma.
+    autorizar_choque: bool = False
 
 
 def _janela_do_escopo(db: Session, escopo):
@@ -195,7 +204,9 @@ class DecidirForaJanelaUseCase:
         banca = None
         if request.aprovar:
             try:
-                banca = self._marcar_a_banca(atualizado, respondido_por)
+                banca = self._marcar_a_banca(
+                    atualizado, respondido_por, autorizar_choque=request.autorizar_choque
+                )
             except RegraDeNegocioError:
                 # Volta para a fila em vez de ficar aprovado sem banca —
                 # ver a docstring do módulo.
@@ -219,7 +230,9 @@ class DecidirForaJanelaUseCase:
             "banca_id": banca.get("id") if banca else None,
         }
 
-    def _marcar_a_banca(self, pedido, respondido_por: int) -> dict:
+    def _marcar_a_banca(
+        self, pedido, respondido_por: int, *, autorizar_choque: bool = False
+    ) -> dict:
         """Grava a banca na data autorizada, no MESMO caminho que o cronograma
         usa (`MarcarBancaEscopoUseCase`).
 
@@ -238,6 +251,27 @@ class DecidirForaJanelaUseCase:
             MarcarBancaEscopoRequest,
             MarcarBancaEscopoUseCase,
         )
+
+        # ⭐ §8 ANTES do §13, e a ordem não é livre: `checar_choque`, lá dentro
+        # da marcação, pergunta a `get_aprovada` se existe exceção para este
+        # par (escopo, data). Liberar depois seria liberar tarde — a marcação
+        # já teria falhado com o choque, que é exatamente o beco em que a
+        # diretoria ficava presa: a recusa mandava "peça uma exceção à
+        # diretoria" para quem É a diretoria, e não havia botão nenhum na fila
+        # para conceder.
+        if autorizar_choque:
+            liberar_choque(
+                self.db,
+                projeto_escopo_id=pedido.projeto_escopo_id,
+                data_hora=pedido.data_hora_pretendida,
+                # Quem PEDIU continua sendo quem pediu a banca: a exceção
+                # existe por causa do pedido dele, e é o histórico dele que
+                # precisa mostrar por que aquele horário foi aberto.
+                solicitado_por=pedido.solicitado_por,
+                respondido_por=respondido_por,
+                justificativa=pedido.justificativa,
+                resposta=pedido.resposta,
+            )
 
         resultado = MarcarBancaEscopoUseCase(self.db).execute(
             pedido.projeto_escopo_id,

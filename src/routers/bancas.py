@@ -328,13 +328,19 @@ def decidir_fora_janela(
     current_user=Depends(require_diretor_projetos),
     db: Session = Depends(get_db),
 ):
-    """§13: marcar banca fora da janela é decisão da diretoria — aqui ela é tomada."""
+    """§13: marcar banca fora da janela é decisão da diretoria — aqui ela é tomada.
+
+    ⚠ `erro_de_regra`, e não `detail=str(e)` como as rotas vizinhas: a recusa
+    por choque de horário (§8) carrega `codigo`, e é por ele que a fila oferece
+    o "autorizar o choque também". Achatar a exceção em texto aqui apagaria o
+    código no caminho, e a tela voltaria a ser um beco sem saída.
+    """
     try:
         result = DecidirForaJanelaUseCase(db).execute(
             pedido_id, request, respondido_por=current_user.id
         )
     except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise erro_de_regra(e)
     if not result:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     return result
