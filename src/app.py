@@ -4,10 +4,11 @@ from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from src.database.database import SessionLocal
+from src.database.database import SessionLocal, engine
 from src.routers import (
     auth,
     avaliacoes,
@@ -447,6 +448,49 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="API ATLAS", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def registrar_erro_inesperado(request: Request, call_next):
+    """Todo 500 sai daqui — com log utilizável e com os headers de CORS.
+
+    Duas coisas que o tratamento padrão do Starlette não dá, e que custaram
+    uma investigação inteira:
+
+    1. **O log não dizia qual rota morreu.** O traceback do uvicorn sai sem
+       método nem caminho, então "deu erro ao criar banca" não tinha como
+       virar uma linha de log específica. Aqui sai `POST /bancas` junto.
+
+    2. **A resposta de erro nascia FORA do CORSMiddleware.** Exceção não
+       tratada sobe até o `ServerErrorMiddleware`, que responde por cima de
+       todo mundo — sem `Access-Control-Allow-Origin`. No navegador isso não
+       vira "erro 500": vira `Failed to fetch`, ou seja, a mesma falha
+       aparecia como problema de conexão em dev e como erro de servidor em
+       produção (onde o rewrite do Vercel torna a chamada same-origin).
+       Respondendo aqui dentro, o CORS ainda embrulha a resposta.
+
+    O estado do pool vai no log de propósito: `QueuePool limit ... timed out`
+    é a falha que grava a ação e derruba a request logo depois, e ela só é
+    reconhecível olhando quantas conexões estavam em uso na hora.
+
+    ⚠ O corpo não leva `detail`. A tela tem o texto dela para 5xx
+    (`api.ts`), e mandar o erro técnico para cá só o exibiria para quem não
+    pode fazer nada com ele.
+    """
+    try:
+        return await call_next(request)
+    except Exception:  # noqa: BLE001 — é o último anteparo antes do uvicorn
+        logger.exception(
+            "Erro não tratado em %s %s (pool: %s)",
+            request.method,
+            request.url.path,
+            engine.pool.status(),
+        )
+        return JSONResponse(status_code=500, content={"erro": "interno"})
+
+
+# ⚠ Adicionado DEPOIS do middleware acima de propósito: `add_middleware`
+# empilha do mais recente para o mais externo, então o CORS fica por fora e
+# consegue embrulhar o 500 que o outro devolve.
 app.add_middleware(
     CORSMiddleware,
     # Local (qualquer porta) + o front em produção. Domínio exato, sem
