@@ -20,7 +20,11 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from src.middlewares.authorization import DIRETORIA, aplicar_recorte_visao, eh_diretoria_de_projetos
+from src.middlewares.authorization import (
+    aplicar_recorte_visao,
+    eh_diretoria_de_projetos,
+    frentes_do_usuario,
+)
 from src.models.projeto_escopo_model import ProjetoEscopoModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.banca_repository import BancaRepository
@@ -1186,10 +1190,13 @@ class AlocacaoUseCase(_BaseMonitoramento):
         ]
         # Mais capacidade primeiro: a pergunta é "onde ainda dá para vender".
         #
-        # "Sem frente" vai SEMPRE por último, mesmo tendo a maior capacidade —
-        # hoje ela junta os dois diretores, que não têm projeto e por isso somam
-        # 8 vagas. Deixá-la no topo diria que a maior oportunidade do núcleo está
-        # fora de qualquer frente, que é o oposto do que a tela quer responder.
+        # "Sem frente" vai SEMPRE por último, mesmo tendo a maior capacidade:
+        # ela junta quem ainda não foi vinculado a frente nenhuma, gente com a
+        # agenda vazia e por isso com o teto inteiro livre. Deixá-la no topo
+        # diria que a maior oportunidade do núcleo está fora de qualquer
+        # frente, que é o oposto do que a tela quer responder. (Ela já foi
+        # maior: até 2026-08-31 a diretoria caía aqui, com 8 vagas que não
+        # existiam — hoje os três cargos ficam fora das tabelas.)
         linhas.sort(
             key=lambda x: (
                 x["frente_id"] is None,
@@ -1226,7 +1233,9 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # a carga é medida.** São duas listas de propósito:
         #
         #   `do_recorte` — os projetos do filtro pedido. Define a população: só
-        #                  quem trabalha nele entra na tabela.
+        #                  quem trabalha nele entra na tabela. (Exceção: para o
+        #                  GERENTE a população sai do vínculo de frente, não dos
+        #                  projetos — ver `entra`, mais abaixo.)
         #   `projetos`   — tudo que a pessoa logada enxerga, sem filtro. É
         #                  sobre isto que a carga de cada um é contada.
         #
@@ -1307,14 +1316,35 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 "demanda_alta": situacao is not None and situacao is topo[papel],
             }
 
-        # ⚠ Quem aparece na tabela tem que ser quem a pessoa logada ENXERGA.
-        # Listar todos os usuários ativos da empresa, mas contar carga só dos
-        # projetos visíveis, faz um gerente ver "12 consultores disponíveis"
-        # quando 10 deles estão lotados em frentes que ele não vê — pior que
-        # não mostrar nada. Um gerente vê quem está nos projetos dele; a
-        # diretoria, que enxerga tudo, vê o núcleo inteiro.
+        # ⚠ Quem aparece na tabela tem que ser quem a pessoa logada ENXERGA —
+        # e, para o GERENTE, isso é a FRENTE dele, não os projetos dele.
+        #
+        # Listar quem está nos projetos visíveis errava a pergunta nos dois
+        # sentidos: escondia o consultor da frente que ainda não entrou em
+        # projeto nenhum — justamente quem tem a vaga livre que esta aba
+        # existe para achar — e trazia o consultor de OUTRA frente que passou
+        # por um projeto sinérgico dele, alguém que ele não aloca. A régua
+        # passou a ser o vínculo de `usuario_frente`, a mesma que o §7.5 usa
+        # para decidir quais projetos o gerente enxerga.
+        #
+        # A diretoria continua vendo o núcleo inteiro; coordenador e consultor
+        # continuam vendo quem está nos projetos deles.
         ve_tudo = eh_diretoria_de_projetos(current_user) and sem_filtro
         na_visao = set(carga.keys())
+
+        frentes_por_usuario: Dict[int, set] = defaultdict(set)
+        for vinculo in self.usuario_frente_repository.get_all():
+            frentes_por_usuario[vinculo.usuario_id].add(vinculo.frente_id)
+
+        # As frentes que definem a população quando quem olha é gerente.
+        #
+        # O `?frente_id=` só RESTRINGE dentro das dele — mesma regra que
+        # `aplicar_recorte_visao` aplica aos projetos (§7.5): pedir a frente de
+        # outro gerente não amplia nada, cai de volta nas próprias.
+        minhas_frentes: Optional[set] = None
+        if getattr(current_user, "posicao", None) == "gerente":
+            todas = set(frentes_do_usuario(current_user, self.db))
+            minhas_frentes = {frente_id} if frente_id in todas else todas
 
         # Com filtro (de frente, escopo ou status), a POPULAÇÃO é quem trabalha
         # nele. A carga de cada um continua vindo de todos os projetos dela
@@ -1332,6 +1362,17 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 no_recorte[m.papel].add(m.usuario_id)
 
         def entra(usuario, papel) -> bool:
+            if minhas_frentes is not None:
+                if not (frentes_por_usuario.get(usuario.id, set()) & minhas_frentes):
+                    return False
+                # Escopo e status continuam estreitando a população: os dois
+                # perguntam "quem trabalha NESTE recorte", e a resposta não
+                # pode incluir quem não está em projeto nenhum. O filtro de
+                # frente é a única exceção — ele já foi respondido acima, pelo
+                # vínculo da pessoa, e não pelos projetos dela.
+                if escopo_id is not None or status:
+                    return usuario.id in no_recorte[papel]
+                return True
             if not sem_filtro:
                 return usuario.id in no_recorte[papel]
             if carga.get(usuario.id, {}).get(papel):
@@ -1340,10 +1381,14 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 return False  # já alocado, mas no outro papel
             return ve_tudo
 
+        # ⚠ A DIRETORIA não entra em tabela nenhuma (decisão do João em
+        # 2026-08-31): os três cargos não pegam projeto, então listá-los só
+        # inflava a capacidade com vagas que ninguém vai ocupar — eram eles
+        # que sustentavam quase toda a linha "Sem frente" do card.
         coordenadores = [
             linha(u, "coordenador")
             for u in usuarios.values()
-            if entra(u, "coordenador") and u.posicao in ("coordenador", "gerente", *DIRETORIA)
+            if entra(u, "coordenador") and u.posicao in ("coordenador", "gerente")
         ]
         consultores = [
             linha(u, "consultor")
