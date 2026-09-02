@@ -1,7 +1,11 @@
 from datetime import date
-from typing import List
+from typing import Dict, Iterable, List
 
-from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
+from src.models.tarefa_model import (
+    ReuniaoSemanalModel,
+    TarefaModel,
+    TarefaResponsavelModel,
+)
 from src.repositories.base_repository import BaseRepository
 
 
@@ -23,6 +27,50 @@ class TarefaRepository(BaseRepository[TarefaModel]):
         return (
             self.db.query(TarefaModel).filter(TarefaModel.projeto_id.in_(projeto_ids)).all()
         )
+
+    def responsaveis_por_tarefa(self, tarefa_ids: Iterable[int]) -> Dict[int, List[int]]:
+        """`{tarefa_id: [usuario_id, ...]}` para uma lista de tarefas de uma vez.
+
+        Uma consulta agregada, não uma por tarefa: o board e o monitoramento
+        pedem isso para o projeto inteiro.
+        """
+        ids = list(tarefa_ids)
+        if not ids:
+            return {}
+        linhas = (
+            self.db.query(TarefaResponsavelModel.tarefa_id, TarefaResponsavelModel.usuario_id)
+            .filter(TarefaResponsavelModel.tarefa_id.in_(ids))
+            .order_by(TarefaResponsavelModel.id)
+            .all()
+        )
+        mapa: Dict[int, List[int]] = {}
+        for tarefa_id, usuario_id in linhas:
+            mapa.setdefault(tarefa_id, []).append(usuario_id)
+        return mapa
+
+    def definir_responsaveis(self, tarefa_id: int, usuario_ids: Iterable[int]) -> List[int]:
+        """Deixa os responsáveis da tarefa exatamente iguais a `usuario_ids`.
+
+        Só mexe na DIFERENÇA (apaga quem saiu, insere quem entrou), como
+        `projeto_vendedor.definir` — assim o `id` de quem já estava não muda.
+        """
+        desejados = list(dict.fromkeys(usuario_ids))
+        atuais = {
+            r.usuario_id: r
+            for r in self.db.query(TarefaResponsavelModel).filter(
+                TarefaResponsavelModel.tarefa_id == tarefa_id
+            )
+        }
+        for usuario_id, linha in atuais.items():
+            if usuario_id not in desejados:
+                self.db.delete(linha)
+        for usuario_id in desejados:
+            if usuario_id not in atuais:
+                self.db.add(
+                    TarefaResponsavelModel(tarefa_id=tarefa_id, usuario_id=usuario_id)
+                )
+        self.db.commit()
+        return desejados
 
 
 class ReuniaoSemanalRepository(BaseRepository[ReuniaoSemanalModel]):

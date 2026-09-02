@@ -195,14 +195,18 @@ def rodar_lembrete_condicoes() -> None:
         ctx = base._contexto(projetos)
         inicio, fim = janela_semana(hoje)
         reunioes = base.reuniao_repository.get_by_projetos_e_janela(ctx["ids"], inicio, fim)
+        _tarefas = base.tarefa_repository.get_by_projetos(ctx["ids"])
         condicoes = detectar_condicoes(
             projetos,
             escopos_por_projeto=ctx["escopos_por_projeto"],
             bancas_por_escopo=ctx["bancas_por_escopo"],
             nomes_escopo=ctx["nomes_escopo"],
-            tarefas_por_projeto=_agrupar(base.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"),
+            tarefas_por_projeto=_agrupar(_tarefas, "projeto_id"),
             encerra_por_coluna=base._encerra_por_coluna(),
             projetos_com_reuniao={r.projeto_id for r in reunioes},
+            responsaveis_por_tarefa=base.tarefa_repository.responsaveis_por_tarefa(
+                t.id for t in _tarefas
+            ),
             # Mesma régua do monitoramento (ver `listar_notificacoes`). Este job
             # só manda `tarefa_vencida` e `banca_hoje`, então `ambientacao_sem_banca`
             # é descartada logo abaixo — mas calculada certo enquanto existir.

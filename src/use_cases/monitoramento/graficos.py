@@ -37,7 +37,6 @@ NOMES_DE: Dict[str, tuple[str, str]] = {
     "semestre_id": ("semestre", "nome"),
     "coluna_id": ("tarefa_coluna", "nome"),
     "coordenador_id": ("usuario", "nome"),
-    "responsavel_id": ("usuario", "nome"),
     "usuario_id": ("usuario", "nome"),
     "avaliador_id": ("usuario", "nome"),
     "cargo_id": ("cargo", "nome"),
@@ -224,8 +223,15 @@ FONTES: List[Fonte] = [
         "O kanban dos projetos. Mostra onde o trabalho empilha e quem está carregando.",
         [
             _d("coluna_id", "Coluna do kanban"),
-            _d("responsavel_id", "Responsável"),
             _data("criado_em", "Mês de criação"),
+        ],
+        [
+            _r("responsavel", "Responsável",
+               [("tarefa_responsavel", "tarefa_id", "tarefa", "id"),
+                ("usuario", "id", "tarefa_responsavel", "usuario_id")],
+               ("usuario", "nome"),
+               nota="Tarefa de mais de uma pessoa entra na barra de cada uma, então a soma "
+                    "das barras passa do total real de tarefas."),
         ],
     ),
     Fonte(

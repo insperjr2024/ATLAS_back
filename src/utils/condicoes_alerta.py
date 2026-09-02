@@ -86,9 +86,9 @@ class Condicao:
     rota: str
     #: Tamanho do buraco, para ordenar. `None` quando não se aplica.
     dias: Optional[int] = None
-    #: Preenchido só quando o alerta é de UMA pessoa (o responsável pela
-    #: tarefa). `None` = vale para os papéis de `PAPEIS_DESTINATARIOS`.
-    usuario_alvo: Optional[int] = None
+    #: Preenchido só quando o alerta é de PESSOAS específicas (os responsáveis
+    #: pela tarefa). Vazio = vale para os papéis de `PAPEIS_DESTINATARIOS`.
+    usuarios_alvo: List[int] = field(default_factory=list)
     payload: dict = field(default_factory=dict)
 
 
@@ -101,6 +101,7 @@ def detectar_condicoes(
     tarefas_por_projeto: Dict[int, list],
     encerra_por_coluna: Dict[int, bool],
     projetos_com_reuniao: Set[int],
+    responsaveis_por_tarefa: Optional[Dict[int, List[int]]] = None,
     dias_nao_letivos: Iterable[date] = (),
     hoje: Optional[date] = None,
 ) -> List[Condicao]:
@@ -119,6 +120,7 @@ def detectar_condicoes(
     só ignora feriados, e o alerta nasce um pouco cedo.
     """
     hoje = hoje or date.today()
+    responsaveis_por_tarefa = responsaveis_por_tarefa or {}
     # Normalizado UMA vez: `somar_dias_uteis` roda por projeto, e um gerador
     # chegaria vazio no segundo.
     nao_letivos = normalizar(dias_nao_letivos)
@@ -135,6 +137,7 @@ def detectar_condicoes(
             tarefas=tarefas_por_projeto.get(projeto.id, []),
             encerra_por_coluna=encerra_por_coluna,
             tem_reuniao=projeto.id in projetos_com_reuniao,
+            responsaveis_por_tarefa=responsaveis_por_tarefa,
             dias_nao_letivos=nao_letivos,
             hoje=hoje,
         ))
@@ -185,6 +188,7 @@ def _do_projeto(
     tarefas,
     encerra_por_coluna,
     tem_reuniao: bool,
+    responsaveis_por_tarefa: Dict[int, List[int]],
     dias_nao_letivos,
     hoje: date,
 ) -> List[Condicao]:
@@ -267,7 +271,7 @@ def _do_projeto(
                 chave_dedup=f"{TAREFA_VENCIDA}:tarefa={tarefa.id}",
                 rota=f"/projetos/{projeto.id}/tarefas",
                 dias=dias,
-                usuario_alvo=tarefa.responsavel_id,
+                usuarios_alvo=list(responsaveis_por_tarefa.get(tarefa.id, [])),
                 payload={"tarefa_id": tarefa.id},
             )
         )
@@ -366,7 +370,7 @@ def para_papel(condicoes: Iterable[Condicao], papel: str, usuario_id: int) -> Li
     resultado = []
     for condicao in condicoes:
         if condicao.tipo == TAREFA_VENCIDA:
-            if condicao.usuario_alvo == usuario_id:
+            if usuario_id in condicao.usuarios_alvo:
                 resultado.append(condicao)
             continue
         if papel in PAPEIS_DESTINATARIOS.get(condicao.tipo, ()):

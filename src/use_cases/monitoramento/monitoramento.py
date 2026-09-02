@@ -819,6 +819,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         reunioes = self.reuniao_repository.get_by_projetos_e_janela(
             ctx["ids"], inicio_semana, fim_semana_
         )
+        _tarefas = self.tarefa_repository.get_by_projetos(ctx["ids"])
         condicoes = detectar_condicoes(
             projetos,
             escopos_por_projeto=ctx["escopos_por_projeto"],
@@ -833,11 +834,12 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             # perguntas que a tentativa corrente responde. Quem precisa da
             # PRIMEIRA realização é a contagem de dias, não o alerta.
             nomes_escopo=ctx["nomes_escopo"],
-            tarefas_por_projeto=_agrupar(
-                self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
-            ),
+            tarefas_por_projeto=_agrupar(_tarefas, "projeto_id"),
             encerra_por_coluna=self._encerra_por_coluna(),
             projetos_com_reuniao={r.projeto_id for r in reunioes},
+            responsaveis_por_tarefa=self.tarefa_repository.responsaveis_por_tarefa(
+                t.id for t in _tarefas
+            ),
             # O fim da ambientação cai no FUTURO para quem acabou de dar
             # kickoff, então é o calendário inteiro (global) — o recorte
             # `_dias_nao_letivos(…, hoje)` pararia antes do feriado que fecha a
@@ -1723,12 +1725,19 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
         clientes_projeto = {p.id: p.cliente for p in projetos}
 
         tarefas = self.tarefa_repository.get_by_projetos(ids)
+        responsaveis_por_tarefa = self.tarefa_repository.responsaveis_por_tarefa(
+            t.id for t in tarefas
+        )
         # Só as colunas DOS PROJETOS VISÍVEIS — `listar_todas` traz o núcleo
         # inteiro, e um gerente não pode ver colunas de projeto que ele nem
         # enxerga (mesmo vazias, sem tarefa nenhuma).
         colunas_visiveis = [c for c in self.coluna_repository.listar_todas() if c.projeto_id in ids]
         colunas_por_id = {c.id: c for c in colunas_visiveis}
         usuarios = {u.id: u for u in self.usuario_repository.get_all()}
+
+        def nome_usuario(uid: int) -> str:
+            u = usuarios.get(uid)
+            return u.nome if u else f"Usuário {uid}"
 
         grupos: Dict[str, dict] = {}
         for c in sorted(colunas_visiveis, key=lambda c: (c.ordem, c.id)):
@@ -1742,7 +1751,7 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
             coluna = colunas_por_id.get(t.coluna_id)
             if not coluna:
                 continue
-            usuario = usuarios.get(t.responsavel_id)
+            resp_ids = responsaveis_por_tarefa.get(t.id, [])
             itens.append(
                 {
                     "id": t.id,
@@ -1750,8 +1759,8 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
                     "projeto_id": t.projeto_id,
                     "projeto_nome": nomes_projeto.get(t.projeto_id, ""),
                     "cliente": clientes_projeto.get(t.projeto_id, ""),
-                    "responsavel_id": t.responsavel_id,
-                    "responsavel_nome": usuario.nome if usuario else f"Usuário {t.responsavel_id}",
+                    "responsavel_ids": resp_ids,
+                    "responsavel_nomes": [nome_usuario(uid) for uid in resp_ids],
                     "prazo": t.prazo,
                     "grupo_coluna": coluna.nome.strip().lower(),
                     "coluna_nome": coluna.nome,

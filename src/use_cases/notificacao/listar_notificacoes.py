@@ -107,16 +107,18 @@ class ListarNotificacoesUseCase(_BaseMonitoramento):
         inicio, fim = janela_semana(hoje)
         reunioes = self.reuniao_repository.get_by_projetos_e_janela(ctx["ids"], inicio, fim)
 
+        _tarefas = self.tarefa_repository.get_by_projetos(ctx["ids"])
         condicoes = detectar_condicoes(
             projetos,
             escopos_por_projeto=ctx["escopos_por_projeto"],
             bancas_por_escopo=ctx["bancas_por_escopo"],
             nomes_escopo=ctx["nomes_escopo"],
-            tarefas_por_projeto=_agrupar(
-                self.tarefa_repository.get_by_projetos(ctx["ids"]), "projeto_id"
-            ),
+            tarefas_por_projeto=_agrupar(_tarefas, "projeto_id"),
             encerra_por_coluna=self._encerra_por_coluna(),
             projetos_com_reuniao={r.projeto_id for r in reunioes},
+            responsaveis_por_tarefa=self.tarefa_repository.responsaveis_por_tarefa(
+                t.id for t in _tarefas
+            ),
             # Para `ambientacao_sem_banca`. Ela não chega ao sino hoje — não
             # está em `PAPEIS_DESTINATARIOS` nem em `AGREGAVEIS_PARA_LIDERANCA`,
             # e o filtro a descarta. O calendário vai junto assim mesmo: no dia
