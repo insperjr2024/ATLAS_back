@@ -70,30 +70,11 @@ def faixa(usuario_id, dia_semana, inicio, fim):
     )
 
 
-class FakeVendedorRepo:
-    """Nenhum vendedor, salvo quando o teste passar um mapa.
-
-    Existe desde que o §8 passou a barrar também quem VENDEU o projeto — antes,
-    `membros_da_banca` não consultava esta fonte.
-    """
-
-    def __init__(self, por_projeto=None):
-        self._por_projeto = por_projeto or {}
-
-    def get_by_projeto(self, projeto_id):
-        from types import SimpleNamespace
-        return [
-            SimpleNamespace(usuario_id=u, projeto_id=projeto_id)
-            for u in self._por_projeto.get(projeto_id, [])
-        ]
-
-
 def montar(*, data_hora, faixas=(), escopo_ids=(), membros_por_projeto=None):
     uc = PushAlocacaoAutomaticaUseCase.__new__(PushAlocacaoAutomaticaUseCase)
     uc.grade_horaria_repository = FakeGradeHorariaRepo(faixas)
     uc.semestre_repository = FakeSemestreRepo()
     uc.equipe_projeto_repository = FakeEquipeProjetoRepo()
-    uc.vendedor_repository = FakeVendedorRepo()
     uc.banca_escopo_repository = FakeBancaEscopoRepo(escopo_ids)
     uc.escopo_repository = FakeProjetoEscopoRepo(
         {eid: SimpleNamespace(projeto_id=7) for eid in escopo_ids}

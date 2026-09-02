@@ -2,7 +2,6 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -21,7 +20,6 @@ class ConfirmarSolicitacaoTrocaUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.repository = SolicitacaoTrocaRepository(db)
-        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.banca_repository = BancaRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
@@ -62,7 +60,6 @@ class ConfirmarSolicitacaoTrocaUseCase:
             self.escopo_repository,
             self.membro_repository,
             self.equipe_projeto_repository,
-            self.vendedor_repository,
         )
         if eh_do_grupo:
             raise RegraDeNegocioError("Você não pode confirmar a troca de uma banca do seu próprio grupo")

@@ -1,5 +1,4 @@
 from sqlalchemy.orm import Session
-from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
@@ -21,7 +20,6 @@ class GetBancaUseCase:
         #: A sessão, para `calcular_piso_banca` ler a matriz de composição.
         self.db = db
         self.repository = BancaRepository(db)
-        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
@@ -73,7 +71,6 @@ class GetBancaUseCase:
                     self.escopo_repository,
                     self.membro_repository,
                     self.equipe_projeto_repository,
-                    self.vendedor_repository,
                 )
             ),
             "semestre_id": semestre.id if semestre else None,
@@ -94,11 +91,6 @@ class ListBancasUseCase:
         # vez nesta classe, pelo mesmo motivo descrito abaixo.
         self.db = db
         self.repository = BancaRepository(db)
-        # ⚠ Este arquivo tem DUAS classes, e as duas chamam `membros_da_banca`.
-        # Quando o vendedor entrou no §8 (2026-08-20), o repositório foi
-        # acrescentado só no `__init__` da primeira — esta ficou usando um
-        # atributo que nunca existiu, e `GET /bancas` passou a devolver 500.
-        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
@@ -155,7 +147,6 @@ class ListBancasUseCase:
                         self.escopo_repository,
                         self.membro_repository,
                         self.equipe_projeto_repository,
-                        self.vendedor_repository,
                     )
                 ),
                 "semestre_id": semestre.id if semestre else None,

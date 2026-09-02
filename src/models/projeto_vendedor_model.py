@@ -19,8 +19,13 @@ class ProjetoVendedorModel(Base):
 
     O que ele ganha é VISÃO, não trabalho: enxerga o projeto que vendeu
     (`aplicar_recorte_visao`), em modo somente leitura
-    (`exigir_acesso_ao_projeto`). E perde uma coisa: não pode avaliar a banca
-    de um projeto que vendeu, pela mesma razão do §8 que já barra a equipe.
+    (`exigir_acesso_ao_projeto`).
+
+    Ele PODE avaliar a banca do projeto que vendeu. Entre 2026-08-20 e
+    2026-09-01 ficava barrado, junto da equipe, mas o núcleo reverteu: vender
+    não executa o projeto, então não é o conflito que a regra da banca protege.
+    Para efeito de banca o vendedor é um consultor comum
+    (`utils/equipe_banca.py`).
 
     Sem `saiu_em`, ao contrário de `projeto_membro`: quem vendeu vendeu, é fato
     consumado. Desmarcar aqui é corrigir um registro errado, não registrar uma

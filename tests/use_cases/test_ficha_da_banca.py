@@ -141,12 +141,6 @@ def mundo(monkeypatch):
             def __init__(self, db): pass
             def get_all(self): return []
 
-        class VendedorFake:
-            """Nenhum vendedor. O §8 passou a barrar quem vendeu o projeto,
-            então a ficha consulta esta fonte junto com a equipe."""
-            def __init__(self, db): pass
-            def get_by_projeto(self, projeto_id): return []
-
         for nome, dublê in (
             ("BancaRepository", BancaFake),
             ("BancaEscopoRepository", BancaEscopoFake),
@@ -162,7 +156,6 @@ def mundo(monkeypatch):
             ("AvaliacaoRepository", AvaliacaoFake),
             ("AvaliacaoNotaRepository", NotaFake),
             ("PerguntaRepository", PerguntaFake),
-            ("ProjetoVendedorRepository", VendedorFake),
         ):
             monkeypatch.setattr(get_banca_detalhes, nome, dublê)
 

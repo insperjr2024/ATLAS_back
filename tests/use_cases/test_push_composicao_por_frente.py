@@ -126,24 +126,6 @@ def frente(id, nome, piso_banca):
     return SimpleNamespace(id=id, nome=nome, piso_banca=piso_banca)
 
 
-class FakeVendedorRepo:
-    """Nenhum vendedor, salvo quando o teste passar um mapa.
-
-    Existe desde que o §8 passou a barrar também quem VENDEU o projeto — antes,
-    `membros_da_banca` não consultava esta fonte.
-    """
-
-    def __init__(self, por_projeto=None):
-        self._por_projeto = por_projeto or {}
-
-    def get_by_projeto(self, projeto_id):
-        from types import SimpleNamespace
-        return [
-            SimpleNamespace(usuario_id=u, projeto_id=projeto_id)
-            for u in self._por_projeto.get(projeto_id, [])
-        ]
-
-
 def montar(
     monkeypatch,
     *,
@@ -186,7 +168,6 @@ def montar(
     uc.candidatura_repository = candidatura_repo
     uc.configuracao_repository = FakeConfiguracaoRepo(lideranca_minima)
     uc.equipe_projeto_repository = FakeEquipeProjetoRepo()
-    uc.vendedor_repository = FakeVendedorRepo()
     uc.banca_escopo_repository = FakeBancaEscopoRepo()
     uc.escopo_repository = FakeProjetoEscopoRepo()
     uc.membro_repository = FakeProjetoMembroRepo()

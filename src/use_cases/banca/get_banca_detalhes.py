@@ -22,7 +22,6 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.avaliacao_nota_repository import AvaliacaoNotaRepository
 from src.repositories.pergunta_repository import PerguntaRepository
 from src.repositories.avaliacao_repository import AvaliacaoRepository
@@ -47,7 +46,6 @@ from src.utils.equipe_banca import membros_da_banca
 class GetBancaDetalhesUseCase:
     def __init__(self, db: Session):
         self.repository = BancaRepository(db)
-        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
@@ -84,7 +82,6 @@ class GetBancaDetalhesUseCase:
             self.escopo_repository,
             self.membro_repository,
             self.equipe_projeto_repository,
-            self.vendedor_repository,
         )
         equipe.discard(banca.coordenador_id)
 
