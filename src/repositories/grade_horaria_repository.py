@@ -29,6 +29,22 @@ class GradeHorariaRepository:
             .all()
         )
 
+    def usuario_ids_com_grade(self, semestre_id: int) -> List[int]:
+        """Quem tem AO MENOS uma faixa gravada no semestre.
+
+        Uma consulta agregada, não uma por pessoa: a tela de Membros pergunta
+        isso para a lista inteira de uma vez. Grade vazia ("não tenho aula")
+        não deixa linha, então não se distingue de "nunca enviou". Não há dado
+        que separe os dois, e a compatibilidade já trata os dois igual.
+        """
+        linhas = (
+            self.db.query(GradeHorariaModel.usuario_id)
+            .filter(GradeHorariaModel.semestre_id == semestre_id)
+            .distinct()
+            .all()
+        )
+        return [uid for (uid,) in linhas]
+
     def substituir(
         self,
         usuario_id: int,

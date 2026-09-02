@@ -138,6 +138,35 @@ class TestPopulacaoDoGerente:
         r = uc.execute(GERENTE)
         assert nomes(r["coordenadores"]) == {"Murilo", "Coord Tech"}
 
+
+class TestCoordenadorDeVendas:
+    """O coordenador comercial não entra na tabela de capacidade: tem a
+    posição, mas não conduz execução, e listá-lo daria ao núcleo uma vaga de
+    coordenação que ninguém vai ocupar."""
+
+    def _uc_com_vendas(self, uc):
+        vendas = SimpleNamespace(
+            id=8, nome="Coord Vendas", posicao="coordenador", status="ativo",
+            coordenador_vendas=True,
+        )
+        uc.usuario_repository = FakeRepo([*USUARIOS, vendas])
+        uc.usuario_frente_repository = FakeRepo(
+            [SimpleNamespace(usuario_id=u, frente_id=f) for u, f in [*VINCULOS, (8, TECH)]]
+        )
+        return uc
+
+    def test_nao_aparece_para_a_diretoria(self, uc):
+        r = self._uc_com_vendas(uc).execute(DIRETORA)
+        assert "Coord Vendas" not in nomes(r["coordenadores"])
+
+    def test_nao_aparece_para_o_gerente_da_frente_dele(self, uc):
+        r = self._uc_com_vendas(uc).execute(GERENTE)
+        assert "Coord Vendas" not in nomes(r["coordenadores"])
+
+    def test_coordenador_comum_continua_aparecendo(self, uc):
+        r = self._uc_com_vendas(uc).execute(DIRETORA)
+        assert "Coord Tech" in nomes(r["coordenadores"])
+
     def test_a_carga_continua_saindo_dos_projetos(self, uc):
         """A população mudou, a medição não: quem está no sinérgico conta 1,
         quem não está conta 0."""

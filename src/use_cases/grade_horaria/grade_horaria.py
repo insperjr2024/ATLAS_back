@@ -105,6 +105,19 @@ class GradeHorariaUseCase:
             "faixas": [_serializar(f) for f in faixas],
         }
 
+    def usuario_ids_com_grade(self, semestre_id: Optional[int] = None) -> dict:
+        """Os ids de quem já enviou a grade no semestre.
+
+        A tela de Membros usa para marcar "Ver grade" de quem falta enviar.
+        Quem enviou uma grade vazia não aparece aqui (não deixa linha), e não
+        há como separar isso de "nunca enviou".
+        """
+        semestre_id = self._resolver_semestre(semestre_id)
+        return {
+            "semestre_id": semestre_id,
+            "usuario_ids": sorted(self.repository.usuario_ids_com_grade(semestre_id)),
+        }
+
     def compatibilidade(
         self, usuario_ids: List[int], semestre_id: Optional[int] = None
     ) -> dict:

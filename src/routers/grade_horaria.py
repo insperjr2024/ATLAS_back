@@ -84,6 +84,24 @@ def salvar_grade(
         raise HTTPException(status_code=422, detail=str(e))
 
 
+@router.get("/grade-horaria/preenchidas")
+def grades_preenchidas(
+    semestre_id: Optional[int] = Query(None),
+    _=Depends(require_pode_gerir_membros),
+    db: Session = Depends(get_db),
+):
+    """Os ids de quem JÁ enviou a grade no semestre ativo.
+
+    A tela de Membros marca "Ver grade" de quem falta. Definida antes da rota
+    `/{usuario_id}` de propósito: senão "preenchidas" cairia lá e o path viraria
+    um id inválido.
+    """
+    try:
+        return GradeHorariaUseCase(db).usuario_ids_com_grade(semestre_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.get("/grade-horaria/{usuario_id}")
 def grade_de_usuario(
     usuario_id: int,

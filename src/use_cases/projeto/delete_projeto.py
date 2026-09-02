@@ -21,7 +21,6 @@ from src.models.tarefa_comentario_model import TarefaComentarioModel
 from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
 from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.storage import pasta_propostas
 
 
 class DeleteProjetoPermanenteUseCase:
@@ -134,15 +133,9 @@ class DeleteProjetoPermanenteUseCase:
         self.db.execute(delete(ProjetoEscopoModel).where(ProjetoEscopoModel.projeto_id == projeto_id))
 
         nome = projeto.nome
-        anexo = projeto.anexo_proposta_path
+        # O PDF da proposta mora na própria linha (`anexo_proposta_conteudo`),
+        # então sai junto no delete: não há arquivo em disco para apagar.
         self.db.delete(projeto)
         self.db.commit()
-
-        # Só depois do commit: se o unlink falhasse antes, o rollback deixaria
-        # o registro intacto mas o arquivo já teria sumido do disco.
-        if anexo:
-            arquivo = pasta_propostas() / anexo
-            if arquivo.exists():
-                arquivo.unlink()
 
         return {"nome": nome}

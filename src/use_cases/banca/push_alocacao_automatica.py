@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session
 
 from src.models.banca_model import BancaModel
 from src.models.usuario_model import UsuarioModel
-from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_repository import BancaRepository
@@ -48,7 +47,6 @@ class PushAlocacaoAutomaticaUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.banca_repository = BancaRepository(db)
-        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.candidatura_repository = CandidaturaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
@@ -282,7 +280,6 @@ class PushAlocacaoAutomaticaUseCase:
                 self.escopo_repository,
                 self.membro_repository,
                 self.equipe_projeto_repository,
-                self.vendedor_repository,
             )
         )
         if banca.coordenador_id:

@@ -3,7 +3,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -12,6 +12,7 @@ from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
+    exigir_pode_editar_metadados_do_projeto,
     require_diretor_projetos,
     require_gestao,
     require_lideranca,
@@ -97,7 +98,6 @@ from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatu
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
 from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.storage import pasta_propostas
 
 router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
@@ -210,8 +210,10 @@ def update_inicio_ambientacao(
 
 
 @router.patch("/projetos/{projeto_id}/descricao")
-def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Nome, descrição, cliente e link da proposta. Aberta ao vendedor do
+    projeto (ver `exigir_pode_editar_metadados_do_projeto`)."""
+    exigir_pode_editar_metadados_do_projeto(projeto_id, current_user, db)
     result = UpdateDescricaoUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
@@ -479,11 +481,14 @@ def deletar_projeto_permanente(
 def upload_anexo_proposta(
     projeto_id: int,
     arquivo: UploadFile = File(...),
-    current_user=Depends(require_gestao),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """A proposta é ou link (mandado na criação), ou este PDF — nunca os dois."""
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    """A proposta é ou link (mandado na criação), ou este PDF, nunca os dois.
+
+    Aberta ao vendedor do projeto: foi ele que fechou a proposta com o
+    cliente (ver `exigir_pode_editar_metadados_do_projeto`)."""
+    exigir_pode_editar_metadados_do_projeto(projeto_id, current_user, db)
     try:
         return UploadAnexoPropostaUseCase(db).execute(projeto_id, arquivo)
     except RegraDeNegocioError as e:
@@ -494,15 +499,16 @@ def upload_anexo_proposta(
 def download_anexo_proposta(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
     projeto = ProjetoRepository(db).get_by_id(projeto_id)
-    if not projeto or not projeto.anexo_proposta_path:
+    # 404 também para o projeto que TINHA anexo antes da migração para o banco:
+    # o nome ficou, mas o conteúdo se perdeu no disco efêmero. O front trata
+    # esse 404 pedindo o reenvio do PDF.
+    if not projeto or not projeto.anexo_proposta_conteudo:
         raise HTTPException(status_code=404, detail="Anexo não encontrado")
-    caminho = pasta_propostas() / projeto.anexo_proposta_path
-    if not caminho.exists():
-        raise HTTPException(status_code=404, detail="Anexo não encontrado")
-    return FileResponse(
-        caminho,
+    nome = projeto.anexo_proposta_nome or "proposta.pdf"
+    return Response(
+        content=projeto.anexo_proposta_conteudo,
         media_type="application/pdf",
-        filename=projeto.anexo_proposta_nome or "proposta.pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
 
 

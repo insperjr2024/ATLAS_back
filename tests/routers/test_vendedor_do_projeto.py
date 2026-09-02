@@ -138,38 +138,76 @@ class TestAPortaDeEscrita:
         assert e.value.status_code == 404
 
 
-class TestBloqueioNaBanca:
-    """§8 — quem vendeu não avalia a banca do que vendeu."""
+class TestEditarMetadadosDoProjeto:
+    """Nome, descrição, cliente, link e anexo da proposta: quem vendeu edita,
+    mesmo sem estar na equipe. O resto do projeto segue leitura para ele."""
 
-    def _monta(self, vendedores):
+    def _cenario(self, monkeypatch, *, vendeu: bool, tem_permissao: bool, somente_por_venda: bool = True):
+        monkeypatch.setattr(auth, "vendeu_o_projeto", lambda *a, **k: vendeu)
+        monkeypatch.setattr(auth, "usuario_tem_permissao", lambda *a, **k: tem_permissao)
+        monkeypatch.setattr(auth, "pode_ver_projeto", lambda *a, **k: True)
+        monkeypatch.setattr(auth, "acesso_somente_por_venda", lambda *a, **k: somente_por_venda)
+
+    def test_vendedor_passa_mesmo_sem_pode_editar_equipe(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=True, tem_permissao=False)
+        auth.exigir_pode_editar_metadados_do_projeto(1, quem(), None)
+
+    def test_quem_tem_pode_editar_equipe_passa_sem_ter_vendido(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=False, tem_permissao=True, somente_por_venda=False)
+        auth.exigir_pode_editar_metadados_do_projeto(1, quem("gerente"), None)
+
+    def test_quem_nao_vendeu_nem_tem_permissao_leva_403(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=False, tem_permissao=False, somente_por_venda=False)
+        with pytest.raises(HTTPException) as e:
+            auth.exigir_pode_editar_metadados_do_projeto(1, quem(), None)
+        assert e.value.status_code == 403
+
+    def test_vendedor_que_nao_enxerga_o_projeto_leva_404(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=True, tem_permissao=False)
+        monkeypatch.setattr(auth, "pode_ver_projeto", lambda *a, **k: False)
+        with pytest.raises(HTTPException) as e:
+            auth.exigir_pode_editar_metadados_do_projeto(1, quem(), None)
+        assert e.value.status_code == 404
+
+
+class TestVendedorNaBanca:
+    """O vendedor NÃO conta como grupo da banca (reversão de 2026-09-01).
+
+    Entre 2026-08-20 e 2026-09-01 ele entrava em `membros_da_banca` e ficava
+    barrado de avaliar a banca do que vendeu. O núcleo reverteu: vender não
+    executa o projeto, então para efeito de banca ele é um consultor comum.
+    """
+
+    def _monta(self, membros_do_projeto):
         from src.utils.equipe_banca import membros_da_banca
 
         banca = SimpleNamespace(id=1, coordenador_id=None)
         escopos = SimpleNamespace(get_escopo_ids=lambda _id: [10])
         catalogo = SimpleNamespace(get_by_id=lambda _id: SimpleNamespace(projeto_id=3))
-        membros = SimpleNamespace(get_by_projeto=lambda pid, apenas_atuais=False: [])
-        vendedor_repo = SimpleNamespace(
-            get_by_projeto=lambda pid: [SimpleNamespace(usuario_id=u) for u in vendedores]
+        membros = SimpleNamespace(
+            get_by_projeto=lambda pid, apenas_atuais=False: [
+                SimpleNamespace(usuario_id=u) for u in membros_do_projeto
+            ]
         )
-        return membros_da_banca(banca, escopos, catalogo, membros, None, vendedor_repo)
+        return membros_da_banca(banca, escopos, catalogo, membros, None)
 
-    def test_o_vendedor_entra_no_conjunto_barrado(self):
-        assert 42 in self._monta([42])
+    def test_membro_real_do_projeto_ainda_entra(self):
+        assert 7 in self._monta([7])
 
-    def test_quem_nao_vendeu_nao_entra(self):
-        assert 99 not in self._monta([42])
+    def test_quem_nao_e_do_projeto_nao_entra(self):
+        assert 42 not in self._monta([7])
 
-    def test_sem_repositorio_o_conjunto_ignora_vendedores(self):
-        """O parâmetro é opcional para não quebrar chamador antigo — mas quem
-        valida candidatura precisa passá-lo, e este teste documenta o buraco
-        que fica quando não passa."""
+    def test_membros_da_banca_nao_aceita_mais_vendedor_repository(self):
+        """A assinatura perdeu o parâmetro: passar um sexto argumento estoura."""
         from src.utils.equipe_banca import membros_da_banca
 
         banca = SimpleNamespace(id=1, coordenador_id=None)
-        conjunto = membros_da_banca(
-            banca,
-            SimpleNamespace(get_escopo_ids=lambda _id: [10]),
-            SimpleNamespace(get_by_id=lambda _id: SimpleNamespace(projeto_id=3)),
-            SimpleNamespace(get_by_projeto=lambda pid, apenas_atuais=False: []),
-        )
-        assert conjunto == set()
+        with pytest.raises(TypeError):
+            membros_da_banca(
+                banca,
+                SimpleNamespace(get_escopo_ids=lambda _id: []),
+                SimpleNamespace(get_by_id=lambda _id: None),
+                SimpleNamespace(get_by_projeto=lambda pid, apenas_atuais=False: []),
+                None,
+                SimpleNamespace(get_by_projeto=lambda pid: []),
+            )

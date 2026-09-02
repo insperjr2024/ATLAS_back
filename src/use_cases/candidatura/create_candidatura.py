@@ -3,7 +3,6 @@ from typing import Optional
 
 from pydantic import BaseModel
 from datetime import datetime
-from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
@@ -33,7 +32,6 @@ class CreateCandidaturaUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.repository = CandidaturaRepository(db)
-        self.vendedor_repository = ProjetoVendedorRepository(db)
         self.banca_repository = BancaRepository(db)
         self.configuracao_repository = ConfiguracaoRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
@@ -70,7 +68,6 @@ class CreateCandidaturaUseCase:
             self.escopo_repository,
             self.membro_repository,
             self.equipe_projeto_repository,
-            self.vendedor_repository,
         ):
             raise RegraDeNegocioError("Você não pode se candidatar à banca do seu próprio grupo")
 

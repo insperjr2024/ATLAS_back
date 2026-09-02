@@ -50,6 +50,15 @@ class UsuarioModel(Base):
         server_default="ativo",
     )
     ativo = Column(Boolean, default=True, nullable=False)
+    #: Coordenador de vendas (comercial): posição `coordenador` e o mesmo
+    #: acesso dos demais, mas não conduz a execução de projeto. Serve só para
+    #: TIRÁ-LO da contagem de capacidade de coordenadores no Monitoramento,
+    #: onde ele aparecia como "0 projetos, disponível" e inflava a folga do
+    #: núcleo com uma vaga que ninguém vai ocupar. Sem efeito em quem não é
+    #: coordenador.
+    coordenador_vendas = Column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     # 1º a 8º semestre da graduação — nullable porque diretoria/gerência não
     # necessariamente são alunos de graduação em curso.
     semestre_graduacao = Column(Integer, nullable=True)
