@@ -245,3 +245,34 @@ class TestOBlend:
         )
 
         assert status.ok
+
+
+class TestAContagemQueATelaMostra:
+    """`contar` é o que `GET /bancas` serve para a aba Bancas dizer "1 de 3
+    membros". Os números precisam ser os MESMOS que a checagem usa — foi por
+    isso que ela passou a se apoiar nele (2026-09-02)."""
+
+    def test_o_gerente_da_cota_nao_aparece_entre_os_membros(self):
+        por_frente = {BUSINESS: [10, 11, 12]}
+        usuarios = [usuario(10, "gerente"), usuario(11), usuario(12)]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12}
+        )
+
+        assert (business.membros, business.liderancas) == (2, 1)
+        assert (business.min_membros, business.min_lideranca) == (3, 1)
+
+    def test_frente_vazia_conta_zero(self):
+        por_frente = {BUSINESS: [10], TECH: []}
+        checker, banca = montar(por_frente, [usuario(10)])
+
+        contagens = checker.contar(
+            banca,
+            [regra(BUSINESS, "Business", min_membros=1), regra(TECH, "Tech", min_membros=2)],
+            {10},
+        )
+
+        tech = next(c for c in contagens if c.frente_id == TECH)
+        assert (tech.membros, tech.liderancas) == (0, 0)

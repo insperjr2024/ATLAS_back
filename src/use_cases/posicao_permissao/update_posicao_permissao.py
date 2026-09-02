@@ -21,6 +21,7 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_editar_formularios_desempenho: Optional[bool] = None
     pode_administrar_configuracoes: Optional[bool] = None
     pode_ver_todos_projetos: Optional[bool] = None
+    pode_ver_dashboard_bancas: Optional[bool] = None
 
 
 class UpdatePosicaoPermissaoUseCase:

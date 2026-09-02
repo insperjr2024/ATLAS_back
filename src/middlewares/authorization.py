@@ -2,7 +2,7 @@
 
 Até 2026-08-07 eram duas dimensões (`cargo`, editável, decidia a maioria das
 caixas; `posicao` decidia só o recorte de visão e o que não virou caixa).
-Foram unificadas: as mesmas 13 caixas agora são editadas POR POSIÇÃO — só 4
+Foram unificadas: as mesmas caixas (13 na época, 14 hoje) agora são editadas POR POSIÇÃO — só 4
 linhas fixas (`posicao_permissao`), sem catálogo aberto. `cargo` foi removido
 inteiro; a distinção não sobrevivia ao uso real (dava pra marcar "Admin" numa
 pessoa sem isso ampliar quais projetos ela via, por exemplo).
@@ -68,7 +68,7 @@ def eh_diretoria_de_projetos(current_user) -> bool:
     return getattr(current_user, "posicao", None) in DIRETORIA_DE_PROJETOS
 
 
-# -------------------------------------------------- permissão (as 13 caixas, por posição)
+# -------------------------------------------------- permissão (as 14 caixas, por posição)
 
 def usuario_tem_permissao(current_user, db: Session, campo: str) -> bool:
     registro = PosicaoPermissaoRepository(db).get_by_posicao(current_user.posicao)
@@ -155,6 +155,15 @@ require_pode_editar_formularios_desempenho = _dependencia_permissao(
 require_pode_administrar_configuracoes = _dependencia_permissao(
     "pode_administrar_configuracoes",
     "Você não tem permissão para administrar as configurações",
+)
+
+# O Dashboard Bancas era a última área grande travada em POSIÇÃO pura
+# (`require_diretor_projetos` + uma matriz no front), e não havia razão para
+# ela ser diferente das três acima: ler as notas de banca é trabalho que se
+# delega, e delegá-lo exigia promover a pessoa a diretora de projetos.
+require_pode_ver_dashboard_bancas = _dependencia_permissao(
+    "pode_ver_dashboard_bancas",
+    "Você não tem permissão para ver o Dashboard Bancas",
 )
 
 

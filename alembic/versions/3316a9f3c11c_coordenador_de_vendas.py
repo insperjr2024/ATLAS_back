@@ -1,7 +1,7 @@
 """coordenador de vendas
 
 Revision ID: 3316a9f3c11c
-Revises: c3d7f9a21b40
+Revises: e7b3c419d0a5
 Create Date: 2026-09-01
 
 Marca um coordenador como sendo de vendas (comercial). Ele mantem a posicao
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "3316a9f3c11c"
-down_revision = "c3d7f9a21b40"
+down_revision = "e7b3c419d0a5"
 branch_labels = None
 depends_on = None
 

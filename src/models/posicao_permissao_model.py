@@ -12,10 +12,16 @@ class PosicaoPermissaoModel(Base):
     nenhuma) sem servir pra delegar de verdade. Só 4 linhas, uma por posição,
     sem CRUD de criar/apagar linha — só editar as caixas.
 
-    Mesmas 13 caixas que `cargo` tinha: as 9 da tabela do §3 do briefing, as
-    3 extensões (Avaliação de Desempenho, formulários dela, Configurações) e
-    `pode_ver_todos_projetos` (2026-08-07) — a única que muda QUAIS projetos
-    aparecem; as outras só ligam/desligam funcionalidade.
+    Eram as mesmas 13 caixas que `cargo` tinha: as 9 da tabela do §3 do
+    briefing, as 3 extensões (Avaliação de Desempenho, formulários dela,
+    Configurações) e `pode_ver_todos_projetos` (2026-08-07) — a única que muda
+    QUAIS projetos aparecem; as outras só ligam/desligam funcionalidade.
+
+    A 14ª é `pode_ver_dashboard_bancas` (2026-09-01): o Dashboard Bancas
+    nasceu travado em `diretor_projetos` por uma matriz do FRONT
+    (`utils/permissoes.ts`), fora desta tabela — quem quisesse delegar a
+    leitura das notas tinha de promover a pessoa a diretora de projetos
+    inteira. Virou caixa pelo mesmo motivo das outras três extensões.
     """
 
     __tablename__ = "posicao_permissao"
@@ -58,6 +64,11 @@ class PosicaoPermissaoModel(Base):
     pode_administrar_desempenho = Column(Boolean, default=False, nullable=False)
     pode_editar_formularios_desempenho = Column(Boolean, default=False, nullable=False)
     pode_administrar_configuracoes = Column(Boolean, default=False, nullable=False)
+    #: O Dashboard Bancas (`/avaliacoes`): as notas por pergunta, o histórico
+    #: de bancas e a edição dos formulários de banca. Não confundir com
+    #: `pode_editar_formularios_desempenho`, que é o formulário da Avaliação
+    #: de Desempenho — outra área, outro formulário.
+    pode_ver_dashboard_bancas = Column(Boolean, default=False, nullable=False)
 
     # A única que muda QUAIS projetos aparecem (ver docstring da classe).
     pode_ver_todos_projetos = Column(Boolean, default=False, nullable=False)

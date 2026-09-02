@@ -21,6 +21,20 @@ equipe duas vezes mandaria dois e-mails idênticos para a mesma pessoa.
    a ação que gerou o evento. Se o SMTP estiver fora, a alocação continua
    valendo e o aviso continua no sino, que é o canal principal.
 
+⚠ **E nunca com uma conexão de banco na mão.** O envio é uma chamada HTTP ao
+Resend com timeout de 15s, e o pool do SQLAlchemy tem 5 conexões para a
+instância inteira (ver `database.py`). Com as 4 threads deste pool segurando
+uma sessão cada durante o envio, sobrava UMA conexão para todas as requisições
+— e quem estivesse no meio de um POST tomava
+`TimeoutError: QueuePool limit ... connection timed out` na primeira query
+depois do `commit()`.
+
+O estrago era exatamente o que o usuário via: `commit()` devolve a conexão ao
+pool e o `refresh()` seguinte precisa pegar OUTRA. A banca (ou a tarefa)
+entrava no banco e a request morria logo depois, com 500 — "deu erro, mas foi
+criado". Por isso `enviar` lê o destinatário numa sessão, **fecha**, manda o
+e-mail e só então abre outra para o carimbo.
+
 O `email_enviado_em` só é carimbado depois do envio dar certo — a coluna
 responde "chegou?", não "tentamos?".
 """
@@ -100,33 +114,20 @@ def enviar(
     if not settings.RESEND_API_KEY:
         return False
 
-    db = session_factory()
     try:
-        usuario = UsuarioRepository(db).get_by_id(usuario_id)
-        if usuario is None:
+        # ⚠ **A sessão fecha ANTES do envio, e é essencial que feche.** Ver a
+        # nota de "Fora da thread da request" no topo do módulo.
+        destinatario = _destinatario(usuario_id, tipo, session_factory)
+        if destinatario is None:
             return False
-        # Ex-membro e desligado (§10) continuam com notificações antigas no
-        # banco, mas não são mais avisados por fora da plataforma.
-        if not usuario.ativo:
-            return False
-        desativadas = usuario.notificacoes_email_desativadas or []
-        # EMAIL_DESATIVADO_TOTAL desliga tudo, inclusive tipo fixo — é a
-        # válvula pra conta de teste/admin com e-mail que não existe (ver
-        # notificacao_model.py). Checa antes da regra normal, que só olha
-        # tipo opcional.
-        if EMAIL_DESATIVADO_TOTAL in desativadas:
-            return False
-        # Só os tipos opcionais respeitam a preferência — os de fora da lista
-        # saem sempre, mesmo que o campo tenha algum lixo com o nome deles.
-        if tipo in TIPOS_NOTIFICACAO_OPCIONAIS and tipo in desativadas:
-            return False
+        nome, email = destinatario
 
-        assunto, texto, html = montar_email_notificacao(
-            usuario.nome, titulo, corpo, _link(rota)
-        )
-        (sender or EmailSender()).enviar(usuario.email_insper, assunto, texto, html)
+        assunto, texto, html = montar_email_notificacao(nome, titulo, corpo, _link(rota))
+        # Daqui até a volta do Resend não há conexão de banco nas mãos desta
+        # thread — só o socket do e-mail.
+        (sender or EmailSender()).enviar(email, assunto, texto, html)
 
-        NotificacaoRepository(db).update(notificacao_id, email_enviado_em=datetime.now())
+        _carimbar_envio(notificacao_id, session_factory)
         return True
     except Exception:  # noqa: BLE001 — ver a docstring do módulo
         logger.exception(
@@ -135,6 +136,44 @@ def enviar(
             usuario_id,
         )
         return False
+
+
+def _destinatario(usuario_id: int, tipo: str, session_factory) -> Optional[tuple]:
+    """`(nome, email)` de quem deve receber — `None` quando não deve.
+
+    Devolve VALORES, não o objeto do usuário: quem chama sobrevive ao
+    fechamento da sessão, e tocar num objeto de sessão fechada estouraria.
+    """
+    db = session_factory()
+    try:
+        usuario = UsuarioRepository(db).get_by_id(usuario_id)
+        if usuario is None:
+            return None
+        # Ex-membro e desligado (§10) continuam com notificações antigas no
+        # banco, mas não são mais avisados por fora da plataforma.
+        if not usuario.ativo:
+            return None
+        desativadas = usuario.notificacoes_email_desativadas or []
+        # EMAIL_DESATIVADO_TOTAL desliga tudo, inclusive tipo fixo — é a
+        # válvula pra conta de teste/admin com e-mail que não existe (ver
+        # notificacao_model.py). Checa antes da regra normal, que só olha
+        # tipo opcional.
+        if EMAIL_DESATIVADO_TOTAL in desativadas:
+            return None
+        # Só os tipos opcionais respeitam a preferência — os de fora da lista
+        # saem sempre, mesmo que o campo tenha algum lixo com o nome deles.
+        if tipo in TIPOS_NOTIFICACAO_OPCIONAIS and tipo in desativadas:
+            return None
+        return usuario.nome, usuario.email_insper
+    finally:
+        db.close()
+
+
+def _carimbar_envio(notificacao_id: int, session_factory) -> None:
+    """Sessão nova, curta, só para o carimbo — a de leitura já foi devolvida."""
+    db = session_factory()
+    try:
+        NotificacaoRepository(db).update(notificacao_id, email_enviado_em=datetime.now())
     finally:
         db.close()
 

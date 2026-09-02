@@ -10,6 +10,7 @@ from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     exigir_acesso_ao_projeto,
     require_diretor_projetos,
+    require_pode_ver_dashboard_bancas,
     require_lideranca,
     require_pode_definir_cronograma,
     usuario_tem_permissao,
@@ -150,7 +151,7 @@ def get_banca_detalhes(
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
-def get_notas_por_pergunta(banca_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def get_notas_por_pergunta(banca_id: int, _=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
     return GetNotasPorPerguntaUseCase(db).execute(banca_id)
 
 
@@ -399,7 +400,7 @@ def get_historico_bancas(
     coordenador_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     semestre_id: Optional[int] = None,
-    _=Depends(require_diretor_projetos),
+    _=Depends(require_pode_ver_dashboard_bancas),
     db: Session = Depends(get_db),
 ):
     return GetHistoricoBancasUseCase(db).execute(consultor_id, coordenador_id, escopo_id, semestre_id)

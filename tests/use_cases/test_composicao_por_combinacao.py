@@ -42,7 +42,7 @@ def resolver(monkeypatch):
     `lideranca_minima_por_frente` = 1.
     """
 
-    def _montar(gravadas=None, lideranca_padrao=1, frentes=None):
+    def _montar(gravadas=None, lideranca_padrao=1, frentes=None, vagas_padrao=5):
         gravadas = gravadas or {}
         frentes = frentes or [
             frente(BUSINESS, "Business", 3),
@@ -63,7 +63,10 @@ def resolver(monkeypatch):
         class ConfigFake:
             def __init__(self, db): pass
             def get(self):
-                return SimpleNamespace(lideranca_minima_por_frente=lideranca_padrao)
+                return SimpleNamespace(
+                    lideranca_minima_por_frente=lideranca_padrao,
+                    vagas_por_banca=vagas_padrao,
+                )
 
         monkeypatch.setattr(mod, "BancaComposicaoRegraRepository", RegraFake)
         monkeypatch.setattr(mod, "FrenteRepository", FrenteFake)
@@ -73,10 +76,10 @@ def resolver(monkeypatch):
     return _montar
 
 
-def gravada(frente_id, min_m, max_m, min_l, max_l):
+def gravada(frente_id, min_m, max_m, min_l, max_l, vagas=None):
     return SimpleNamespace(
         frente_id=frente_id, min_membros=min_m, max_membros=max_m,
-        min_lideranca=min_l, max_lideranca=max_l,
+        min_lideranca=min_l, max_lideranca=max_l, vagas=vagas,
     )
 
 
@@ -213,3 +216,57 @@ class TestOSeletorDaTela:
         assert blend["minimo_total"] == 6
         assert blend["sinergica"] is True
         assert blend["configurada"] is False
+
+
+class TestOTetoDaCombinacao:
+    """⭐ O teto de vagas passou a poder ser da COMBINAÇÃO (2026-09-02).
+
+    Era um número só para a plataforma inteira: a banca de Direito sozinha
+    (que exige 2 pessoas) e a de Business + Tech + Processos (que exige 9)
+    cabiam o mesmo tanto de gente.
+    """
+
+    def test_sem_teto_proprio_vale_o_global(self, resolver):
+        uc = resolver(vagas_padrao=6)
+
+        assert uc.vagas_da_combinacao([BUSINESS]) == 6
+        assert uc.vagas_proprias_da_combinacao([BUSINESS]) is None
+
+    def test_o_teto_gravado_na_combinacao_ganha_do_global(self, resolver):
+        uc = resolver(
+            gravadas={"1-3": {BUSINESS: gravada(BUSINESS, 3, 5, 1, 3, vagas=9),
+                              TECH: gravada(TECH, 2, 4, 0, 2, vagas=9)}},
+            vagas_padrao=6,
+        )
+
+        assert uc.vagas_da_combinacao([TECH, BUSINESS]) == 9
+        assert uc.vagas_proprias_da_combinacao([BUSINESS, TECH]) == 9
+
+    def test_uma_combinacao_nao_herda_o_teto_da_outra(self, resolver):
+        """Business + Tech com teto 9 não muda o teto de Business sozinho."""
+        uc = resolver(
+            gravadas={"1-3": {BUSINESS: gravada(BUSINESS, 3, 5, 1, 3, vagas=9),
+                              TECH: gravada(TECH, 2, 4, 0, 2, vagas=9)}},
+            vagas_padrao=6,
+        )
+
+        assert uc.vagas_da_combinacao([BUSINESS]) == 6
+
+    def test_banca_legada_sem_frente_fica_no_global(self, resolver):
+        """Sem frente não há combinação — e o global é o que sempre valeu
+        para ela."""
+        uc = resolver(vagas_padrao=6)
+
+        assert uc.vagas_da_combinacao([]) == 6
+        assert uc.vagas_proprias_da_combinacao([]) is None
+
+    def test_o_seletor_mostra_o_teto_de_cada_combinacao(self, resolver):
+        uc = resolver(
+            gravadas={"1": {BUSINESS: gravada(BUSINESS, 3, 5, 1, 3, vagas=4)}},
+            vagas_padrao=6,
+        )
+
+        por_chave = {c["combinacao"]: c for c in uc.listar_combinacoes()}
+
+        assert por_chave["1"]["vagas"] == 4
+        assert por_chave["2"]["vagas"] == 6
