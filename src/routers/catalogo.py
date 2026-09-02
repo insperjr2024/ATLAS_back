@@ -20,6 +20,7 @@ from src.use_cases.configuracao.composicao_banca import (
 )
 from src.utils.combinacao_frentes import chave, ler
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.erro_http import erro_de_regra
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.dia_nao_letivo.create_dia_nao_letivo import (
     CreateDiasNaoLetivosUseCase,
@@ -42,7 +43,6 @@ from src.use_cases.dia_nao_letivo.renomear_calendario import (
 )
 from src.use_cases.calendario.get_eventos import GetEventosCalendarioUseCase
 from src.use_cases.semestre.get_semestre import GetSemestreAtivoUseCase
-from src.utils.exceptions import RegraDeNegocioError
 from src.use_cases.posicao_permissao.get_posicao_permissao import ListPosicaoPermissoesUseCase
 from src.use_cases.posicao_permissao.update_posicao_permissao import (
     UpdatePosicaoPermissaoUseCase,
@@ -82,7 +82,13 @@ def update_posicao_permissao(
     _=Depends(require_pode_administrar_permissoes),
     db: Session = Depends(get_db),
 ):
-    result = UpdatePosicaoPermissaoUseCase(db).execute(posicao, request)
+    try:
+        result = UpdatePosicaoPermissaoUseCase(db).execute(posicao, request)
+    except RegraDeNegocioError as e:
+        # `erro_de_regra` e não `detail=str(e)`: a recusa de último
+        # administrador carrega `codigo`, e é por ele que o modal explica em
+        # vez de só exibir o texto.
+        raise erro_de_regra(e)
     if not result:
         raise HTTPException(status_code=404, detail="Posição não encontrada")
     return result
