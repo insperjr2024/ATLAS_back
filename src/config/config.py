@@ -10,12 +10,11 @@ class Settings(BaseSettings):
     #: `POST /auth/renovar`), então quem usa toda semana nunca reloga; o prazo
     #: só corre para sessão abandonada.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
-    UPLOADS_DIR: str = "uploads"
 
     # ─── Recuperação de senha ────────────────────────────────────────────
-    # Tudo com default para o `.env` de quem já clonou continuar valendo —
-    # mesmo motivo do UPLOADS_DIR acima. Sem RESEND_API_KEY preenchida o
-    # envio falha explicitamente em vez de fingir que mandou.
+    # Tudo com default para o `.env` de quem já clonou continuar valendo. Sem
+    # RESEND_API_KEY preenchida o envio falha explicitamente em vez de fingir
+    # que mandou.
     #
     # SMTP_HOST/PORT/PASSWORD não existem: o envio é pela API do Resend
     # (HTTPS), não por SMTP direto — ver `src/utils/email.py`. SMTP_USER e

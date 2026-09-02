@@ -1,4 +1,15 @@
-from sqlalchemy import Column, Date, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    func,
+)
 from src.database.database import Base
 
 
@@ -16,9 +27,14 @@ class ProjetoModel(Base):
     cliente = Column(String(150), nullable=True)
     descricao = Column(Text, nullable=True)
     link_proposta = Column(String(255), nullable=True)
-    # A proposta é ou um link, ou um PDF anexado — nunca os dois (ver
+    # A proposta é ou um link, ou um PDF anexado, nunca os dois (ver
     # UploadAnexoPropostaUseCase, que zera link_proposta ao receber o anexo).
-    anexo_proposta_path = Column(String(255), nullable=True)
+    #
+    # O conteúdo do PDF fica no PRÓPRIO banco, não em disco: o disco do
+    # servidor de deploy é efêmero e some a cada redeploy/restart, e um arquivo
+    # gravado lá desaparecia sem deixar rastro. Mesma escolha do envio de PDI
+    # (ver `DesempenhoPdiEnvioModel`).
+    anexo_proposta_conteudo = Column(LargeBinary, nullable=True)
     anexo_proposta_nome = Column(String(255), nullable=True)
     status = Column(
         Enum(
