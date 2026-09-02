@@ -21,6 +21,7 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_editar_formularios_desempenho": registro.pode_editar_formularios_desempenho,
         "pode_administrar_configuracoes": registro.pode_administrar_configuracoes,
         "pode_ver_todos_projetos": registro.pode_ver_todos_projetos,
+        "pode_ver_dashboard_bancas": registro.pode_ver_dashboard_bancas,
     }
 
 

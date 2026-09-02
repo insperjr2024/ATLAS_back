@@ -7,7 +7,7 @@ from src.database.database import get_db
 from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     require_pode_definir_cronograma,
-    require_diretor_projetos,
+    require_pode_ver_dashboard_bancas,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.avaliacao.create_avaliacao import CreateAvaliacaoUseCase, CreateAvaliacaoRequest
@@ -60,7 +60,7 @@ def get_formulario_ativo(db: Session = Depends(get_db)):
 
 
 @router.post("/formularios/nova-versao")
-def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def create_nova_versao_formulario(request: CreateNovaVersaoFormularioRequest, _=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
     try:
         return CreateNovaVersaoFormularioUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -81,7 +81,7 @@ def get_formulario(formulario_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/formularios/{formulario_id}")
-def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
     result = UpdateFormularioUseCase(db).execute(formulario_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
@@ -89,7 +89,7 @@ def update_formulario(formulario_id: int, request: UpdateFormularioRequest, _=De
 
 
 @router.delete("/formularios/{formulario_id}", status_code=204)
-def delete_formulario(formulario_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def delete_formulario(formulario_id: int, _=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
     try:
         deleted = DeleteFormularioUseCase(db).execute(formulario_id)
     except ResourceInUseError:
@@ -115,7 +115,7 @@ def get_pergunta(pergunta_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/perguntas/{pergunta_id}")
-def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
     result = UpdatePerguntaUseCase(db).execute(pergunta_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Pergunta não encontrada")
@@ -123,7 +123,7 @@ def update_pergunta(pergunta_id: int, request: UpdatePerguntaRequest, _=Depends(
 
 
 @router.delete("/perguntas/{pergunta_id}", status_code=204)
-def delete_pergunta(pergunta_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def delete_pergunta(pergunta_id: int, _=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
     try:
         deleted = DeletePerguntaUseCase(db).execute(pergunta_id)
     except ResourceInUseError:
