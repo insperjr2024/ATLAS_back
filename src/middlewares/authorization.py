@@ -419,27 +419,60 @@ def acesso_somente_por_venda(projeto_id: int, current_user, db: Session) -> bool
 
 
 def exigir_acesso_ao_projeto(
-    projeto_id: int, current_user, db: Session, *, somente_leitura_ok: bool = False
+    projeto_id: int,
+    current_user,
+    db: Session,
+    *,
+    somente_leitura_ok: bool = False,
+    edicao_de_venda_ok: bool = False,
 ) -> None:
-    """Barra quem não enxerga o projeto — e, por padrão, quem só o vê por ter
+    """Barra quem não enxerga o projeto, e por padrão quem só o vê por ter
     vendido.
 
     ⚠ **O padrão é RECUSAR o vendedor**, e a permissão é dada rota a rota com
     `somente_leitura_ok=True`. É o contrário do que parece natural, e é de
     propósito: são 44 chamadas desta função, a maioria em rota de escrita.
     Liberando por padrão, cada uma teria que lembrar de barrar; recusando,
-    quem esquece do parâmetro erra para o lado seguro — e uma rota de escrita
+    quem esquece do parâmetro erra para o lado seguro, e uma rota de escrita
     escrita amanhã já nasce fechada para o vendedor.
+
+    `edicao_de_venda_ok=True` abre uma fresta: as rotas que editam os campos
+    DESCRITIVOS do projeto (nome, descrição, cliente, link e anexo da
+    proposta) aceitam o vendedor, porque foi ele que combinou isso com o
+    cliente. Só essas rotas passam esse flag, via
+    `exigir_pode_editar_metadados_do_projeto`.
     """
     if not pode_ver_projeto(projeto_id, current_user, db):
         # 404 e não 403: quem não enxerga o projeto não deve nem saber que ele existe.
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
 
-    if not somente_leitura_ok and acesso_somente_por_venda(projeto_id, current_user, db):
+    liberado = somente_leitura_ok or edicao_de_venda_ok
+    if not liberado and acesso_somente_por_venda(projeto_id, current_user, db):
         raise HTTPException(
             status_code=403,
             detail="Você vendeu este projeto, mas não faz parte da equipe — o acesso é de leitura",
         )
+
+
+def exigir_pode_editar_metadados_do_projeto(projeto_id: int, current_user, db: Session):
+    """Nome, descrição, cliente, link e anexo da proposta: os campos
+    DESCRITIVOS do projeto.
+
+    Duas portas: quem tem `pode_editar_equipe` (diretoria de projetos e
+    gerência, a régua de antes), OU quem VENDEU o projeto. O vendedor edita os
+    dados comerciais do que vendeu mesmo sem estar na equipe; o resto do
+    projeto (cronograma, equipe, kickoff, status) segue leitura para ele.
+    """
+    if vendeu_o_projeto(projeto_id, current_user, db):
+        exigir_acesso_ao_projeto(projeto_id, current_user, db, edicao_de_venda_ok=True)
+        return current_user
+    if not usuario_tem_permissao(current_user, db, "pode_editar_equipe"):
+        raise HTTPException(
+            status_code=403,
+            detail="Você não tem permissão para editar os dados do projeto",
+        )
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    return current_user
 
 
 def eh_avaliador_do_projeto(projeto_id: int, current_user, db: Session) -> bool:

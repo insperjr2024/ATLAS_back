@@ -12,6 +12,7 @@ from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
+    exigir_pode_editar_metadados_do_projeto,
     require_diretor_projetos,
     require_gestao,
     require_lideranca,
@@ -209,8 +210,10 @@ def update_inicio_ambientacao(
 
 
 @router.patch("/projetos/{projeto_id}/descricao")
-def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+def update_descricao(projeto_id: int, request: UpdateDescricaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Nome, descrição, cliente e link da proposta. Aberta ao vendedor do
+    projeto (ver `exigir_pode_editar_metadados_do_projeto`)."""
+    exigir_pode_editar_metadados_do_projeto(projeto_id, current_user, db)
     result = UpdateDescricaoUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
@@ -478,11 +481,14 @@ def deletar_projeto_permanente(
 def upload_anexo_proposta(
     projeto_id: int,
     arquivo: UploadFile = File(...),
-    current_user=Depends(require_gestao),
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """A proposta é ou link (mandado na criação), ou este PDF — nunca os dois."""
-    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    """A proposta é ou link (mandado na criação), ou este PDF, nunca os dois.
+
+    Aberta ao vendedor do projeto: foi ele que fechou a proposta com o
+    cliente (ver `exigir_pode_editar_metadados_do_projeto`)."""
+    exigir_pode_editar_metadados_do_projeto(projeto_id, current_user, db)
     try:
         return UploadAnexoPropostaUseCase(db).execute(projeto_id, arquivo)
     except RegraDeNegocioError as e:

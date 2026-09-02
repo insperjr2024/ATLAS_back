@@ -138,6 +138,38 @@ class TestAPortaDeEscrita:
         assert e.value.status_code == 404
 
 
+class TestEditarMetadadosDoProjeto:
+    """Nome, descrição, cliente, link e anexo da proposta: quem vendeu edita,
+    mesmo sem estar na equipe. O resto do projeto segue leitura para ele."""
+
+    def _cenario(self, monkeypatch, *, vendeu: bool, tem_permissao: bool, somente_por_venda: bool = True):
+        monkeypatch.setattr(auth, "vendeu_o_projeto", lambda *a, **k: vendeu)
+        monkeypatch.setattr(auth, "usuario_tem_permissao", lambda *a, **k: tem_permissao)
+        monkeypatch.setattr(auth, "pode_ver_projeto", lambda *a, **k: True)
+        monkeypatch.setattr(auth, "acesso_somente_por_venda", lambda *a, **k: somente_por_venda)
+
+    def test_vendedor_passa_mesmo_sem_pode_editar_equipe(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=True, tem_permissao=False)
+        auth.exigir_pode_editar_metadados_do_projeto(1, quem(), None)
+
+    def test_quem_tem_pode_editar_equipe_passa_sem_ter_vendido(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=False, tem_permissao=True, somente_por_venda=False)
+        auth.exigir_pode_editar_metadados_do_projeto(1, quem("gerente"), None)
+
+    def test_quem_nao_vendeu_nem_tem_permissao_leva_403(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=False, tem_permissao=False, somente_por_venda=False)
+        with pytest.raises(HTTPException) as e:
+            auth.exigir_pode_editar_metadados_do_projeto(1, quem(), None)
+        assert e.value.status_code == 403
+
+    def test_vendedor_que_nao_enxerga_o_projeto_leva_404(self, monkeypatch):
+        self._cenario(monkeypatch, vendeu=True, tem_permissao=False)
+        monkeypatch.setattr(auth, "pode_ver_projeto", lambda *a, **k: False)
+        with pytest.raises(HTTPException) as e:
+            auth.exigir_pode_editar_metadados_do_projeto(1, quem(), None)
+        assert e.value.status_code == 404
+
+
 class TestVendedorNaBanca:
     """O vendedor NÃO conta como grupo da banca (reversão de 2026-09-01).
 
