@@ -30,6 +30,12 @@ class RegraDeNegocioError(Exception):
         self.codigo = codigo
 
 
+#: Tirar a última porta de entrada da tela de permissões. A interface REAGE:
+#: o modal precisa distinguir "recusei porque você se trancaria do lado de
+#: fora" de qualquer outro 422, para explicar em vez de só mostrar o texto.
+CODIGO_ULTIMO_ADMINISTRADOR = "ultimo_administrador_de_permissoes"
+
+
 #: Recusa que a diretoria pode atropelar reenviando com `forcar`. É o que
 #: destrava o "registrar assim mesmo" no modal de realizar banca e na aba
 #: Banca do projeto.

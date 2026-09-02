@@ -4,7 +4,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
+from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.posicao_permissao.get_posicao_permissao import serializar_posicao_permissao
+from src.utils.exceptions import CODIGO_ULTIMO_ADMINISTRADOR, RegraDeNegocioError
 
 
 class UpdatePosicaoPermissaoRequest(BaseModel):
@@ -34,9 +36,45 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
 class UpdatePosicaoPermissaoUseCase:
     def __init__(self, db: Session):
         self.repository = PosicaoPermissaoRepository(db)
+        self.usuario_repository = UsuarioRepository(db)
+
+    def _garantir_administrador_remanescente(self, posicao: str, data: dict):
+        """⭐ A plataforma nunca pode ficar sem quem edite permissões.
+
+        `pode_administrar_permissoes` é a única caixa que se auto-tranca: ela
+        é o que dá acesso a ESTA tela, então desligar a última deixa a
+        plataforma num estado que a própria plataforma não conserta — só
+        mexendo no banco à mão.
+
+        A regra não é "sobrar uma POSIÇÃO com a caixa", e sim sobrar uma
+        PESSOA: posição marcada sem ninguém ativo dentro dela é uma porta que
+        não abre. A diretoria pode continuar tirando a caixa de si mesma, o
+        que é legítimo (delegar e sair), desde que outra pessoa ativa fique
+        com ela.
+        """
+        if data.get("pode_administrar_permissoes") is not False:
+            return
+
+        restantes = [
+            p.posicao
+            for p in self.repository.get_all()
+            if p.posicao != posicao and p.pode_administrar_permissoes
+        ]
+        if restantes and any(
+            u.status == "ativo" for u in self.usuario_repository.get_por_posicoes(*restantes)
+        ):
+            return
+
+        raise RegraDeNegocioError(
+            "Esta é a última posição com pessoas ativas que podem editar permissões. "
+            "Desmarcar deixaria a plataforma sem ninguém capaz de reabrir esta tela — "
+            "conceda a permissão a outra posição antes de tirá-la desta.",
+            codigo=CODIGO_ULTIMO_ADMINISTRADOR,
+        )
 
     def execute(self, posicao: str, request: UpdatePosicaoPermissaoRequest):
         data = request.model_dump(exclude_unset=True)
+        self._garantir_administrador_remanescente(posicao, data)
         registro = self.repository.update(posicao, **data)
         if not registro:
             return None
