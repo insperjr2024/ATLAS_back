@@ -37,6 +37,7 @@ class UsuarioRepositoryFake:
             posicao="consultor",
             status="ativo",
             ativo=True,
+            coordenador_vendas=False,
             semestre_graduacao=None,
             senha_provisoria=False,
             foto=campos.get("foto"),

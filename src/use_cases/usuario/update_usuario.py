@@ -27,6 +27,9 @@ class UpdateUsuarioRequest(BaseModel):
     posicao: Optional[Posicao] = None
     status: Optional[StatusUsuario] = None
     ativo: Optional[bool] = None
+    #: Coordenador comercial. Não muda acesso nenhum, só tira a pessoa da
+    #: contagem de capacidade de coordenadores (`monitoramento.py`).
+    coordenador_vendas: Optional[bool] = None
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 
