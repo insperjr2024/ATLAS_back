@@ -22,6 +22,13 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_administrar_configuracoes": registro.pode_administrar_configuracoes,
         "pode_ver_todos_projetos": registro.pode_ver_todos_projetos,
         "pode_ver_dashboard_bancas": registro.pode_ver_dashboard_bancas,
+        "pode_ver_historico_projetos": registro.pode_ver_historico_projetos,
+        "pode_ver_tarefas_gerais": registro.pode_ver_tarefas_gerais,
+        "pode_ver_cronogramas_gerais": registro.pode_ver_cronogramas_gerais,
+        "pode_configurar_colunas": registro.pode_configurar_colunas,
+        "pode_aprovar_pedidos": registro.pode_aprovar_pedidos,
+        "pode_administrar_permissoes": registro.pode_administrar_permissoes,
+        "pode_gerir_calendarios_base": registro.pode_gerir_calendarios_base,
     }
 
 

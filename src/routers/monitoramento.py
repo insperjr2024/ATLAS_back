@@ -1,8 +1,11 @@
 """Monitoramento da diretoria e gerência (§7).
 
-🔐 A maioria das rotas fica atrás de `require_gestao` (diretor + gerente);
-`/tarefas` é a exceção, `require_diretor_projetos` só — é o board macro de tarefas de
-todos os projetos, mais informal que os números agregados das outras abas.
+🔐 **Uma caixa por aba, nenhuma posição.** A maioria fica atrás de
+`require_pode_ver_monitoramento`; as quatro abas que pediam régua própria têm
+caixa própria desde 2026-09-02 (`aprovacoes`, `tarefas`, `cronogramas` e
+`historico-projetos`) — antes eram as únicas presas a POSIÇÃO dentro de uma
+tela cuja entrada já era caixa, e por isso não davam para delegar.
+
 Todo use case abre com `aplicar_recorte_visao`, que já é o §7.5 de graça: o
 gerente fica travado nas próprias frentes mesmo mandando outro `?frente_id=`.
 """
@@ -18,7 +21,10 @@ from src.use_cases.monitoramento.graficos import MontarGraficoUseCase, listar_fo
 from src.utils.exceptions import RegraDeNegocioError
 from src.middlewares.authorization import (
     require_diretor_projetos,
-    require_gestao,
+    require_pode_aprovar_pedidos,
+    require_pode_ver_cronogramas_gerais,
+    require_pode_ver_historico_projetos,
+    require_pode_ver_tarefas_gerais,
     require_pode_ver_monitoramento,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -138,7 +144,7 @@ def atrasos(
 
 
 @router.get("/aprovacoes")
-def aprovacoes(current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def aprovacoes(current_user=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)):
     """⭐ Tudo que espera uma decisão da diretoria, num lugar só.
 
     Sem `frente_id`: a fila é dela, e ela enxerga a área inteira (§3). Filtrar
@@ -155,7 +161,7 @@ def tarefas(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     status: Optional[List[str]] = Depends(filtro_status),
-    current_user=Depends(require_diretor_projetos),
+    current_user=Depends(require_pode_ver_tarefas_gerais),
     db: Session = Depends(get_db),
 ):
     return TarefasGeraisUseCase(db).execute(
@@ -199,7 +205,7 @@ def cronogramas(
     frente_id: Optional[int] = None,
     escopo_id: Optional[int] = None,
     status: Optional[List[str]] = Depends(filtro_status),
-    current_user=Depends(require_diretor_projetos),
+    current_user=Depends(require_pode_ver_cronogramas_gerais),
     db: Session = Depends(get_db),
 ):
     return CronogramasGeraisUseCase(db).execute(
@@ -223,13 +229,16 @@ def projetos_ativos(
 def historico_projetos(
     frente_id: Optional[int] = None,
     filtro: str = "todos",
-    current_user=Depends(require_gestao),
+    current_user=Depends(require_pode_ver_historico_projetos),
     db: Session = Depends(get_db),
 ):
     """A aba Histórico de projetos: o portfólio ENCERRADO (finalizado ou
-    arquivado), só para diretoria e gerência.
+    arquivado).
 
-    `require_gestao` trava por posição (diretor + gerente); o use case ainda
+    ⚠ **Era `require_gestao`** (diretoria de projetos + gerente, por posição).
+    Virou caixa em 2026-09-02: é leitura pura, e era a única aba do painel
+    que não passava por uma. A migration liga a caixa exatamente nessas duas
+    posições, então quem via continua vendo. O use case ainda
     aplica o recorte de visão (§7.5), então o gerente vê só o histórico das
     frentes dele. `filtro` ∈ {todos, finalizados, arquivados}.
     """

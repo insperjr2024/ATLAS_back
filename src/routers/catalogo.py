@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import require_pode_administrar_configuracoes
+from src.middlewares.authorization import (
+    require_pode_administrar_configuracoes,
+    require_pode_administrar_permissoes,
+    require_pode_gerir_calendarios_base,
+)
 from src.use_cases.configuracao.composicao_banca import (
     ResolverComposicaoUseCase,
     SalvarComposicaoRequest,
@@ -75,7 +79,7 @@ def list_posicoes_permissoes(db: Session = Depends(get_db)):
 def update_posicao_permissao(
     posicao: str,
     request: UpdatePosicaoPermissaoRequest,
-    _=Depends(require_pode_administrar_configuracoes),
+    _=Depends(require_pode_administrar_permissoes),
     db: Session = Depends(get_db),
 ):
     result = UpdatePosicaoPermissaoUseCase(db).execute(posicao, request)
@@ -227,7 +231,7 @@ def delete_semestre(semestre_id: int, _=Depends(require_pode_administrar_configu
 def create_dias_nao_letivos(
     semestre_id: int,
     request: CreateDiasNaoLetivosRequest,
-    _=Depends(require_pode_administrar_configuracoes),
+    _=Depends(require_pode_gerir_calendarios_base),
     db: Session = Depends(get_db),
 ):
     try:
@@ -292,7 +296,7 @@ def renomear_calendario(
     semestre_id: int,
     atual: str,
     request: RenomearCalendarioRequest,
-    _=Depends(require_pode_administrar_configuracoes),
+    _=Depends(require_pode_gerir_calendarios_base),
     db: Session = Depends(get_db),
 ):
     """Renomear é UPDATE em três tabelas, porque o rótulo é a chave.
@@ -314,7 +318,7 @@ async def ler_calendario_pdf(
     variante: Optional[str] = Query(
         None, description="Em qual calendário da frente este PDF vai cair"
     ),
-    _=Depends(require_pode_administrar_configuracoes),
+    _=Depends(require_pode_gerir_calendarios_base),
     db: Session = Depends(get_db),
 ):
     """Lê o PDF e DEVOLVE o que encontrou — não grava nada.
@@ -334,13 +338,13 @@ async def ler_calendario_pdf(
 
 
 @router.delete("/semestres/{semestre_id}/dias-nao-letivos", status_code=204)
-def delete_dias_nao_letivos_do_semestre(semestre_id: int, _=Depends(require_pode_administrar_configuracoes), db: Session = Depends(get_db)):
+def delete_dias_nao_letivos_do_semestre(semestre_id: int, _=Depends(require_pode_gerir_calendarios_base), db: Session = Depends(get_db)):
     DeleteDiasNaoLetivosDoSemestreUseCase(db).execute(semestre_id)
     return None
 
 
 @router.delete("/dias-nao-letivos/{dia_id}", status_code=204)
-def delete_dia_nao_letivo(dia_id: int, _=Depends(require_pode_administrar_configuracoes), db: Session = Depends(get_db)):
+def delete_dia_nao_letivo(dia_id: int, _=Depends(require_pode_gerir_calendarios_base), db: Session = Depends(get_db)):
     deleted = DeleteDiaNaoLetivoUseCase(db).execute(dia_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Dia não letivo não encontrado")

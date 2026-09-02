@@ -10,6 +10,7 @@ from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     exigir_acesso_ao_projeto,
     require_diretor_projetos,
+    require_pode_aprovar_pedidos,
     require_pode_ver_dashboard_bancas,
     require_lideranca,
     require_pode_definir_cronograma,
@@ -272,7 +273,7 @@ def solicitar_excecao_choque(
 
 
 @router.get("/bancas/excecoes-choque/pendentes")
-def listar_excecoes_choque_pendentes(_=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def listar_excecoes_choque_pendentes(_=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)):
     """A fila da aba Aprovações."""
     return ListarExcecoesChoquePendentesUseCase(db).execute()
 
@@ -281,7 +282,7 @@ def listar_excecoes_choque_pendentes(_=Depends(require_diretor_projetos), db: Se
 def decidir_excecao_choque(
     pedido_id: int,
     request: DecidirExcecaoChoqueRequest,
-    current_user=Depends(require_diretor_projetos),
+    current_user=Depends(require_pode_aprovar_pedidos),
     db: Session = Depends(get_db),
 ):
     """§8: a exceção de choque é decisão da diretoria — aqui ela é tomada."""
@@ -317,7 +318,7 @@ def solicitar_fora_janela(
 
 
 @router.get("/bancas/fora-janela/pendentes")
-def listar_fora_janela_pendentes(_=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+def listar_fora_janela_pendentes(_=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)):
     """A fila da aba Aprovações."""
     return ListarForaJanelaPendentesUseCase(db).execute()
 
@@ -326,7 +327,7 @@ def listar_fora_janela_pendentes(_=Depends(require_diretor_projetos), db: Sessio
 def decidir_fora_janela(
     pedido_id: int,
     request: DecidirForaJanelaRequest,
-    current_user=Depends(require_diretor_projetos),
+    current_user=Depends(require_pode_aprovar_pedidos),
     db: Session = Depends(get_db),
 ):
     """§13: marcar banca fora da janela é decisão da diretoria — aqui ela é tomada.
