@@ -22,6 +22,13 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_administrar_configuracoes: Optional[bool] = None
     pode_ver_todos_projetos: Optional[bool] = None
     pode_ver_dashboard_bancas: Optional[bool] = None
+    pode_ver_historico_projetos: Optional[bool] = None
+    pode_ver_tarefas_gerais: Optional[bool] = None
+    pode_ver_cronogramas_gerais: Optional[bool] = None
+    pode_configurar_colunas: Optional[bool] = None
+    pode_aprovar_pedidos: Optional[bool] = None
+    pode_administrar_permissoes: Optional[bool] = None
+    pode_gerir_calendarios_base: Optional[bool] = None
 
 
 class UpdatePosicaoPermissaoUseCase:

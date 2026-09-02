@@ -12,6 +12,7 @@ from src.database.database import get_db
 from src.middlewares.authorization import (
     exigir_acesso_ao_projeto,
     require_diretor_projetos,
+    require_pode_aprovar_pedidos,
     require_pode_definir_cronograma,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
@@ -175,7 +176,7 @@ def ajuste_manual(
 
 @router.get("/reajustes/pendentes")
 def listar_reajustes_pendentes(
-    current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)
+    current_user=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)
 ):
     """§8: a fila de pedidos de dias. Só a diretoria — o gerente não decide."""
     return ListarReajustesPendentesUseCase(db).execute()
@@ -185,7 +186,7 @@ def listar_reajustes_pendentes(
 def responder_reajuste(
     solicitacao_id: int,
     request: ResponderReajusteRequest,
-    current_user=Depends(require_diretor_projetos),
+    current_user=Depends(require_pode_aprovar_pedidos),
     db: Session = Depends(get_db),
 ):
     """Aprovar SOMA os dias pedidos em `dias_uteis_ajustados` e estica a

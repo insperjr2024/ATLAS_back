@@ -17,6 +17,14 @@ class PosicaoPermissaoModel(Base):
     Configurações) e `pode_ver_todos_projetos` (2026-08-07) — a única que muda
     QUAIS projetos aparecem; as outras só ligam/desligam funcionalidade.
 
+    Da 15ª à 21ª (2026-09-02) vieram do mesmo levantamento: áreas de leitura
+    pura ou de administração que continuavam presas a POSIÇÃO enquanto suas
+    vizinhas de tela já eram caixa — o histórico do portfólio, os dois boards
+    macro do Monitoramento, as colunas do kanban e a fila de Aprovações. As
+    duas últimas partem `pode_administrar_configuracoes` em três: catálogo
+    (que fica com o nome antigo), a tabela de permissões e os calendários
+    base, que tinham riscos muito diferentes debaixo de uma caixa só.
+
     A 14ª é `pode_ver_dashboard_bancas` (2026-09-01): o Dashboard Bancas
     nasceu travado em `diretor_projetos` por uma matriz do FRONT
     (`utils/permissoes.ts`), fora desta tabela — quem quisesse delegar a
@@ -69,6 +77,41 @@ class PosicaoPermissaoModel(Base):
     #: `pode_editar_formularios_desempenho`, que é o formulário da Avaliação
     #: de Desempenho — outra área, outro formulário.
     pode_ver_dashboard_bancas = Column(Boolean, default=False, nullable=False)
+
+    #: A aba Histórico do Monitoramento (portfólio encerrado). Leitura pura,
+    #: e era a única aba de lá presa em `require_gestao` — nasce ligada para
+    #: diretoria de projetos e gerente, que é quem a via.
+    pode_ver_historico_projetos = Column(Boolean, default=False, nullable=False)
+    #: O board macro de tarefas (todos os projetos juntos). Leitura pura,
+    #: presa em `require_diretor_projetos` enquanto o resto do Monitoramento
+    #: já era caixa.
+    pode_ver_tarefas_gerais = Column(Boolean, default=False, nullable=False)
+    #: O board macro de cronogramas. Mesma história do de tarefas.
+    pode_ver_cronogramas_gerais = Column(Boolean, default=False, nullable=False)
+    #: Criar, renomear, reordenar e apagar coluna do kanban do projeto.
+    #: Desenhar o fluxo é trabalho de administração — criar e mover tarefa já
+    #: eram caixa (`pode_criar_tarefa`, `pode_mover_editar_tarefa`), e só o
+    #: redesenho da coluna seguia preso à posição.
+    pode_configurar_colunas = Column(Boolean, default=False, nullable=False)
+    #: Responder a fila de Aprovações: pedido de dias de ajuste, exceção de
+    #: choque de horário e banca fora da janela.
+    #:
+    #: ⚠ NÃO cobre as seis linhas da fila. "Atrasos sem justificativa" é
+    #: escrito por `require_lideranca` (quem conduz o projeto sabe o porquê) e
+    #: "solicitações de entrada" são respondidas por quem coordena o projeto —
+    #: as duas aparecem na fila como cobrança, não como decisão da diretoria.
+    #: Ver `use_cases/monitoramento/aprovacoes.py`.
+    pode_aprovar_pedidos = Column(Boolean, default=False, nullable=False)
+
+    #: ⭐ Editar ESTA tabela — as caixas de todas as posições, inclusive a
+    #: própria. Saiu de `pode_administrar_configuracoes` porque é de outra
+    #: ordem de risco: as outras duas fatias daquela caixa mexem em catálogo e
+    #: calendário; esta decide quem pode o quê na plataforma inteira.
+    pode_administrar_permissoes = Column(Boolean, default=False, nullable=False)
+    #: Calendários base: dias não letivos do semestre, importação do PDF e
+    #: nome dos calendários. Também saiu de `pode_administrar_configuracoes` —
+    #: é a área que mais se delega e a que menos estraga se sair errada.
+    pode_gerir_calendarios_base = Column(Boolean, default=False, nullable=False)
 
     # A única que muda QUAIS projetos aparecem (ver docstring da classe).
     pode_ver_todos_projetos = Column(Boolean, default=False, nullable=False)

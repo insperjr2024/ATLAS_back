@@ -166,6 +166,47 @@ require_pode_ver_dashboard_bancas = _dependencia_permissao(
     "Você não tem permissão para ver o Dashboard Bancas",
 )
 
+# 2026-09-02 — o mesmo movimento, agora para o que sobrou preso em posição
+# dentro de telas que já eram caixa. Todas nascem com o acesso de hoje: a
+# migration liga cada uma exatamente em quem já passava pelo guard antigo.
+
+require_pode_ver_historico_projetos = _dependencia_permissao(
+    "pode_ver_historico_projetos",
+    "Você não tem permissão para ver o histórico de projetos",
+)
+
+require_pode_ver_tarefas_gerais = _dependencia_permissao(
+    "pode_ver_tarefas_gerais",
+    "Você não tem permissão para ver o board geral de tarefas",
+)
+
+require_pode_ver_cronogramas_gerais = _dependencia_permissao(
+    "pode_ver_cronogramas_gerais",
+    "Você não tem permissão para ver o board geral de cronogramas",
+)
+
+require_pode_configurar_colunas = _dependencia_permissao(
+    "pode_configurar_colunas",
+    "Você não tem permissão para configurar as colunas do kanban",
+)
+
+require_pode_aprovar_pedidos = _dependencia_permissao(
+    "pode_aprovar_pedidos",
+    "Você não tem permissão para responder a fila de aprovações",
+)
+
+# As duas fatias que saíram de `pode_administrar_configuracoes`. A caixa
+# antiga fica com o catálogo (escopos, frentes, combinações).
+require_pode_administrar_permissoes = _dependencia_permissao(
+    "pode_administrar_permissoes",
+    "Você não tem permissão para editar as permissões das posições",
+)
+
+require_pode_gerir_calendarios_base = _dependencia_permissao(
+    "pode_gerir_calendarios_base",
+    "Você não tem permissão para gerir os calendários base",
+)
+
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
