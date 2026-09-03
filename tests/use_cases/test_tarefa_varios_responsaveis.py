@@ -76,56 +76,75 @@ def responsaveis(db, tarefa_id):
     )
 
 
-class TestCriar:
-    def test_grava_todos_os_responsaveis(self, db, base):
-        r = CreateTarefaUseCase(db).execute(
-            base["projeto"],
-            CreateTarefaRequest(titulo="X", responsavel_ids=[1, 2, 3], prazo=PRAZO),
-            criado_por=1,
-        )
-        assert sorted(r["responsavel_ids"]) == [1, 2, 3]
-        assert responsaveis(db, r["id"]) == [1, 2, 3]
+def criar(db, base, **kw):
+    kw.setdefault("titulo", "X")
+    kw.setdefault("prazo", PRAZO)
+    return CreateTarefaUseCase(db).execute(
+        base["projeto"], CreateTarefaRequest(**kw), criado_por=1
+    )
 
-    def test_um_responsavel_so_tambem_vale(self, db, base):
-        r = CreateTarefaUseCase(db).execute(
-            base["projeto"],
-            CreateTarefaRequest(titulo="X", responsavel_ids=[2], prazo=PRAZO),
-            criado_por=1,
-        )
-        assert responsaveis(db, r["id"]) == [2]
+
+class TestCriarConjunta:
+    def test_uma_tarefa_com_todos_os_responsaveis(self, db, base):
+        r = criar(db, base, responsavel_ids=[1, 2, 3])
+        assert len(r) == 1
+        assert sorted(r[0]["responsavel_ids"]) == [1, 2, 3]
+        assert r[0]["grupo_id"] is None
+        assert responsaveis(db, r[0]["id"]) == [1, 2, 3]
+
+    def test_um_responsavel_so(self, db, base):
+        r = criar(db, base, responsavel_ids=[2])
+        assert len(r) == 1 and responsaveis(db, r[0]["id"]) == [2]
 
     def test_lista_vazia_e_recusada(self, db, base):
         with pytest.raises(RegraDeNegocioError, match="ao menos um responsável"):
-            CreateTarefaUseCase(db).execute(
-                base["projeto"],
-                CreateTarefaRequest(titulo="X", responsavel_ids=[], prazo=PRAZO),
-                criado_por=1,
-            )
+            criar(db, base, responsavel_ids=[])
 
     def test_id_repetido_e_deduplicado(self, db, base):
-        r = CreateTarefaUseCase(db).execute(
-            base["projeto"],
-            CreateTarefaRequest(titulo="X", responsavel_ids=[2, 2, 2], prazo=PRAZO),
-            criado_por=1,
-        )
-        assert responsaveis(db, r["id"]) == [2]
+        r = criar(db, base, responsavel_ids=[2, 2, 2])
+        assert responsaveis(db, r[0]["id"]) == [2]
 
     def test_usuario_inexistente_e_recusado(self, db, base):
         with pytest.raises(RegraDeNegocioError, match="não encontrado"):
-            CreateTarefaUseCase(db).execute(
-                base["projeto"],
-                CreateTarefaRequest(titulo="X", responsavel_ids=[1, 999], prazo=PRAZO),
-                criado_por=1,
-            )
+            criar(db, base, responsavel_ids=[1, 999])
+
+
+class TestCadaUmSuaParte:
+    def test_cria_uma_tarefa_por_pessoa_no_mesmo_grupo(self, db, base):
+        r = criar(db, base, responsavel_ids=[1, 2, 3], atribuicao="individual")
+        assert len(r) == 3
+        grupos = {t["grupo_id"] for t in r}
+        assert len(grupos) == 1 and None not in grupos
+        # cada card com um responsável só
+        assert sorted(t["responsavel_ids"][0] for t in r) == [1, 2, 3]
+        for t in r:
+            assert len(t["responsavel_ids"]) == 1
+
+    def test_o_grupo_e_o_id_da_primeira_tarefa(self, db, base):
+        r = criar(db, base, responsavel_ids=[1, 2], atribuicao="individual")
+        primeira = min(t["id"] for t in r)
+        assert all(t["grupo_id"] == primeira for t in r)
+
+    def test_individual_com_uma_pessoa_so_vira_tarefa_unica(self, db, base):
+        r = criar(db, base, responsavel_ids=[2], atribuicao="individual")
+        assert len(r) == 1 and r[0]["grupo_id"] is None
+
+    def test_nao_da_para_atribuir_a_varias_uma_parte_do_grupo(self, db, base):
+        r = criar(db, base, responsavel_ids=[1, 2], atribuicao="individual")
+        parte = r[0]["id"]
+        with pytest.raises(RegraDeNegocioError, match="parte de uma pessoa"):
+            UpdateTarefaUseCase(db).execute(parte, UpdateTarefaRequest(responsavel_ids=[1, 3]))
+
+    def test_trocar_quem_faz_a_parte_e_permitido(self, db, base):
+        r = criar(db, base, responsavel_ids=[1, 2], atribuicao="individual")
+        parte = [t for t in r if t["responsavel_ids"] == [1]][0]["id"]
+        UpdateTarefaUseCase(db).execute(parte, UpdateTarefaRequest(responsavel_ids=[3]))
+        assert responsaveis(db, parte) == [3]
 
 
 class TestEditar:
     def _cria(self, db, base, ids):
-        return CreateTarefaUseCase(db).execute(
-            base["projeto"],
-            CreateTarefaRequest(titulo="X", responsavel_ids=ids, prazo=PRAZO),
-            criado_por=1,
-        )["id"]
+        return criar(db, base, responsavel_ids=ids)[0]["id"]
 
     def test_troca_a_lista_inteira(self, db, base):
         tid = self._cria(db, base, [1, 2])
@@ -146,16 +165,8 @@ class TestEditar:
 
 class TestListar:
     def test_cada_tarefa_traz_a_propria_lista(self, db, base):
-        a = CreateTarefaUseCase(db).execute(
-            base["projeto"],
-            CreateTarefaRequest(titulo="A", responsavel_ids=[1, 2], prazo=PRAZO),
-            criado_por=1,
-        )["id"]
-        b = CreateTarefaUseCase(db).execute(
-            base["projeto"],
-            CreateTarefaRequest(titulo="B", responsavel_ids=[3], prazo=PRAZO),
-            criado_por=1,
-        )["id"]
+        a = criar(db, base, titulo="A", responsavel_ids=[1, 2])[0]["id"]
+        b = criar(db, base, titulo="B", responsavel_ids=[3])[0]["id"]
         por_id = {t["id"]: t["responsavel_ids"] for t in ListTarefasUseCase(db).execute(base["projeto"])}
         assert sorted(por_id[a]) == [1, 2]
         assert por_id[b] == [3]

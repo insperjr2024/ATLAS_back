@@ -32,6 +32,19 @@ class TarefaModel(Base):
     prazo = Column(Date, nullable=False)
     #: Substituiu o ENUM `status`: a coluna do kanban é dado, não código.
     coluna_id = Column(Integer, ForeignKey("tarefa_coluna.id"), nullable=False, index=True)
+    #: Duas formas de atribuir a várias pessoas:
+    #:
+    #: - CONJUNTA: uma tarefa, N responsáveis (`tarefa_responsavel`), UM card e
+    #:   um status. `grupo_id` nulo.
+    #: - CADA UM FAZ A SUA PARTE: no cadastro, o use case cria UMA tarefa por
+    #:   pessoa (1 responsável cada), todas com o mesmo `grupo_id`. Cada uma
+    #:   anda no kanban por conta própria, e o board mostra o progresso do
+    #:   grupo ("Fazer PPT · 1 de 3").
+    #:
+    #: `grupo_id` é só um token de agrupamento (o id da primeira tarefa criada
+    #: no grupo), sem tabela própria: o que liga as tarefas é elas terem o
+    #: mesmo valor, e apagar uma não mexe nas outras.
+    grupo_id = Column(Integer, nullable=True, index=True)
     # Nullable pelo mesmo motivo de `projeto.criado_por`: apagar de vez quem
     # criou a tarefa (usuário desligado) não pode levar a tarefa junto. A
     # tarefa só some com a pessoa quando ela era a ÚLTIMA responsável (ver

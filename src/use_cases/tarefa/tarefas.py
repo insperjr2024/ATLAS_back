@@ -7,7 +7,7 @@ por frente e coord/consultor por alocação.
 """
 
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -52,6 +52,9 @@ def serializar_tarefa(
         "criado_por": tarefa.criado_por,
         "criado_em": tarefa.criado_em,
         "movida_em": tarefa.movida_em,
+        # Nulo = tarefa comum. Preenchido = uma parte de "cada um faz a sua",
+        # e as outras partes têm o mesmo valor.
+        "grupo_id": tarefa.grupo_id,
         # 🧮 Todos derivados, nunca gravados.
         "vencida": eh_vencida(tarefa.prazo, encerra, hoje),
         # ⏰ A gradação que o card usa para avisar ANTES do prazo estourar.
@@ -69,6 +72,10 @@ class CreateTarefaRequest(BaseModel):
     projeto_escopo_id: Optional[int] = None
     #: Vazio = a primeira coluna do board.
     coluna_id: Optional[int] = None
+    #: "conjunta" = uma tarefa, um card, todos os responsáveis. "individual" =
+    #: uma tarefa por responsável, mesmo `grupo_id`, cada card anda sozinho.
+    #: Só muda algo com 2+ responsáveis.
+    atribuicao: Literal["conjunta", "individual"] = "conjunta"
 
 
 class UpdateTarefaRequest(BaseModel):
@@ -128,7 +135,7 @@ class CreateTarefaUseCase:
         if not coluna or coluna.projeto_id != projeto_id:
             raise RegraDeNegocioError("Coluna inválida")
 
-        tarefa = self.repository.create(
+        campos_comuns = dict(
             projeto_id=projeto_id,
             projeto_escopo_id=request.projeto_escopo_id,
             titulo=request.titulo.strip(),
@@ -136,8 +143,24 @@ class CreateTarefaUseCase:
             coluna_id=coluna.id,
             criado_por=criado_por,
         )
+
+        # "Cada um faz a sua parte": uma tarefa por pessoa, todas no mesmo
+        # grupo (o id da primeira). Com um responsável só não há o que
+        # separar, então cai no caminho da tarefa única.
+        if request.atribuicao == "individual" and len(responsavel_ids) > 1:
+            criadas = []
+            grupo_id = None
+            for usuario_id in responsavel_ids:
+                t = self.repository.create(**campos_comuns)
+                grupo_id = grupo_id or t.id
+                t = self.repository.update(t.id, grupo_id=grupo_id)
+                self.repository.definir_responsaveis(t.id, [usuario_id])
+                criadas.append(serializar_tarefa(t, coluna, [usuario_id]))
+            return criadas
+
+        tarefa = self.repository.create(**campos_comuns)
         self.repository.definir_responsaveis(tarefa.id, responsavel_ids)
-        return serializar_tarefa(tarefa, coluna, responsavel_ids)
+        return [serializar_tarefa(tarefa, coluna, responsavel_ids)]
 
 
 class UpdateTarefaUseCase:
@@ -167,6 +190,14 @@ class UpdateTarefaUseCase:
             novos_responsaveis = _validar_responsaveis(
                 dados.pop("responsavel_ids"), self.usuario_repository
             )
+            # Uma parte de "cada um faz a sua" é de UMA pessoa. Trocar quem faz
+            # é permitido; virar tarefa de várias, não: para isso se cria uma
+            # conjunta nova.
+            if tarefa.grupo_id is not None and len(novos_responsaveis) != 1:
+                raise RegraDeNegocioError(
+                    "Esta é a parte de uma pessoa numa tarefa dividida. Dá para "
+                    "trocar por outra pessoa, não atribuir a várias."
+                )
 
         if "coluna_id" in dados and dados["coluna_id"] is not None:
             destino = self.coluna_repository.get_by_id(dados["coluna_id"])
