@@ -59,9 +59,13 @@ def projeto(
     )
 
 
-def tarefa(id=1, prazo=SEG_03, responsavel_id=5, coluna_id=1, titulo="Benchmark"):
+def tarefa(id=1, prazo=SEG_03, responsavel_ids=(5,), coluna_id=1, titulo="Benchmark"):
     return SimpleNamespace(
-        id=id, prazo=prazo, responsavel_id=responsavel_id, coluna_id=coluna_id, titulo=titulo
+        id=id,
+        prazo=prazo,
+        responsavel_ids=list(responsavel_ids),
+        coluna_id=coluna_id,
+        titulo=titulo,
     )
 
 
@@ -84,15 +88,22 @@ def detectar(
     hoje=QUA_05,
 ):
     """Só para não repetir os 8 parâmetros nomeados em cada teste."""
+    tarefas = tarefas or {}
+    responsaveis = {
+        t.id: list(t.responsavel_ids)
+        for lista in tarefas.values()
+        for t in lista
+    }
     return detectar_condicoes(
         projetos,
         escopos_por_projeto=escopos or {},
         bancas_por_escopo=bancas or {},
         nomes_escopo={10: "Análise Mercadológica"},
-        tarefas_por_projeto=tarefas or {},
+        tarefas_por_projeto=tarefas,
         # Coluna 1 = aberta, coluna 9 = encerra a tarefa (kanban configurável).
         encerra_por_coluna={1: False, 9: True},
         projetos_com_reuniao=set(com_reuniao),
+        responsaveis_por_tarefa=responsaveis,
         dias_nao_letivos=nao_letivos,
         hoje=hoje,
     )
@@ -121,7 +132,7 @@ class TestTarefaVencida:
         assert len(vencidas) == 1
         assert vencidas[0].dias == 2
         # O alerta é de UMA pessoa: o responsável, não a equipe.
-        assert vencidas[0].usuario_alvo == 5
+        assert vencidas[0].usuarios_alvo == [5]
 
     def test_condicao_some_quando_o_problema_e_resolvido(self):
         """⭐ A propriedade central: nada precisa apagar a notificação.
@@ -397,7 +408,7 @@ class TestParaPapel:
     def _condicoes(self):
         return detectar(
             [projeto(kickoff=None)],
-            tarefas={1: [tarefa(prazo=SEG_03, responsavel_id=5)]},
+            tarefas={1: [tarefa(prazo=SEG_03, responsavel_ids=[5])]},
             escopos={1: [escopo()]},
         )
 

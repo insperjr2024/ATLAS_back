@@ -16,7 +16,11 @@ from src.models.projeto_model import ProjetoModel
 from src.models.projeto_status_historico_model import ProjetoStatusHistoricoModel
 from src.models.solicitacao_troca_model import SolicitacaoTrocaModel
 from src.models.tarefa_comentario_model import TarefaComentarioModel
-from src.models.tarefa_model import ReuniaoSemanalModel, TarefaModel
+from src.models.tarefa_model import (
+    ReuniaoSemanalModel,
+    TarefaModel,
+    TarefaResponsavelModel,
+)
 from src.models.token_recuperacao_model import TokenRecuperacaoModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoModel
@@ -63,18 +67,37 @@ class DeleteUsuarioPermanenteUseCase:
         # 1) Bancas que ela coordenou — cascata do banco cuida do resto.
         self.db.execute(delete(BancaModel).where(BancaModel.coordenador_id == usuario_id))
 
-        # 2) Tarefas de que ela é RESPONSÁVEL — comentário primeiro (sem
-        # cascade), tarefa depois. Tarefa CRIADA por ela mas de outro
-        # responsável não é tocada aqui (vira nulo no passo 4).
-        tarefa_ids = [
+        # 2) Tarefas de que ela era responsável. Tira ela de `tarefa_responsavel`
+        # e apaga só as que ficaram SEM responsável nenhum (era só dela) — as
+        # que ainda são de outra pessoa continuam. Comentário primeiro, sem
+        # cascade. Tarefa CRIADA por ela mas de outro responsável vira nulo no
+        # passo 4.
+        tarefa_ids_dela = [
             row[0]
-            for row in self.db.query(TarefaModel.id)
-            .filter(TarefaModel.responsavel_id == usuario_id)
+            for row in self.db.query(TarefaResponsavelModel.tarefa_id)
+            .filter(TarefaResponsavelModel.usuario_id == usuario_id)
             .all()
         ]
-        if tarefa_ids:
-            self.db.execute(delete(TarefaComentarioModel).where(TarefaComentarioModel.tarefa_id.in_(tarefa_ids)))
-            self.db.execute(delete(TarefaModel).where(TarefaModel.id.in_(tarefa_ids)))
+        self.db.execute(
+            delete(TarefaResponsavelModel).where(
+                TarefaResponsavelModel.usuario_id == usuario_id
+            )
+        )
+        if tarefa_ids_dela:
+            ainda_com_responsavel = {
+                row[0]
+                for row in self.db.query(TarefaResponsavelModel.tarefa_id)
+                .filter(TarefaResponsavelModel.tarefa_id.in_(tarefa_ids_dela))
+                .all()
+            }
+            orfas = [tid for tid in tarefa_ids_dela if tid not in ainda_com_responsavel]
+            if orfas:
+                self.db.execute(
+                    delete(TarefaComentarioModel).where(
+                        TarefaComentarioModel.tarefa_id.in_(orfas)
+                    )
+                )
+                self.db.execute(delete(TarefaModel).where(TarefaModel.id.in_(orfas)))
 
         # 3) O resto do que é DELA — apaga a linha inteira.
         self.db.execute(delete(DesempenhoLoteFinalizadoModel).where(DesempenhoLoteFinalizadoModel.usuario_id == usuario_id))

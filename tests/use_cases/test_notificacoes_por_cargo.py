@@ -32,7 +32,7 @@ def condicao(tipo, projeto_id=1, chave=None, usuario_alvo=None, nome="Projeto Al
         titulo=f"{nome} — {tipo}",
         chave_dedup=chave or f"{tipo}:projeto={projeto_id}",
         rota=f"/projetos/{projeto_id}",
-        usuario_alvo=usuario_alvo,
+        usuarios_alvo=[usuario_alvo] if usuario_alvo is not None else [],
     )
 
 

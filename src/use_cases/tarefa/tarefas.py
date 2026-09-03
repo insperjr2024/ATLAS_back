@@ -7,7 +7,7 @@ por frente e coord/consultor por alocação.
 """
 
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,21 +32,29 @@ from src.utils.tarefa_status import (
     janela_semana,
 )
 
-def serializar_tarefa(tarefa, coluna, hoje: Optional[date] = None) -> dict:
+def serializar_tarefa(
+    tarefa, coluna, responsavel_ids: Optional[List[int]] = None, hoje: Optional[date] = None
+) -> dict:
     """`coluna` é obrigatória porque "vencida" depende de `encerra_tarefa`
-    dela — não de uma lista fixa de status."""
+    dela, não de uma lista fixa de status.
+
+    `responsavel_ids` vem de fora (`tarefa_responsavel`, N:N) para o chamador
+    poder carregar todos de uma vez em vez de uma consulta por tarefa."""
     encerra = bool(coluna and coluna.encerra_tarefa)
     return {
         "id": tarefa.id,
         "projeto_id": tarefa.projeto_id,
         "projeto_escopo_id": tarefa.projeto_escopo_id,
         "titulo": tarefa.titulo,
-        "responsavel_id": tarefa.responsavel_id,
+        "responsavel_ids": responsavel_ids or [],
         "prazo": tarefa.prazo,
         "coluna_id": tarefa.coluna_id,
         "criado_por": tarefa.criado_por,
         "criado_em": tarefa.criado_em,
         "movida_em": tarefa.movida_em,
+        # Nulo = tarefa comum. Preenchido = uma parte de "cada um faz a sua",
+        # e as outras partes têm o mesmo valor.
+        "grupo_id": tarefa.grupo_id,
         # 🧮 Todos derivados, nunca gravados.
         "vencida": eh_vencida(tarefa.prazo, encerra, hoje),
         # ⏰ A gradação que o card usa para avisar ANTES do prazo estourar.
@@ -57,19 +65,35 @@ def serializar_tarefa(tarefa, coluna, hoje: Optional[date] = None) -> dict:
 
 class CreateTarefaRequest(BaseModel):
     titulo: str
-    responsavel_id: int
+    #: Um ou vários. O front oferece "todos os consultores" como atalho, mas
+    #: o que chega aqui é sempre a lista pronta (snapshot).
+    responsavel_ids: List[int]
     prazo: date
     projeto_escopo_id: Optional[int] = None
     #: Vazio = a primeira coluna do board.
     coluna_id: Optional[int] = None
+    #: "conjunta" = uma tarefa, um card, todos os responsáveis. "individual" =
+    #: uma tarefa por responsável, mesmo `grupo_id`, cada card anda sozinho.
+    #: Só muda algo com 2+ responsáveis.
+    atribuicao: Literal["conjunta", "individual"] = "conjunta"
 
 
 class UpdateTarefaRequest(BaseModel):
     titulo: Optional[str] = None
-    responsavel_id: Optional[int] = None
+    responsavel_ids: Optional[List[int]] = None
     prazo: Optional[date] = None
     coluna_id: Optional[int] = None
     projeto_escopo_id: Optional[int] = None
+
+
+def _validar_responsaveis(ids, usuario_repository) -> List[int]:
+    limpos = list(dict.fromkeys(ids or []))
+    if not limpos:
+        raise RegraDeNegocioError("A tarefa precisa de ao menos um responsável")
+    for usuario_id in limpos:
+        if not usuario_repository.get_by_id(usuario_id):
+            raise RegraDeNegocioError("Responsável não encontrado")
+    return limpos
 
 
 class ListTarefasUseCase:
@@ -80,9 +104,11 @@ class ListTarefasUseCase:
     def execute(self, projeto_id: int) -> List[dict]:
         hoje = date.today()
         colunas = {c.id: c for c in self.coluna_repository.listar(projeto_id)}
+        tarefas = self.repository.get_by_projeto(projeto_id)
+        responsaveis = self.repository.responsaveis_por_tarefa(t.id for t in tarefas)
         return [
-            serializar_tarefa(t, colunas.get(t.coluna_id), hoje)
-            for t in self.repository.get_by_projeto(projeto_id)
+            serializar_tarefa(t, colunas.get(t.coluna_id), responsaveis.get(t.id, []), hoje)
+            for t in tarefas
         ]
 
 
@@ -98,8 +124,7 @@ class CreateTarefaUseCase:
             return None
         if not request.titulo.strip():
             raise RegraDeNegocioError("A tarefa precisa de um título")
-        if not self.usuario_repository.get_by_id(request.responsavel_id):
-            raise RegraDeNegocioError("Responsável não encontrado")
+        responsavel_ids = _validar_responsaveis(request.responsavel_ids, self.usuario_repository)
 
         coluna = (
             self.coluna_repository.get_by_id(request.coluna_id)
@@ -110,22 +135,39 @@ class CreateTarefaUseCase:
         if not coluna or coluna.projeto_id != projeto_id:
             raise RegraDeNegocioError("Coluna inválida")
 
-        tarefa = self.repository.create(
+        campos_comuns = dict(
             projeto_id=projeto_id,
             projeto_escopo_id=request.projeto_escopo_id,
             titulo=request.titulo.strip(),
-            responsavel_id=request.responsavel_id,
             prazo=request.prazo,
             coluna_id=coluna.id,
             criado_por=criado_por,
         )
-        return serializar_tarefa(tarefa, coluna)
+
+        # "Cada um faz a sua parte": uma tarefa por pessoa, todas no mesmo
+        # grupo (o id da primeira). Com um responsável só não há o que
+        # separar, então cai no caminho da tarefa única.
+        if request.atribuicao == "individual" and len(responsavel_ids) > 1:
+            criadas = []
+            grupo_id = None
+            for usuario_id in responsavel_ids:
+                t = self.repository.create(**campos_comuns)
+                grupo_id = grupo_id or t.id
+                t = self.repository.update(t.id, grupo_id=grupo_id)
+                self.repository.definir_responsaveis(t.id, [usuario_id])
+                criadas.append(serializar_tarefa(t, coluna, [usuario_id]))
+            return criadas
+
+        tarefa = self.repository.create(**campos_comuns)
+        self.repository.definir_responsaveis(tarefa.id, responsavel_ids)
+        return [serializar_tarefa(tarefa, coluna, responsavel_ids)]
 
 
 class UpdateTarefaUseCase:
     def __init__(self, db: Session):
         self.repository = TarefaRepository(db)
         self.coluna_repository = TarefaColunaRepository(db)
+        self.usuario_repository = UsuarioRepository(db)
 
     def execute(self, tarefa_id: int, request: UpdateTarefaRequest, current_user=None):
         tarefa = self.repository.get_by_id(tarefa_id)
@@ -136,10 +178,26 @@ class UpdateTarefaUseCase:
 
         # ⭐ Mover ≠ editar. Trocar a COLUNA é do time inteiro (§3: os quatro
         # perfis movem tarefa) — é o kanban funcionando. Mexer no CONTEÚDO
-        # (título, responsável, prazo) é da diretoria e de quem criou.
+        # (título, responsáveis, prazo) é da diretoria e de quem criou.
         campos_de_conteudo = set(dados) - {"coluna_id"}
         if campos_de_conteudo and current_user is not None:
             exigir_permissao_de_edicao(tarefa, current_user)
+
+        # Os responsáveis vivem em outra tabela: sai do dict do `update` e vira
+        # um `definir_responsaveis` à parte.
+        novos_responsaveis = None
+        if "responsavel_ids" in dados:
+            novos_responsaveis = _validar_responsaveis(
+                dados.pop("responsavel_ids"), self.usuario_repository
+            )
+            # Uma parte de "cada um faz a sua" é de UMA pessoa. Trocar quem faz
+            # é permitido; virar tarefa de várias, não: para isso se cria uma
+            # conjunta nova.
+            if tarefa.grupo_id is not None and len(novos_responsaveis) != 1:
+                raise RegraDeNegocioError(
+                    "Esta é a parte de uma pessoa numa tarefa dividida. Dá para "
+                    "trocar por outra pessoa, não atribuir a várias."
+                )
 
         if "coluna_id" in dados and dados["coluna_id"] is not None:
             destino = self.coluna_repository.get_by_id(dados["coluna_id"])
@@ -151,9 +209,17 @@ class UpdateTarefaUseCase:
             if dados["coluna_id"] != tarefa.coluna_id:
                 dados["movida_em"] = datetime.now()
 
-        atualizada = self.repository.update(tarefa_id, **dados)
+        atualizada = self.repository.update(tarefa_id, **dados) if dados else tarefa
+        if novos_responsaveis is not None:
+            self.repository.definir_responsaveis(tarefa_id, novos_responsaveis)
+
+        responsavel_ids = self.repository.responsaveis_por_tarefa([tarefa_id]).get(
+            tarefa_id, []
+        )
         return serializar_tarefa(
-            atualizada, self.coluna_repository.get_by_id(atualizada.coluna_id)
+            atualizada,
+            self.coluna_repository.get_by_id(atualizada.coluna_id),
+            responsavel_ids,
         )
 
 
