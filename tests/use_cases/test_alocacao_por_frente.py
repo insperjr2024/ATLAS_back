@@ -199,6 +199,20 @@ class TestPopulacaoDaDiretoria:
             "Cons Business",
         }
 
+    def test_filtro_por_frente_usa_o_vinculo_e_nao_o_projeto(self, uc):
+        """⭐ Mesma correção do gerente, agora para quem pode escolher a
+        frente livremente. `?frente_id=Tech` tem que trazer Cons Tech Livre
+        (o vínculo é dele, mesmo sem projeto) e deixar de fora Cons Business
+        (o vínculo dele é Business, mesmo tendo passado pelo sinérgico)."""
+        r = uc.execute(DIRETORA, frente_id=TECH)
+        assert nomes(r["consultores"]) == {"Cons Tech Alocado", "Cons Tech Livre"}
+
+    def test_filtro_por_outra_frente_troca_a_populacao(self, uc):
+        """Sem trava de "própria frente" para a diretoria, diferente do
+        gerente: ela pode pedir qualquer uma."""
+        r = uc.execute(DIRETORA, frente_id=BUSINESS)
+        assert nomes(r["consultores"]) == {"Cons Business"}
+
 
 class TestDiretoriaForaDasTabelas:
     @pytest.mark.parametrize("quem", [GERENTE, DIRETORA])

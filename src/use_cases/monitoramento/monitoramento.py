@@ -1343,15 +1343,26 @@ class AlocacaoUseCase(_BaseMonitoramento):
         for vinculo in self.usuario_frente_repository.get_all():
             frentes_por_usuario[vinculo.usuario_id].add(vinculo.frente_id)
 
-        # As frentes que definem a população quando quem olha é gerente.
+        # As frentes que definem a população quando há filtro de frente.
         #
         # O `?frente_id=` só RESTRINGE dentro das dele — mesma regra que
         # `aplicar_recorte_visao` aplica aos projetos (§7.5): pedir a frente de
         # outro gerente não amplia nada, cai de volta nas próprias.
-        minhas_frentes: Optional[set] = None
+        #
+        # ⚠ Vale para QUALQUER papel, não só o gerente. Antes, quando a
+        # diretoria filtrava por Tech, caía direto no `if not sem_filtro`
+        # abaixo — a mesma régua de "quem está no recorte de projetos" que o
+        # comentário logo acima já critica para o gerente. O efeito era o
+        # consultor de Business que passou por um projeto sinérgico de Tech
+        # aparecendo no filtro de Tech, e o consultor de Tech sem projeto
+        # nenhum (a vaga livre que a aba existe para achar) sumindo. A régua
+        # do vínculo de `usuario_frente` tem que valer para as duas visões.
+        frentes_da_populacao: Optional[set] = None
         if getattr(current_user, "posicao", None) == "gerente":
             todas = set(frentes_do_usuario(current_user, self.db))
-            minhas_frentes = {frente_id} if frente_id in todas else todas
+            frentes_da_populacao = {frente_id} if frente_id in todas else todas
+        elif frente_id is not None:
+            frentes_da_populacao = {frente_id}
 
         # Com filtro (de frente, escopo ou status), a POPULAÇÃO é quem trabalha
         # nele. A carga de cada um continua vindo de todos os projetos dela
@@ -1369,8 +1380,8 @@ class AlocacaoUseCase(_BaseMonitoramento):
                 no_recorte[m.papel].add(m.usuario_id)
 
         def entra(usuario, papel) -> bool:
-            if minhas_frentes is not None:
-                if not (frentes_por_usuario.get(usuario.id, set()) & minhas_frentes):
+            if frentes_da_populacao is not None:
+                if not (frentes_por_usuario.get(usuario.id, set()) & frentes_da_populacao):
                     return False
                 # Escopo e status continuam estreitando a população: os dois
                 # perguntam "quem trabalha NESTE recorte", e a resposta não
