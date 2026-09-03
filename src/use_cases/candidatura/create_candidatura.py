@@ -12,12 +12,24 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.frente_repository import FrenteRepository
-from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
-from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.teto_banca import calcular_vagas_banca
+from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
+
+
+def _descrever_pendencias(status) -> str:
+    """"1 liderança de Business, 2 membros de Direito" — o que ainda falta pro
+    piso, pra dizer à pessoa por que a vaga está reservada."""
+    partes = []
+    for d in status.deficits:
+        if d.lideranca_faltando:
+            partes.append(f"{d.lideranca_faltando} liderança de {d.frente_nome}")
+        if d.piso_faltando:
+            plural = "membros" if d.piso_faltando > 1 else "membro"
+            partes.append(f"{d.piso_faltando} {plural} de {d.frente_nome}")
+    return ", ".join(partes) or "a composição por frente"
 
 
 class CreateCandidaturaRequest(BaseModel):
@@ -72,9 +84,13 @@ class CreateCandidaturaUseCase:
             raise RegraDeNegocioError("Você não pode se candidatar à banca do seu próprio grupo")
 
         candidaturas_existentes = self.repository.get_by_banca(request.banca_id)
-        # ⭐ O teto é da COMBINAÇÃO de frentes da banca desde 2026-09-02: a de
-        # Direito sozinha e a de Business + Tech + Processos cabiam o mesmo
-        # tanto de gente. Quem não configurou cai no global de sempre.
+        # ⭐ O único teto é o TOTAL da banca, da COMBINAÇÃO de frentes dela
+        # (2026-09-02): a de Direito sozinha e a de Business + Tech + Processos
+        # cabiam o mesmo tanto de gente. Quem não configurou cai no global.
+        #
+        # ⚠ Não há mais teto POR FRENTE (2026-09-03): o piso tem de ser gente
+        # daquela frente, mas completar acima dele, até estas `vagas`, é
+        # "tanto faz a frente". O que mostra o piso faltando é `GET /bancas`.
         vinculos_frente = self.banca_frente_repository.get_by_banca(banca.id)
         vagas = calcular_vagas_banca(
             [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos_frente) if f],
@@ -84,16 +100,40 @@ class CreateCandidaturaUseCase:
         if len(candidaturas_existentes) >= vagas:
             raise RegraDeNegocioError("Não é possível se candidatar: banca lotada")
 
-        # ⭐ §8, os TETOS por frente da combinação (2026-09-02). O teto acima é
-        # global — quantos cabem na banca — e deixava passar a banca cheia de
-        # uma frente só, que é exatamente o que a matriz de Configurações
-        # existe para evitar. Combinação sem configuração cai em `SEM_TETO` e
-        # nada muda para ela.
-        recusa = self._recusa_por_composicao(
-            banca, vinculos_frente, candidaturas_existentes, usuario_id
-        )
-        if recusa:
-            raise RegraDeNegocioError(f"Não é possível se candidatar: {recusa}")
+        # ⭐ As últimas vagas ficam RESERVADAS para os pisos por frente ainda
+        # não cobertos (2026-09-04, a pedido): se falta 1 liderança de Business
+        # e sobra 1 vaga, só quem cobre essa cota entra. Antes o piso por
+        # frente era só MOSTRADO (`GET /bancas`); o único freio na inscrição
+        # era o total da banca.
+        #
+        # A conta: COM esta pessoa dentro, quantas vagas sobram vs. quanto de
+        # piso ainda falta. Se sobra menos vaga do que falta piso, a inscrição
+        # tornaria a composição impossível — recusa. Quem REDUZ o déficit
+        # (a liderança de Business que faltava) passa, porque aí `falta_depois`
+        # cai junto.
+        if vinculos_frente:
+            from src.use_cases.configuracao.composicao_banca import (
+                ResolverComposicaoUseCase,
+            )
+
+            regras = ResolverComposicaoUseCase(self.db).para(
+                [v.frente_id for v in vinculos_frente]
+            )
+            checker = ComposicaoBancaChecker(self.db)
+            ids_com_essa = {
+                c.usuario_id for c in candidaturas_existentes
+            } | {usuario_id}
+            status_depois = checker.verificar(banca, regras, ids_com_essa)
+            falta_depois = sum(
+                d.piso_faltando + d.lideranca_faltando for d in status_depois.deficits
+            )
+            vagas_livres_depois = vagas - (len(candidaturas_existentes) + 1)
+            if vagas_livres_depois < falta_depois:
+                raise RegraDeNegocioError(
+                    "Esta vaga está reservada para completar a composição: "
+                    f"falta {_descrever_pendencias(status_depois)}. Só quem cobre "
+                    "essa cota pode se inscrever agora."
+                )
 
         candidatura = self.repository.create(
             banca_id=request.banca_id,
@@ -108,21 +148,3 @@ class CreateCandidaturaUseCase:
             "criado_em": candidatura.criado_em,
             "confirmado": candidatura.confirmado
         }
-
-    def _recusa_por_composicao(self, banca, vinculos, candidaturas, usuario_id: int):
-        """A frase de recusa dos tetos por frente, ou `None` quando cabe.
-
-        ⚠ Vale para as DUAS portas desta rota: a inscrição do próprio e a
-        alocação feita pela diretoria são o mesmo use case, com `usuario_id`
-        diferente. O push automático da semana NÃO passa por aqui — ele grava
-        candidatura direto no repositório, e por isso ganhou a mesma guarda no
-        próprio bloco de preenchimento (`push_alocacao_automatica`).
-        """
-        if not vinculos:
-            # Banca legada, sem frente vinculada: não há combinação, não há
-            # regra. O teto global acima continua sendo o que a segura.
-            return None
-        regras = ResolverComposicaoUseCase(self.db).para([v.frente_id for v in vinculos])
-        return ComposicaoBancaChecker(self.db).recusa_por_teto(
-            banca, regras, {c.usuario_id for c in candidaturas}, usuario_id
-        )

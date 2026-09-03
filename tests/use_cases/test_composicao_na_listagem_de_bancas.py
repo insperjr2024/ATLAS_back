@@ -44,9 +44,7 @@ def contagem(frente_id, nome, membros, liderancas, min_membros=3, min_lideranca=
         frente_id=frente_id,
         frente_nome=nome,
         min_membros=min_membros,
-        max_membros=99,
         min_lideranca=min_lideranca,
-        max_lideranca=99,
         membros=membros,
         liderancas=liderancas,
     )

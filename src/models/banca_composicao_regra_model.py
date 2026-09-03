@@ -41,25 +41,22 @@ class BancaComposicaoRegraModel(Base):
     #: A combinação de frentes desta regra, normalizada: ids ordenados e
     #: unidos por `-`. Indexada porque toda leitura filtra por ela.
     combinacao = Column(String(120), nullable=False, index=True)
-    #: A frente DENTRO da combinação a que estes quatro números se referem.
+    #: A frente DENTRO da combinação a que estes números se referem.
     frente_id = Column(Integer, ForeignKey("frente.id", ondelete="CASCADE"), nullable=False)
 
     #: Quantos membros desta frente a banca exige, no mínimo. Não conta a
     #: liderança: ela é vaga à parte (ver `min_lideranca`).
+    #:
+    #: ⚠ **Só piso.** Não há teto por frente (2026-09-03): completar acima
+    #: dele, até o total da banca (`vagas`), é "tanto faz a frente".
     min_membros = Column(Integer, nullable=False, default=1, server_default="1")
-    #: Teto de membros desta frente. Segura a banca que encheu de uma frente
-    #: só e não deixou vaga para as outras.
-    max_membros = Column(Integer, nullable=False, default=99, server_default="99")
     #: Quantas lideranças desta frente a banca exige, no mínimo.
     #:
-    #: ⚠ **Liderança é gerente da frente ou diretoria** — não coordenador. E
-    #: ela é uma pessoa A MAIS do que `min_membros`, não uma das contadas
-    #: (2026-09-01): antes o gerente de Business cabia dentro do piso 3, e
-    #: agora a banca de Business pede 3 membros + 1 liderança = 4.
+    #: ⚠ **Liderança é gerente ou coordenador da frente, ou diretoria** (que
+    #: cobre qualquer uma). É uma pessoa A MAIS do que `min_membros`, não uma
+    #: das contadas (2026-09-01): a banca de Business pede 3 membros + 1
+    #: liderança = 4.
     min_lideranca = Column(Integer, nullable=False, default=1, server_default="1")
-    #: Teto de lideranças desta frente — a banca é para avaliar, não para
-    #: reunir a gestão inteira.
-    max_lideranca = Column(Integer, nullable=False, default=99, server_default="99")
 
     #: ⭐ Quantas pessoas cabem NESTA banca (2026-09-02). Diferente das quatro
     #: colunas acima, é da COMBINAÇÃO e não da frente: fica repetido em todas

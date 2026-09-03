@@ -10,14 +10,32 @@ Duas coisas mudaram em 2026-09-01, a pedido da diretoria:
    não conta entre os 3 membros de Business — a banca pede quatro pessoas.
    Antes ele cabia dentro do piso.
 
+O que mudou em 2026-09-03, também a pedido da diretoria:
+
+3. **Coordenador conta como liderança.** Antes era só gerente e diretoria; o
+   coordenador caía entre os membros. Agora gerente E coordenador cobrem a
+   liderança DA FRENTE deles, e a diretoria cobre a de qualquer frente (por
+   enxergar todas — §3).
+4. **Não há mais TETO por frente.** O piso (membros e liderança) continua
+   tendo de ser gente DAQUELA frente. Mas, para completar a banca acima do
+   piso, tanto faz a frente — o único teto é o TOTAL da banca (`vagas` da
+   combinação, em `calcular_vagas_banca`), conferido em `create_candidatura`.
+   Sumiram daqui `max_membros`, `max_lideranca` e o `recusa_por_teto`.
+
 E o que não mudou:
 
-- **Liderança é gerente DAQUELA frente ou diretoria** (os três cargos, que
-  cobrem qualquer frente por enxergarem todas — §3). Coordenador não é
-  liderança aqui.
-- **A equipe do próprio projeto nunca conta.** Ela já não pode se candidatar
-  à própria banca (`create_candidatura`); aqui é a mesma exclusão, agora
-  também para a contagem.
+- **Liderança da frente é gerente ou coordenador DELA; a diretoria cobre
+  qualquer uma.** Consultor nunca é liderança.
+- **Coordenador de vendas é liderança SEM frente** (2026-09-03, a pedido).
+  Aparece na ficha entre as lideranças (`eh_lideranca` continua `True`), mas
+  não cobre o `min_lideranca` de frente nenhuma nem entra no `min_membros` —
+  some da contagem por frente como a equipe do projeto, e só conta no TOTAL
+  da banca (`calcular_vagas_banca`). É a liderança que "pode ir, mas não
+  fecha o piso da frente".
+- **A equipe do próprio projeto nunca conta**, nem como membro nem como
+  liderança. Ela já não pode se candidatar à própria banca
+  (`create_candidatura`); aqui é a mesma exclusão, e ela vale ANTES de
+  qualquer contagem — quem está na equipe some da frente inteira.
 
 ⚠ **Este checker esteve SEM USO entre 2026-08-12 e 2026-09-02.** O piso por
 frente e a liderança tinham sido removidos da porta de registro
@@ -26,23 +44,18 @@ acontecido — o núcleo não garantia a composição exata e a banca ficava
 impossível de registrar.
 
 ⭐ **Ele voltou pela porta da ALOCAÇÃO (2026-09-02), não pela do registro.**
-São momentos diferentes, e é a diferença que resolve o impasse acima:
+Recusar na alocação é dizer "escolha outra banca", e a pessoa ainda tem o
+semestre pela frente. No registro (depois), a banca já aconteceu e recusar
+não desfaz nada — lá vale só o TOTAL (`_exigir_composicao`), com `forcar`
+para a diretoria.
 
-- **Alocar** é antes: recusar aqui é dizer "escolha outra banca", e a pessoa
-  ainda tem o semestre inteiro pela frente. É o que `create_candidatura` faz
-  com os TETOS por frente — os números que a diretoria configura em
-  Configurações e que, até aqui, não tinham efeito nenhum.
-- **Registrar** é depois: a banca já aconteceu, e recusar não desfaz o que
-  foi feito — só deixa a banca `atrasada` para sempre. Lá continua valendo só
-  o TOTAL (`_exigir_composicao`), com `forcar` para a diretoria.
-
-Os mínimos por frente também não barram nada: eles são MOSTRADOS na aba
-Bancas (`contar`, servido em `GET /bancas`) para quem escala saber o que falta
-antes de a banca acontecer.
+Os mínimos por frente não barram a alocação: são MOSTRADOS na aba Bancas e na
+ficha (`contar`, servido em `GET /bancas` e `GET /bancas/{id}/detalhes`) para
+quem escala saber o que falta antes de a banca acontecer.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 from sqlalchemy.orm import Session
 
@@ -51,9 +64,22 @@ from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.middlewares.authorization import DIRETORIA
 
-#: ⚠ Constante sem uso hoje — mantida em dia com o resto do módulo para
-#: não virar armadilha se alguém voltar a lê-la.
-LIDERANCA_POSICOES = ("gerente", *DIRETORIA)
+#: Gerente e coordenador cobrem a liderança DA FRENTE deles; a diretoria
+#: cobre a de qualquer uma.
+LIDERANCA_DA_FRENTE_POSICOES = ("gerente", "coordenador")
+LIDERANCA_POSICOES = (*LIDERANCA_DA_FRENTE_POSICOES, *DIRETORIA)
+
+
+def eh_lideranca(posicao: str) -> bool:
+    """A categoria da pessoa para AGRUPAR a lista de avaliadores na ficha da
+    banca (liderança x membro).
+
+    ⚠ É mais grosso que a CONTAGEM (`ComposicaoBancaChecker.contar`): aqui um
+    coordenador é sempre liderança; lá ele só cobre a cota da frente a que
+    está vinculado. A ficha quer dizer "esta pessoa é gestão", a contagem quer
+    saber se a cota daquela frente foi coberta — perguntas diferentes.
+    """
+    return posicao in LIDERANCA_POSICOES
 
 
 @dataclass
@@ -69,9 +95,7 @@ class ContagemFrente:
     frente_id: int
     frente_nome: str
     min_membros: int
-    max_membros: int
     min_lideranca: int
-    max_lideranca: int
     #: Já com a cota de liderança descontada: o gerente que cobre a liderança
     #: não conta aqui (é vaga a mais), e a equipe do projeto nunca entra.
     membros: int = 0
@@ -84,9 +108,6 @@ class DeficitFrente:
     frente_nome: str
     piso_faltando: int = 0
     lideranca_faltando: int = 0
-    #: Quantos passam do teto. Zero quando cabe.
-    membros_sobrando: int = 0
-    lideranca_sobrando: int = 0
 
 
 @dataclass
@@ -104,12 +125,6 @@ class StatusComposicao:
     @property
     def lideranca_ok(self) -> bool:
         return all(d.lideranca_faltando == 0 for d in self.deficits)
-
-    @property
-    def teto_ok(self) -> bool:
-        return all(
-            d.membros_sobrando == 0 and d.lideranca_sobrando == 0 for d in self.deficits
-        )
 
 
 class ComposicaoBancaChecker:
@@ -155,62 +170,76 @@ class ComposicaoBancaChecker:
         excluidos = self._excluidos_do_projeto(banca)
         usuarios_por_id = self._usuarios_por_id()
         elegiveis = {uid for uid in candidato_ids if uid not in excluidos}
-        # O diretor cobre a liderança de QUALQUER frente, por enxergar todas
-        # (§3) — inclusive de uma a que ele não está vinculado. Os três cargos
-        # de diretoria contam: o critério é enxergar tudo, e isso os três têm.
-        diretores = {
+        # A diretoria cobre a liderança de QUALQUER frente, por enxergar todas
+        # (§3) — inclusive de uma a que não está vinculada. Os três cargos
+        # contam: o critério é enxergar tudo, e isso os três têm.
+        cobrem_qualquer_frente = {
             uid
             for uid in elegiveis
             if usuarios_por_id.get(uid) and usuarios_por_id[uid].posicao in DIRETORIA
+        }
+        # Coordenador de vendas é liderança SEM frente (2026-09-03): pode ir à
+        # banca, mas não cobre o `min_lideranca` de nenhuma frente nem entra no
+        # `min_membros`. Sai da contagem por frente inteira — como a equipe do
+        # projeto —, e só conta no TOTAL da banca. `getattr` porque os fakes
+        # dos testes de `contar` nem sempre trazem o campo.
+        lideranca_sem_frente = {
+            uid
+            for uid in elegiveis
+            if usuarios_por_id.get(uid)
+            and getattr(usuarios_por_id[uid], "coordenador_vendas", False)
         }
 
         contagens: List[ContagemFrente] = []
         for regra in regras:
             da_frente = self._da_frente(regra.frente_id)
-            presentes = candidato_ids & da_frente
-            gerentes = {
+            # ⚠ A exclusão da equipe do projeto e do coordenador de vendas vale
+            # ANTES de contar: os dois somem da frente inteira, não só da lista
+            # de membros.
+            presentes = (elegiveis & da_frente) - lideranca_sem_frente
+            # Gerente E coordenador da frente cobrem a liderança dela
+            # (2026-09-03). Consultor nunca.
+            lideres_da_frente = {
                 uid
-                for uid in presentes & elegiveis
-                if usuarios_por_id.get(uid) and usuarios_por_id[uid].posicao == "gerente"
+                for uid in presentes
+                if usuarios_por_id.get(uid)
+                and usuarios_por_id[uid].posicao in LIDERANCA_DA_FRENTE_POSICOES
             }
-            lideres = gerentes | diretores
+            lideres = lideres_da_frente | cobrem_qualquer_frente
 
-            # ⭐ **Liderança é vaga A MAIS** (2026-09-01, a pedido). O gerente
-            # que ocupa a cota de liderança sai da conta de membros: a banca de
-            # Business pede 3 membros E 1 liderança, quatro pessoas. Antes ele
-            # cabia dentro dos 3.
+            # ⭐ **Liderança é vaga A MAIS** (2026-09-01, a pedido). Quem ocupa
+            # a cota de liderança sai da conta de membros: a banca de Business
+            # pede 3 membros E 1 liderança, quatro pessoas.
             #
-            # Só sai da conta quem é DA FRENTE: o diretor cobre a liderança sem
-            # estar vinculado a ela, e por isso nunca ocupava vaga de membro
-            # dela para começar.
+            # Só sai da conta quem é DA FRENTE: a diretoria cobre a liderança
+            # sem estar vinculada a ela, e por isso nunca ocupava vaga de
+            # membro dela para começar.
             lideranca_usada = min(len(lideres), regra.min_lideranca)
-            gerentes_consumidos = min(len(gerentes), lideranca_usada)
+            consumidos_da_frente = min(len(lideres_da_frente), lideranca_usada)
 
             contagens.append(
                 ContagemFrente(
                     frente_id=regra.frente_id,
                     frente_nome=regra.frente_nome,
                     min_membros=regra.min_membros,
-                    max_membros=regra.max_membros,
                     min_lideranca=regra.min_lideranca,
-                    max_lideranca=regra.max_lideranca,
-                    membros=len(presentes) - gerentes_consumidos,
+                    membros=len(presentes) - consumidos_da_frente,
                     liderancas=len(lideres),
                 )
             )
         return contagens
 
     def verificar(self, banca, regras, candidato_ids: Set[int]) -> StatusComposicao:
-        """Confere a banca contra as `regras` da combinação de frentes dela.
+        """Confere o PISO da banca contra as `regras` da combinação de frentes.
 
         `regras` são `RegraDaFrente` de
         `use_cases/configuracao/composicao_banca.py` — quem resolve o que vale
         (configurado à mão ou padrão) é aquele use case; aqui só se conta.
 
-        ⚠ **A assinatura mudou em 2026-09-01.** Antes recebia `frentes` e um
-        `lideranca_minima_por_frente` global, e lia `frente.piso_banca`. Os
-        números agora dependem da COMBINAÇÃO, e o checker não tem como
-        resolvê-los sozinho.
+        ⚠ Só o piso (membros e liderança FALTANDO por frente). Não há mais
+        teto por frente (2026-09-03): completar acima do piso é "tanto faz a
+        frente", e o único teto é o TOTAL da banca (`calcular_vagas_banca`),
+        conferido em `create_candidatura`.
         """
         deficits: List[DeficitFrente] = []
         for c in self.contar(banca, regras, candidato_ids):
@@ -219,48 +248,11 @@ class ComposicaoBancaChecker:
                 frente_nome=c.frente_nome,
                 piso_faltando=max(0, c.min_membros - c.membros),
                 lideranca_faltando=max(0, c.min_lideranca - c.liderancas),
-                membros_sobrando=max(0, c.membros - c.max_membros),
-                lideranca_sobrando=max(0, c.liderancas - c.max_lideranca),
             )
-            if (
-                deficit.piso_faltando
-                or deficit.lideranca_faltando
-                or deficit.membros_sobrando
-                or deficit.lideranca_sobrando
-            ):
+            if deficit.piso_faltando or deficit.lideranca_faltando:
                 deficits.append(deficit)
 
         return StatusComposicao(deficits=deficits)
-
-    def recusa_por_teto(
-        self, banca, regras, candidato_ids: Set[int], novo_usuario_id: int
-    ) -> Optional[str]:
-        """A frase de recusa se alocar `novo_usuario_id` estourar algum teto —
-        `None` quando cabe. É o que dá efeito aos "Máx." de Configurações.
-
-        ⚠ **Só recusa o que ESTE alocado piora.** Uma banca já acima do teto
-        (a diretoria apertou o número depois de a banca encher, ou alguém saiu
-        de uma frente e entrou noutra) travaria toda alocação seguinte,
-        inclusive a da frente que ainda está vazia — e o jeito de consertar
-        seria justamente alocar mais gente.
-        """
-        antes = {c.frente_id: c for c in self.contar(banca, regras, candidato_ids)}
-        depois = self.contar(banca, regras, candidato_ids | {novo_usuario_id})
-        for c in depois:
-            anterior = antes.get(c.frente_id)
-            if not anterior:
-                continue
-            if c.membros > c.max_membros and c.membros > anterior.membros:
-                return (
-                    f"{c.frente_nome} já tem o máximo de {c.max_membros} "
-                    "avaliadores nesta banca"
-                )
-            if c.liderancas > c.max_lideranca and c.liderancas > anterior.liderancas:
-                return (
-                    f"{c.frente_nome} já tem o máximo de {c.max_lideranca} "
-                    "de liderança nesta banca"
-                )
-        return None
 
     def _usuarios_por_id(self) -> Dict[int, object]:
         """A tabela inteira, uma vez por checker.
@@ -288,9 +280,10 @@ class ComposicaoBancaChecker:
         return cache[frente_id]
 
     def _excluidos_do_projeto(self, banca) -> Set[int]:
-        # Cache pelo mesmo motivo dos outros dois: `recusa_por_teto` conta
-        # duas vezes (antes e depois), e o push chama isso uma vez por pessoa
-        # da fila. Sem ele, uma consulta a `equipe_projeto` em cada passada.
+        # Cache pelo mesmo motivo dos outros dois: `GET /bancas` monta a
+        # composição de todas as bancas do semestre com um checker só, e o
+        # push chama `contar` uma vez por pessoa da fila. Sem ele, uma
+        # consulta a `equipe_projeto` em cada passada.
         cache = getattr(self, "_cache_excluidos", None)
         if cache is None:
             cache = {}

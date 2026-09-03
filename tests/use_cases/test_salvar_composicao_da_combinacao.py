@@ -43,9 +43,7 @@ def frente_regra(frente_id, min_membros=1, min_lideranca=1):
     return FrenteRegraRequest(
         frente_id=frente_id,
         min_membros=min_membros,
-        max_membros=99,
         min_lideranca=min_lideranca,
-        max_lideranca=99,
     )
 
 

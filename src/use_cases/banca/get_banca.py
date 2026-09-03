@@ -42,9 +42,7 @@ def composicao_da_banca(banca, frentes, candidatura_usuario_ids, checker, resolv
             "frente_id": c.frente_id,
             "frente_nome": c.frente_nome,
             "min_membros": c.min_membros,
-            "max_membros": c.max_membros,
             "min_lideranca": c.min_lideranca,
-            "max_lideranca": c.max_lideranca,
             "membros": c.membros,
             "liderancas": c.liderancas,
         }

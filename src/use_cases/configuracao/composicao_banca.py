@@ -7,12 +7,15 @@ PADRÃO, derivado do que já existia antes desta tabela:
 
 - `min_membros` = `frente.piso_banca` (Business 3 · Tech 2 · Processos 2 ·
   Direito 1);
-- `min_lideranca` = `configuracao.lideranca_minima_por_frente` (hoje 1);
-- os máximos ficam soltos (`SEM_TETO`), que é o comportamento de sempre — não
-  havia teto por frente antes desta mudança.
+- `min_lideranca` = `configuracao.lideranca_minima_por_frente` (hoje 1).
 
 É isso que faz a virada não mexer em nenhuma banca já marcada, e que deixa uma
 frente cadastrada amanhã já ter regra em toda combinação sem migration.
+
+⚠ **Não há teto por frente (2026-09-03).** O piso tem de ser gente daquela
+frente; completar acima dele, até o TOTAL da banca (`vagas`), é "tanto faz a
+frente". Os campos `max_membros`/`max_lideranca` foram removidos da tabela e
+da tela.
 """
 
 from dataclasses import dataclass
@@ -30,20 +33,13 @@ from pydantic import BaseModel
 from src.utils.combinacao_frentes import chave, ler, todas
 from src.utils.exceptions import RegraDeNegocioError
 
-#: O teto de quem não configurou teto. Um número, e não `None`, para a
-#: comparação na checagem ser sempre a mesma — `presentes > teto` funciona
-#: igual configurado ou não, sem um `if` para o caso nulo.
-SEM_TETO = 99
-
 
 @dataclass
 class RegraDaFrente:
     frente_id: int
     frente_nome: str
     min_membros: int
-    max_membros: int
     min_lideranca: int
-    max_lideranca: int
     #: `False` quando estes números são o padrão, e não algo que alguém gravou.
     #: A tela mostra isso para a diretoria saber o que está herdado.
     configurada: bool = False
@@ -95,9 +91,7 @@ class ResolverComposicaoUseCase:
                         frente_id=frente_id,
                         frente_nome=frente.nome,
                         min_membros=gravada.min_membros,
-                        max_membros=gravada.max_membros,
                         min_lideranca=gravada.min_lideranca,
-                        max_lideranca=gravada.max_lideranca,
                         configurada=True,
                     )
                 )
@@ -107,9 +101,7 @@ class ResolverComposicaoUseCase:
                         frente_id=frente_id,
                         frente_nome=frente.nome,
                         min_membros=frente.piso_banca,
-                        max_membros=SEM_TETO,
                         min_lideranca=padrao_lideranca,
-                        max_lideranca=SEM_TETO,
                         configurada=False,
                     )
                 )
@@ -208,9 +200,7 @@ class SalvarComposicaoRequest(BaseModel):
 class FrenteRegraRequest(BaseModel):
     frente_id: int
     min_membros: int
-    max_membros: int
     min_lideranca: int
-    max_lideranca: int
 
 
 SalvarComposicaoRequest.model_rebuild()
@@ -259,9 +249,7 @@ class SalvarComposicaoUseCase:
                 {
                     "frente_id": f.frente_id,
                     "min_membros": f.min_membros,
-                    "max_membros": f.max_membros,
                     "min_lideranca": f.min_lideranca,
-                    "max_lideranca": f.max_lideranca,
                 }
                 for f in request.frentes
             ],
@@ -276,14 +264,6 @@ class SalvarComposicaoUseCase:
     def _validar(self, f: "FrenteRegraRequest") -> None:
         if f.min_membros < 0 or f.min_lideranca < 0:
             raise RegraDeNegocioError("Os mínimos não podem ser negativos")
-        if f.max_membros < f.min_membros:
-            raise RegraDeNegocioError(
-                "O máximo de membros não pode ser menor que o mínimo"
-            )
-        if f.max_lideranca < f.min_lideranca:
-            raise RegraDeNegocioError(
-                "O máximo de lideranças não pode ser menor que o mínimo"
-            )
         # Uma banca sem ninguém não avalia nada. O zero é legítimo em UM dos
         # dois (uma frente pode entrar só com liderança, ou só com membros),
         # mas não nos dois.
