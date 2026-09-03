@@ -21,6 +21,7 @@ class UsuarioFake:
         self.email_insper = f"{nome.split()[0].lower()}@al.insper.edu.br"
         self.cargo_id = 4
         self.coordenador_vendas = False
+        self.bdr = False
         self.semestre_graduacao = None
         # Diretor em exercício já fez o primeiro acesso — `serializar_usuario`
         # devolve este campo desde que a senha provisória passou a existir.
@@ -226,3 +227,29 @@ class TestTravaDoUltimoDiretor:
         uc = montar_update(dani)
         uc.execute(1, UpdateUsuarioRequest(cargo_id=3))
         assert dani.posicao == "diretor_projetos"
+
+
+class TestMarcaBdr:
+    """BDR: consultor que também vende. A marca não muda acesso, só grava o
+    booleano — quem filtra a lista de vendedores é o front."""
+
+    def test_grava_a_marca_no_consultor(self):
+        edu = UsuarioFake(1, "Edu Prado", "consultor")
+        uc = montar_update(edu)
+        resultado = uc.execute(1, UpdateUsuarioRequest(bdr=True))
+        assert edu.bdr is True
+        assert resultado["bdr"] is True
+
+    def test_desmarca_quando_vem_false(self):
+        edu = UsuarioFake(1, "Edu Prado", "consultor")
+        edu.bdr = True
+        uc = montar_update(edu)
+        uc.execute(1, UpdateUsuarioRequest(bdr=False))
+        assert edu.bdr is False
+
+    def test_nao_mexe_na_marca_quando_o_campo_nao_vem(self):
+        edu = UsuarioFake(1, "Edu Prado", "consultor")
+        edu.bdr = True
+        uc = montar_update(edu)
+        uc.execute(1, UpdateUsuarioRequest(nome="Eduardo Prado"))
+        assert edu.bdr is True
