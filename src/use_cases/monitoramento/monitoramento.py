@@ -113,6 +113,31 @@ ETAPAS_EM_CURSO = (
     "periodo_ajustes",
 )
 
+#: ⭐ As etapas que TIRAM um projeto da execução do dia a dia.
+#:
+#: `finalizado` porque acabou — o quadro zerado e a semana sem tarefa nova são
+#: como um projeto TERMINA, não sintoma de abandono. `pausado` porque é
+#: literalmente "parado" (2026-08-19): ninguém trabalha nele enquanto durar, e
+#: cobrar distribuição de tarefa é cobrar o que a própria gestão mandou não
+#: fazer.
+STATUS_FORA_DE_EXECUCAO = ("finalizado", "pausado")
+
+
+def apenas_em_curso(projetos):
+    """O recorte "projeto EM CURSO", compartilhado pelas abas de cobrança.
+
+    Existe como função e não como três compreensões iguais porque foi
+    exatamente assim que a Execução ficou de fora: Visão geral e Atrasos
+    aplicavam a régua inline, a Execução simplesmente não aplicava, e a MESMA
+    tela dizia duas coisas sobre o mesmo projeto — ausente do "Atenção agora" e
+    presente em "Projetos sem tarefa atribuída".
+
+    ⚠ Vem sempre DEPOIS do filtro de status da tela e vence dele: pedir
+    `?status=finalizado` numa aba de cobrança devolve vazio de propósito.
+    Quem quer o portfólio encerrado tem a aba Histórico de projetos.
+    """
+    return [p for p in projetos if p.status not in STATUS_FORA_DE_EXECUCAO]
+
 
 class _BaseMonitoramento:
     """Carrega o recorte e os dados comuns uma vez só."""
@@ -371,7 +396,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         # por decisão de gestão — nenhum dos dois pode derrubar o placar nem
         # inflar o KPI de atrasados. `em_curso` é a base de todas as métricas
         # de atraso desta tela, para elas nunca se contradizerem entre si.
-        em_curso = [p for p in projetos if p.status not in ("finalizado", "pausado")]
+        em_curso = apenas_em_curso(projetos)
         # 🎯 Placar da gestão: % dos projetos em curso SEM banca atrasada. A
         # entrega ao cliente fica de fora de propósito — depende da agenda
         # dele, e o §7.1 manda separar.
@@ -904,6 +929,10 @@ class VisaoGeralUseCase(_BaseMonitoramento):
 class ExecucaoUseCase(_BaseMonitoramento):
     """§7.2 — quem está distribuindo tarefa e fazendo reunião, sem abrir cada projeto.
 
+    🚫 **Finalizado e ⏸ Pausado ficam de fora** (`apenas_em_curso`). Nenhum dos
+    dois distribui tarefa nem faz reunião, e cobrar isso deles enchia a tela de
+    alerta falso — um projeto finalizado aparecia como "quadro zerado".
+
     ⏱ **Aqui os dias são ÚTEIS**, pelo calendário do Insper — e desde
     2026-08-04 o §7.4 (banca e entrega, em `atraso_monitoramento.py`) usa a
     mesma régua, confirmada com a diretoria. Mede-se quanto tempo de TRABALHO
@@ -936,7 +965,16 @@ class ExecucaoUseCase(_BaseMonitoramento):
         status: Optional[List[str]] = None,
     ):
         hoje = referencia or date.today()
-        projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
+        # ⭐ **Só projeto EM CURSO** — a mesma régua da Visão geral e do §7.4.
+        # `_projetos_visiveis` só tira o arquivado, e esta aba iterava a lista
+        # crua: um projeto FINALIZADO caía direto em "Projetos sem tarefa
+        # atribuída" com o selo "Quadro zerado", inflava os cinco KPIs do topo
+        # e ainda era cobrado por reunião semanal. E o quadro dele está zerado
+        # porque ele ACABOU — é assim que um projeto termina, não é sinal de
+        # abandono. A mesma tela que o exclui do "Atenção agora" o cobrava aqui.
+        projetos = apenas_em_curso(
+            self._projetos_visiveis(current_user, frente_id, escopo_id, status)
+        )
         ids = [p.id for p in projetos]
         inicio, fim = janela_semana(hoje)
 
@@ -1465,11 +1503,9 @@ class AtrasosUseCase(_BaseMonitoramento):
         # `?status=finalizado` aqui devolve vazio de propósito. Esta aba é a
         # fila de cobrança, e não há o que cobrar de quem já terminou ou está
         # ⏸ Pausado por decisão de gestão.
-        projetos = [
-            p
-            for p in self._projetos_visiveis(current_user, frente_id, escopo_id, status)
-            if p.status not in ("finalizado", "pausado")
-        ]
+        projetos = apenas_em_curso(
+            self._projetos_visiveis(current_user, frente_id, escopo_id, status)
+        )
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
         justificativas_por_projeto = _agrupar(
