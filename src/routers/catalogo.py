@@ -449,9 +449,7 @@ def get_composicao(combinacao: str, db: Session = Depends(get_db)):
                 "frente_id": r.frente_id,
                 "frente_nome": r.frente_nome,
                 "min_membros": r.min_membros,
-                "max_membros": r.max_membros,
                 "min_lideranca": r.min_lideranca,
-                "max_lideranca": r.max_lideranca,
                 "configurada": r.configurada,
             }
             for r in regras

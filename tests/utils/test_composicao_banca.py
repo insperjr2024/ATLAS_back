@@ -19,16 +19,18 @@ from types import SimpleNamespace
 from src.utils.composicao_banca import ComposicaoBancaChecker
 
 
-def usuario(id, posicao="consultor"):
-    return SimpleNamespace(id=id, posicao=posicao)
+def usuario(id, posicao="consultor", coordenador_vendas=False):
+    return SimpleNamespace(
+        id=id, posicao=posicao, coordenador_vendas=coordenador_vendas
+    )
 
 
-def regra(frente_id, nome, min_membros=1, max_membros=99, min_lideranca=1, max_lideranca=99):
-    """Uma `RegraDaFrente` já resolvida — é o que o checker recebe."""
+def regra(frente_id, nome, min_membros=1, min_lideranca=1):
+    """Uma `RegraDaFrente` já resolvida — é o que o checker recebe. Só piso:
+    não há mais teto por frente (2026-09-03)."""
     return SimpleNamespace(
         frente_id=frente_id, frente_nome=nome,
-        min_membros=min_membros, max_membros=max_membros,
-        min_lideranca=min_lideranca, max_lideranca=max_lideranca,
+        min_membros=min_membros, min_lideranca=min_lideranca,
     )
 
 
@@ -107,6 +109,119 @@ class TestLiderancaEhVagaAMais:
         assert status.ok
 
 
+class TestOCoordenador:
+    """2026-09-03: coordenador passou a cobrir a liderança DA FRENTE dele,
+    como o gerente. Antes caía entre os membros."""
+
+    def test_coordenador_cobre_a_lideranca_como_o_gerente(self):
+        por_frente = {BUSINESS: [10, 11, 12, 13]}
+        usuarios = [usuario(10, "coordenador")] + [usuario(i) for i in (11, 12, 13)]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12, 13}
+        )
+
+        # 10 cobre a liderança e sai da conta de membros: 3 membros + 1 líder.
+        assert (business.membros, business.liderancas) == (3, 1)
+
+    def test_tres_de_business_com_um_coordenador_nao_fecha(self):
+        """Espelha o caso do gerente: liderança é vaga a mais."""
+        por_frente = {BUSINESS: [10, 11, 12]}
+        usuarios = [usuario(10, "coordenador"), usuario(11), usuario(12)]
+        checker, banca = montar(por_frente, usuarios)
+
+        status = checker.verificar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12}
+        )
+
+        assert status.deficits[0].piso_faltando == 1
+
+    def test_coordenador_so_cobre_a_lideranca_da_frente_a_que_esta_vinculado(self):
+        """Diferente da diretoria: o coordenador de Tech não cobre a liderança
+        de Business só por avaliar a banca dela."""
+        por_frente = {BUSINESS: [11, 12], TECH: [20]}
+        usuarios = [usuario(20, "coordenador"), usuario(11), usuario(12)]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=2)], {11, 12, 20}
+        )
+
+        # 20 não é de Business: não entra na conta dela, nem como líder.
+        assert (business.membros, business.liderancas) == (2, 0)
+
+
+class TestOCoordenadorDeVendas:
+    """2026-09-03: coordenador de vendas é liderança SEM frente — pode ir à
+    banca, mas não fecha o `min_lideranca` de frente nenhuma nem entra no
+    `min_membros`. Some da contagem por frente como a equipe do projeto."""
+
+    def test_nao_cobre_a_lideranca_da_frente_a_que_esta_vinculado(self):
+        por_frente = {BUSINESS: [10, 11, 12, 13]}
+        usuarios = [usuario(10, "coordenador", coordenador_vendas=True)] + [
+            usuario(i) for i in (11, 12, 13)
+        ]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca,
+            [regra(BUSINESS, "Business", min_membros=3, min_lideranca=1)],
+            {10, 11, 12, 13},
+        )
+
+        # 10 sai da frente inteira: 3 membros de verdade, 0 liderança.
+        assert (business.membros, business.liderancas) == (3, 0)
+
+    def test_a_frente_com_so_o_coordenador_de_vendas_acusa_lideranca_faltando(self):
+        por_frente = {BUSINESS: [10, 11, 12]}
+        usuarios = [usuario(10, "coordenador", coordenador_vendas=True)] + [
+            usuario(i) for i in (11, 12)
+        ]
+        checker, banca = montar(por_frente, usuarios)
+
+        status = checker.verificar(
+            banca,
+            [regra(BUSINESS, "Business", min_membros=2, min_lideranca=1)],
+            {10, 11, 12},
+        )
+
+        assert status.deficits[0].lideranca_faltando == 1
+        # 11 e 12 fecham o piso de membros; só a liderança falta.
+        assert status.deficits[0].piso_faltando == 0
+
+    def test_coordenador_normal_ainda_cobre__so_o_de_vendas_e_que_nao(self):
+        """A distinção é o `coordenador_vendas`, não a posição: coordenador
+        comum de Business segue cobrindo a liderança dela."""
+        por_frente = {BUSINESS: [10, 11, 12, 13]}
+        usuarios = [usuario(10, "coordenador")] + [usuario(i) for i in (11, 12, 13)]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca,
+            [regra(BUSINESS, "Business", min_membros=3, min_lideranca=1)],
+            {10, 11, 12, 13},
+        )
+
+        assert (business.membros, business.liderancas) == (3, 1)
+
+
+class TestAEquipeSaiAntesDeContar:
+    def test_membro_da_equipe_que_tambem_se_candidatou_nao_e_contado(self):
+        """A equipe do projeto não avalia a própria banca. Se a linha legada
+        for preenchida DEPOIS da candidatura, a pessoa não pode continuar
+        contando como membro."""
+        por_frente = {BUSINESS: [10, 11, 12, 13]}
+        usuarios = [usuario(i) for i in (10, 11, 12, 13)]
+        checker, banca = montar(por_frente, usuarios, equipe_projeto_ids=(13,))
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12, 13}
+        )
+
+        assert business.membros == 3
+
+
 class TestODiretor:
     def test_diretor_cobre_a_lideranca_sem_ser_da_frente(self):
         """Ele enxerga todas (§3). E, por não estar vinculado a Business, não
@@ -154,25 +269,24 @@ class TestPisoPorFrente:
         assert tech.lideranca_faltando == 1
 
 
-class TestOsTetos:
-    def test_membros_alem_do_teto_acusa(self):
-        """Novo em 2026-09-01: segura a banca que encheu de uma frente só."""
+class TestNaoHaMaisTetoPorFrente:
+    """2026-09-03: o teto por frente saiu. Encher acima do piso é "tanto faz
+    a frente" — o único teto é o total da banca, conferido em
+    `create_candidatura`, não aqui."""
+
+    def test_muitos_membros_de_uma_frente_nao_acusa_nada(self):
         por_frente = {BUSINESS: [10, 11, 12, 13, 14]}
         usuarios = [usuario(10, "gerente")] + [usuario(i) for i in (11, 12, 13, 14)]
         checker, banca = montar(por_frente, usuarios)
 
         status = checker.verificar(
-            banca,
-            [regra(BUSINESS, "Business", min_membros=2, max_membros=3)],
-            {10, 11, 12, 13, 14},
+            banca, [regra(BUSINESS, "Business", min_membros=2)], {10, 11, 12, 13, 14}
         )
 
-        assert not status.ok
-        assert status.deficits[0].membros_sobrando == 1
-        assert status.teto_ok is False
+        # Piso coberto e nada mais a apontar: sem "sobrando".
+        assert status.ok
 
-    def test_lideranca_alem_do_teto_acusa(self):
-        """A banca é para avaliar, não para reunir a gestão inteira."""
+    def test_varias_liderancas_nao_acusam(self):
         por_frente = {BUSINESS: [10, 11, 12, 13]}
         usuarios = [usuario(10, "gerente"), usuario(11, "gerente")] + [
             usuario(i) for i in (12, 13)
@@ -180,22 +294,7 @@ class TestOsTetos:
         checker, banca = montar(por_frente, usuarios)
 
         status = checker.verificar(
-            banca,
-            [regra(BUSINESS, "Business", min_membros=1, max_lideranca=1)],
-            {10, 11, 12, 13},
-        )
-
-        assert status.deficits[0].lideranca_sobrando == 1
-
-    def test_dentro_do_teto_passa(self):
-        por_frente = {BUSINESS: [10, 11, 12]}
-        usuarios = [usuario(10, "gerente"), usuario(11), usuario(12)]
-        checker, banca = montar(por_frente, usuarios)
-
-        status = checker.verificar(
-            banca,
-            [regra(BUSINESS, "Business", min_membros=2, max_membros=3, max_lideranca=1)],
-            {10, 11, 12},
+            banca, [regra(BUSINESS, "Business", min_membros=1)], {10, 11, 12, 13}
         )
 
         assert status.ok

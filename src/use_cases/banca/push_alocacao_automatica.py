@@ -36,7 +36,7 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.fuso import para_hora_local
 from src.utils.notificar import notificar
-from src.utils.composicao_banca import ComposicaoBancaChecker
+from src.utils.composicao_banca import LIDERANCA_DA_FRENTE_POSICOES
 from src.utils.piso_banca import calcular_piso_banca
 from src.middlewares.authorization import DIRETORIA
 
@@ -141,10 +141,10 @@ class PushAlocacaoAutomaticaUseCase:
 
         # §8: piso e liderança são POR FRENTE — cada frente vinculada puxa
         # gente DELA MESMA primeiro, liderança antes do resto do piso (um
-        # gerente presente também conta como membro da frente, então puxá-lo
-        # primeiro nunca desperdiça vaga). Só o que sobrar — frente sem gente
-        # suficiente pra cobrir o próprio piso, ou vaga extra até o teto — é
-        # que pode vir de qualquer frente, no bloco depois deste laço.
+        # gerente/coordenador presente também conta como membro da frente,
+        # então puxá-lo primeiro nunca desperdiça vaga). Só o que sobrar —
+        # frente sem gente suficiente pra cobrir o próprio piso, ou vaga extra
+        # até o total — é que pode vir de qualquer frente, no bloco depois.
         for frente in frentes:
             if vagas_restantes() <= 0:
                 break
@@ -156,7 +156,10 @@ class PushAlocacaoAutomaticaUseCase:
                 if uid not in excluidos
                 and usuarios_por_id.get(uid)
                 and (
-                    (uid in membros_ids and usuarios_por_id[uid].posicao == "gerente")
+                    (
+                        uid in membros_ids
+                        and usuarios_por_id[uid].posicao in LIDERANCA_DA_FRENTE_POSICOES
+                    )
                     or usuarios_por_id[uid].posicao in DIRETORIA
                 )
             }
@@ -164,16 +167,16 @@ class PushAlocacaoAutomaticaUseCase:
             lideranca_minima = regra.min_lideranca if regra else 1
             falta_lideranca = max(0, lideranca_minima - len(lideres_presentes))
             if falta_lideranca > 0:
-                # Só puxa GERENTE automaticamente — diretor conta pra
-                # liderança se já estiver lá por conta própria, mas o push
-                # não escala diretoria pra rotina de banca.
+                # Puxa GERENTE ou COORDENADOR da frente automaticamente —
+                # diretor conta pra liderança se já estiver lá por conta
+                # própria, mas o push não escala diretoria pra rotina de banca.
                 pool_lideres = [
                     u
                     for u in ativos
                     if u.id in membros_ids
                     and u.id not in excluidos
                     and u.id not in contabilizados()
-                    and u.posicao == "gerente"
+                    and u.posicao in LIDERANCA_DA_FRENTE_POSICOES
                 ]
                 fila_lideres = self._ordenar_por_rodizio(pool_lideres, ultima_alocacao)
                 selecionados.extend(fila_lideres[: min(falta_lideranca, vagas_restantes())])
@@ -215,23 +218,12 @@ class PushAlocacaoAutomaticaUseCase:
                 and u.posicao not in DIRETORIA
             ]
             fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
-            # ⭐ O TETO por frente vale aqui também (2026-09-02). Este bloco é
-            # o único que escala gente de qualquer frente: enchia a banca com
-            # quem estivesse na fila do rodízio, e era por ele que uma banca
-            # com "máx. 3 de Business" terminava com cinco de Business. Quem
-            # estoura é pulado, não interrompe a fila — a próxima pessoa pode
-            # ser de uma frente que ainda cabe.
-            checker = ComposicaoBancaChecker.com_dados(
-                usuarios_por_id=usuarios_por_id,
-                membros_por_frente=membros_por_frente,
-                equipe_do_projeto={banca.id: self._equipe_do_projeto(banca)},
-            )
-            regras = list(regra_por_frente.values())
+            # Este bloco enche a banca ACIMA do piso — daqui em diante tanto
+            # faz a frente (2026-09-03: o teto por frente saiu). O único limite
+            # é `vaga_disponivel`, o total da banca, já respeitado no `break`.
             for usuario in fila_geral:
                 if len(selecionados) >= vaga_disponivel or deficit_restante <= 0:
                     break
-                if checker.recusa_por_teto(banca, regras, contabilizados(), usuario.id):
-                    continue
                 selecionados.append(usuario)
                 deficit_restante -= 1
 

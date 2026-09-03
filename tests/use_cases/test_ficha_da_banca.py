@@ -35,9 +35,9 @@ BANCA = SimpleNamespace(
 )
 
 USUARIOS = {
-    90: SimpleNamespace(id=90, nome="Coordenador Tech"),
-    91: SimpleNamespace(id=91, nome="Mateus Loureiro"),
-    92: SimpleNamespace(id=92, nome="Bia Martins"),
+    90: SimpleNamespace(id=90, nome="Coordenador Tech", posicao="coordenador"),
+    91: SimpleNamespace(id=91, nome="Mateus Loureiro", posicao="consultor"),
+    92: SimpleNamespace(id=92, nome="Bia Martins", posicao="consultor"),
 }
 
 
@@ -120,6 +120,11 @@ def mundo(monkeypatch):
             def get_by_id(self, usuario_id):
                 return USUARIOS.get(usuario_id)
 
+        class UsuarioFrenteFake:
+            def __init__(self, db): pass
+            def get_by_usuario(self, usuario_id):
+                return []
+
         # A ficha passou a trazer as TENTATIVAS, os votos e a nota (§8, §9).
         # Estes testes medem os NOMES resolvidos, não a apuração — que tem
         # cobertura própria em `test_apuracao_banca.py` e `test_urna_da_banca.py`.
@@ -152,12 +157,20 @@ def mundo(monkeypatch):
             ("EquipeProjetoRepository", EquipeProjetoFake),
             ("ProjetoMembroRepository", ProjetoMembroFake),
             ("UsuarioRepository", UsuarioFake),
+            ("UsuarioFrenteRepository", UsuarioFrenteFake),
             ("BancaSessaoRepository", SessaoFake),
             ("AvaliacaoRepository", AvaliacaoFake),
             ("AvaliacaoNotaRepository", NotaFake),
             ("PerguntaRepository", PerguntaFake),
         ):
             monkeypatch.setattr(get_banca_detalhes, nome, dublê)
+
+        # A composição (mín./máx. por frente) tem cobertura própria em
+        # `test_composicao_banca.py` e depende da matriz de Configurações;
+        # aqui, onde o assunto são os NOMES, ela é neutralizada.
+        monkeypatch.setattr(
+            GetBancaDetalhesUseCase, "_composicao", lambda self, banca, banca_id: []
+        )
 
         return GetBancaDetalhesUseCase(db=None)
 
@@ -175,11 +188,26 @@ def test_resolve_os_nomes_da_ficha(mundo):
     assert ficha["coordenador"] == "Coordenador Tech"
     assert ficha["escopos"] == ["Elaboração Contratual"]
     assert ficha["frentes"] == ["Tech"]
+    assert ficha["frentes_da_banca"] == [{"id": 0, "nome": "Tech"}]
     # ⭐ Avaliador virou OBJETO: a aba Banca precisa do id para saber "sou eu?"
     # e do estado do voto para oferecer (ou não) o formulário.
     assert [a["nome"] for a in ficha["avaliadores"]] == ["Bia Martins"]
     assert ficha["avaliadores"][0]["usuario_id"] == 92
     assert ficha["avaliadores"][0]["ja_votou"] is False
+    # ⭐ E a categoria, para a ficha agrupar liderança x membro por frente.
+    assert ficha["avaliadores"][0]["posicao"] == "consultor"
+    assert ficha["avaliadores"][0]["eh_lideranca"] is False
+    assert ficha["avaliadores"][0]["frente_ids"] == []
+
+
+def test_coordenador_avaliador_e_marcado_como_lideranca(mundo):
+    """Todo coordenador é liderança na EXIBIÇÃO da ficha (a contagem por
+    frente, mais fina, tem cobertura própria)."""
+    ficha = mundo(candidaturas=(90, 92)).execute(35)
+
+    por_id = {a["usuario_id"]: a for a in ficha["avaliadores"]}
+    assert por_id[90]["eh_lideranca"] is True
+    assert por_id[92]["eh_lideranca"] is False
     # Para a tela poder voltar ao projeto de onde a banca é.
     assert ficha["projeto_id"] == 43
 

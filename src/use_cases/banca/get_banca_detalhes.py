@@ -19,6 +19,7 @@ sabe olhar os dois lados (ver `utils/equipe_banca.py`).
 """
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
@@ -35,16 +36,21 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
 from src.utils.banca_nota import calcular_nota_final
 from src.utils.banca_status import calcular_status_banca
+from src.utils.composicao_banca import ComposicaoBancaChecker, eh_lideranca
 from src.utils.equipe_banca import membros_da_banca
 
 
 class GetBancaDetalhesUseCase:
     def __init__(self, db: Session):
+        #: Guardada para `_composicao`, que instancia o checker e o resolver
+        #: da matriz de composição (ambos precisam de sessão).
+        self.db = db
         self.repository = BancaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
@@ -55,6 +61,7 @@ class GetBancaDetalhesUseCase:
         self.frente_repository = FrenteRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
         self.usuario_repository = UsuarioRepository(db)
+        self.usuario_frente_repository = UsuarioFrenteRepository(db)
         self.sessao_repository = BancaSessaoRepository(db)
         self.avaliacao_repository = AvaliacaoRepository(db)
         self.nota_repository = AvaliacaoNotaRepository(db)
@@ -101,6 +108,14 @@ class GetBancaDetalhesUseCase:
             # não têm linha em `banca_escopo`.
             "escopos": [self._nome_do_escopo(e) for e in escopos],
             "frentes": self._nomes_das_frentes(banca_id),
+            # ⭐ As mesmas frentes com id: a ficha agrupa os avaliadores por
+            # frente da banca (liderança/membro de cada uma), e para isso
+            # precisa casar o vínculo de cada pessoa, não só o nome.
+            "frentes_da_banca": self._frentes_da_banca(banca_id),
+            # ⭐ O que a combinação de frentes exige e o que a banca tem hoje
+            # (mín./máx. de membro e de liderança por frente). É o que deixa a
+            # ficha dizer "Membros · Business 2/3" e marcar frente lotada.
+            "composicao": self._composicao(banca, banca_id),
             "coordenador": self._nome(banca.coordenador_id),
             # ⚠ O id junto do nome: a tela decide se mostra o formulário do
             # relato comparando com o usuário logado, e comparar por NOME
@@ -156,12 +171,28 @@ class GetBancaDetalhesUseCase:
         linhas = []
         for c in self.candidatura_repository.get_by_banca(banca_id):
             minha = por_avaliador.get(c.usuario_id)
+            usuario = self.usuario_repository.get_by_id(c.usuario_id)
+            posicao = usuario.posicao if usuario else "consultor"
             linhas.append(
                 {
                     "usuario_id": c.usuario_id,
                     "nome": self._nome(c.usuario_id),
                     # Marcado ao registrar a realização: quem de fato esteve lá.
                     "presente": bool(c.confirmado),
+                    # ⭐ Para a ficha agrupar por (liderança/membro) x frente.
+                    # `eh_lideranca` é a categoria grosseira da EXIBIÇÃO (todo
+                    # coordenador conta); a contagem em `composicao` é mais
+                    # fina. `frente_ids` são os vínculos da pessoa, que a tela
+                    # cruza com `frentes_da_banca`.
+                    "posicao": posicao,
+                    "eh_lideranca": eh_lideranca(posicao),
+                    # Liderança SEM frente: a ficha lista o coordenador de
+                    # vendas entre as lideranças, mas ele não fecha o piso de
+                    # liderança de frente nenhuma (ver `composicao_banca`).
+                    "coordenador_vendas": bool(
+                        usuario and getattr(usuario, "coordenador_vendas", False)
+                    ),
+                    "frente_ids": self._frentes_do_usuario(c.usuario_id),
                     "avaliacao_id": minha.id if minha else None,
                     "ja_votou": bool(minha and minha.status == "submetida"),
                     "voto_aprovacao": minha.voto_aprovacao if minha else None,
@@ -331,12 +362,43 @@ class GetBancaDetalhesUseCase:
         return do_catalogo.nome if do_catalogo else f"escopo {escopo.id}"
 
     def _nomes_das_frentes(self, banca_id: int) -> list:
-        nomes = []
+        return sorted(f["nome"] for f in self._frentes_da_banca(banca_id))
+
+    def _frentes_da_banca(self, banca_id: int) -> list:
+        frentes = []
         for vinculo in self.banca_frente_repository.get_by_banca(banca_id):
             frente = self.frente_repository.get_by_id(vinculo.frente_id)
             if frente:
-                nomes.append(frente.nome)
-        return sorted(nomes)
+                frentes.append({"id": frente.id, "nome": frente.nome})
+        return sorted(frentes, key=lambda f: f["nome"])
+
+    def _frentes_do_usuario(self, usuario_id: int) -> list:
+        return sorted(
+            v.frente_id
+            for v in self.usuario_frente_repository.get_by_usuario(usuario_id)
+        )
+
+    def _composicao(self, banca, banca_id: int) -> list:
+        """Mín./máx. de membro e liderança por frente da combinação, ao lado do
+        que a banca tem — a mesma conta de `GET /bancas`, reaproveitada.
+        """
+        from src.use_cases.banca.get_banca import composicao_da_banca
+        from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
+
+        frentes = [
+            SimpleNamespace(id=f["id"], nome=f["nome"])
+            for f in self._frentes_da_banca(banca_id)
+        ]
+        candidatos = [
+            c.usuario_id for c in self.candidatura_repository.get_by_banca(banca_id)
+        ]
+        return composicao_da_banca(
+            banca,
+            frentes,
+            candidatos,
+            ComposicaoBancaChecker(self.db),
+            ResolverComposicaoUseCase(self.db),
+        )
 
 
 class ListBancasDoProjetoUseCase:
