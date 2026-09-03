@@ -59,6 +59,11 @@ class UsuarioModel(Base):
     coordenador_vendas = Column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+    #: BDR: consultor que também prospecta e fecha projeto. Não muda acesso
+    #: nem posição, só habilita a pessoa a aparecer na lista "quem vendeu o
+    #: projeto" do cadastro, ao lado dos coordenadores de vendas. Nasce
+    #: `False` para todo mundo.
+    bdr = Column(Boolean, nullable=False, default=False, server_default="0")
     # 1º a 8º semestre da graduação — nullable porque diretoria/gerência não
     # necessariamente são alunos de graduação em curso.
     semestre_graduacao = Column(Integer, nullable=True)

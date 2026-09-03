@@ -37,6 +37,7 @@ class UsuarioFake:
         self.posicao = "consultor"
         self.status = "ativo" if ativo else "desligado"
         self.coordenador_vendas = False
+        self.bdr = False
         self.semestre_graduacao = None
         self.senha_hash = hash_senha("senha-antiga-dela")
         self.senha_provisoria = False

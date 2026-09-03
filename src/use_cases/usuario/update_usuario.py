@@ -30,6 +30,10 @@ class UpdateUsuarioRequest(BaseModel):
     #: Coordenador comercial. Não muda acesso nenhum, só tira a pessoa da
     #: contagem de capacidade de coordenadores (`monitoramento.py`).
     coordenador_vendas: Optional[bool] = None
+    #: Consultor que também prospecta. Não muda acesso, só habilita a pessoa
+    #: na lista "quem vendeu o projeto" do cadastro. A tela de Membros só
+    #: oferece a marca para consultor e já manda `False` fora disso.
+    bdr: Optional[bool] = None
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 

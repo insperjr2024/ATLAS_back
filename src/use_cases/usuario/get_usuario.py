@@ -20,6 +20,9 @@ def serializar_usuario(usuario, projetos_alocados: int = 0):
         # Só faz sentido para quem é coordenador; a tela de Membros mostra a
         # opção nesse caso. Fora dele o valor não é usado.
         "coordenador_vendas": usuario.coordenador_vendas,
+        # Consultor que também prospecta: entra na lista "quem vendeu o
+        # projeto" do cadastro. Fora do consultor o valor não é usado.
+        "bdr": usuario.bdr,
         "semestre_graduacao": usuario.semestre_graduacao,
         # ⭐ "ainda não fez o primeiro acesso": a tela de Membros marca essas
         # linhas e oferece o reenvio da senha provisória.
