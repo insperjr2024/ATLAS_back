@@ -14,8 +14,22 @@ from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
 from src.utils.teto_banca import calcular_vagas_banca
+from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
+
+
+def _descrever_pendencias(status) -> str:
+    """"1 liderança de Business, 2 membros de Direito" — o que ainda falta pro
+    piso, pra dizer à pessoa por que a vaga está reservada."""
+    partes = []
+    for d in status.deficits:
+        if d.lideranca_faltando:
+            partes.append(f"{d.lideranca_faltando} liderança de {d.frente_nome}")
+        if d.piso_faltando:
+            plural = "membros" if d.piso_faltando > 1 else "membro"
+            partes.append(f"{d.piso_faltando} {plural} de {d.frente_nome}")
+    return ", ".join(partes) or "a composição por frente"
 
 
 class CreateCandidaturaRequest(BaseModel):
@@ -85,6 +99,41 @@ class CreateCandidaturaUseCase:
 
         if len(candidaturas_existentes) >= vagas:
             raise RegraDeNegocioError("Não é possível se candidatar: banca lotada")
+
+        # ⭐ As últimas vagas ficam RESERVADAS para os pisos por frente ainda
+        # não cobertos (2026-09-04, a pedido): se falta 1 liderança de Business
+        # e sobra 1 vaga, só quem cobre essa cota entra. Antes o piso por
+        # frente era só MOSTRADO (`GET /bancas`); o único freio na inscrição
+        # era o total da banca.
+        #
+        # A conta: COM esta pessoa dentro, quantas vagas sobram vs. quanto de
+        # piso ainda falta. Se sobra menos vaga do que falta piso, a inscrição
+        # tornaria a composição impossível — recusa. Quem REDUZ o déficit
+        # (a liderança de Business que faltava) passa, porque aí `falta_depois`
+        # cai junto.
+        if vinculos_frente:
+            from src.use_cases.configuracao.composicao_banca import (
+                ResolverComposicaoUseCase,
+            )
+
+            regras = ResolverComposicaoUseCase(self.db).para(
+                [v.frente_id for v in vinculos_frente]
+            )
+            checker = ComposicaoBancaChecker(self.db)
+            ids_com_essa = {
+                c.usuario_id for c in candidaturas_existentes
+            } | {usuario_id}
+            status_depois = checker.verificar(banca, regras, ids_com_essa)
+            falta_depois = sum(
+                d.piso_faltando + d.lideranca_faltando for d in status_depois.deficits
+            )
+            vagas_livres_depois = vagas - (len(candidaturas_existentes) + 1)
+            if vagas_livres_depois < falta_depois:
+                raise RegraDeNegocioError(
+                    "Esta vaga está reservada para completar a composição: "
+                    f"falta {_descrever_pendencias(status_depois)}. Só quem cobre "
+                    "essa cota pode se inscrever agora."
+                )
 
         candidatura = self.repository.create(
             banca_id=request.banca_id,

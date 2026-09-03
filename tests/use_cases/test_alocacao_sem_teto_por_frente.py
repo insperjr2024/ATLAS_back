@@ -27,9 +27,19 @@ BUSINESS, TECH = 1, 2
 
 
 def montar(monkeypatch, *, frente_ids, frentes, alocados=(), vagas=10):
-    """Um `CreateCandidaturaUseCase` sem banco. A composição por frente não é
-    mais consultada aqui; o teto total (`vagas`) é o único que barra."""
+    """Um `CreateCandidaturaUseCase` sem banco. O teto TOTAL (`vagas`) é o
+    único que barra nestes testes: neutralizo a regra da combinação para o
+    piso por frente não reservar vaga nenhuma — a reserva é assunto de
+    `test_vaga_reservada_pro_piso.py`."""
     monkeypatch.setattr(mod, "calcular_vagas_banca", lambda *a, **k: vagas)
+    monkeypatch.setattr(
+        "src.use_cases.configuracao.composicao_banca.ResolverComposicaoUseCase.para",
+        lambda self, ids: [],
+    )
+    monkeypatch.setattr(
+        "src.utils.composicao_banca.ComposicaoBancaChecker.verificar",
+        lambda self, banca, regras, ids: SimpleNamespace(deficits=[]),
+    )
 
     class FakeCandidaturaRepo:
         def __init__(self):
