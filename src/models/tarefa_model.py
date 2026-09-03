@@ -74,7 +74,10 @@ class TarefaResponsavelModel(Base):
         UniqueConstraint("tarefa_id", "usuario_id", name="uq_tarefa_responsavel"),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
+    # Sem `index=True`: a PK ja e indexada, e o nome autogerado
+    # (`ix_tarefa_responsavel_id`) colidiria com o indice da antiga
+    # `tarefa.responsavel_id` na migration que cria esta tabela.
+    id = Column(Integer, primary_key=True)
     tarefa_id = Column(
         Integer, ForeignKey("tarefa.id", ondelete="CASCADE"), nullable=False, index=True
     )

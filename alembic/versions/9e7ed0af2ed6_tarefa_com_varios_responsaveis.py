@@ -10,6 +10,11 @@ todos os consultores do projeto.
 
 O `responsavel_id` de cada tarefa vira uma linha em `tarefa_responsavel`, e a
 coluna e removida.
+
+Sem indice explicito em `tarefa_responsavel.id`: a PK ja e indexada pelo
+Postgres, e o nome que o SQLAlchemy daria (`ix_tarefa_responsavel_id`)
+colide com o indice da coluna antiga `tarefa.responsavel_id`, que ainda
+existe quando esta migration roda.
 """
 
 import sqlalchemy as sa
@@ -31,9 +36,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["usuario_id"], ["usuario.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("tarefa_id", "usuario_id", name="uq_tarefa_responsavel"),
-    )
-    op.create_index(
-        op.f("ix_tarefa_responsavel_id"), "tarefa_responsavel", ["id"]
     )
     op.create_index(
         op.f("ix_tarefa_responsavel_tarefa_id"), "tarefa_responsavel", ["tarefa_id"]
@@ -72,5 +74,4 @@ def downgrade() -> None:
 
     op.drop_index(op.f("ix_tarefa_responsavel_usuario_id"), table_name="tarefa_responsavel")
     op.drop_index(op.f("ix_tarefa_responsavel_tarefa_id"), table_name="tarefa_responsavel")
-    op.drop_index(op.f("ix_tarefa_responsavel_id"), table_name="tarefa_responsavel")
     op.drop_table("tarefa_responsavel")
