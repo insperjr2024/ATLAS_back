@@ -8,10 +8,12 @@ O que estes testes protegem, depois da virada de 2026-09-01:
 
 - **Liderança é vaga A MAIS.** Business com 3 pessoas, uma delas gerente, não
   fecha mais: são 3 membros E 1 liderança, quatro pessoas.
-- **O diretor cobre a liderança de qualquer frente**, inclusive de uma a que
-  não está vinculado — e por isso não consome vaga de membro dela.
 - **Os tetos**, que não existiam antes desta mudança.
 - **A equipe do próprio projeto não conta**, nem como membro nem como líder.
+
+E, de 2026-09-04: **a diretoria é liderança SEM frente**, como o coordenador
+de vendas — não cobre mais o piso de liderança de frente nenhuma (antes
+cobria a de qualquer uma, por "enxergar todas").
 """
 
 from types import SimpleNamespace
@@ -223,9 +225,14 @@ class TestAEquipeSaiAntesDeContar:
 
 
 class TestODiretor:
-    def test_diretor_cobre_a_lideranca_sem_ser_da_frente(self):
-        """Ele enxerga todas (§3). E, por não estar vinculado a Business, não
-        tira ninguém da conta de membros dela."""
+    """2026-09-04: a diretoria virou liderança SEM frente, como o coordenador
+    de vendas — não fecha mais o `min_lideranca` de frente nenhuma. Antes
+    (2026-09-03) cobria a de QUALQUER uma, por "enxergar todas" (§3); isso
+    saiu, a pedido."""
+
+    def test_diretor_nao_cobre_a_lideranca_de_frente_nenhuma(self):
+        """Antes fechava por "enxergar tudo" (§3). Agora não: os 3 de Business
+        fecham o piso de membros, mas a liderança continua faltando."""
         por_frente = {BUSINESS: [10, 11, 12]}
         usuarios = [usuario(i) for i in (10, 11, 12)] + [usuario(99, "diretor_projetos")]
         checker, banca = montar(por_frente, usuarios)
@@ -234,20 +241,43 @@ class TestODiretor:
             banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12, 99}
         )
 
-        assert status.ok
+        assert status.deficits[0].lideranca_faltando == 1
+        assert status.deficits[0].piso_faltando == 0
 
-    def test_um_diretor_cobre_as_duas_frentes(self):
+    def test_diretor_de_qualquer_tipo_nao_cobre(self):
+        """diretor_projetos, diretor_pessoas e diretor — os três, sem
+        distinção — têm o mesmo tratamento."""
         por_frente = {BUSINESS: [10, 11, 12], TECH: [20, 21]}
-        usuarios = [usuario(i) for i in (10, 11, 12, 20, 21)] + [usuario(99, "diretor")]
+        usuarios = (
+            [usuario(i) for i in (10, 11, 12, 20, 21)]
+            + [usuario(97, "diretor_projetos"), usuario(98, "diretor_pessoas"), usuario(99, "diretor")]
+        )
         checker, banca = montar(por_frente, usuarios)
 
         status = checker.verificar(
             banca,
             [regra(BUSINESS, "Business", min_membros=3), regra(TECH, "Tech", min_membros=2)],
-            {10, 11, 12, 20, 21, 99},
+            {10, 11, 12, 20, 21, 97, 98, 99},
         )
 
-        assert status.ok
+        # Nenhum dos três cobre a liderança de Business nem de Tech.
+        assert {d.frente_nome: d.lideranca_faltando for d in status.deficits} == {
+            "Business": 1,
+            "Tech": 1,
+        }
+
+    def test_diretor_nao_ocupa_vaga_de_membro_por_nao_estar_na_frente(self):
+        """Ele some da contagem por frente inteira — não é liderança dela nem
+        membro dela, como a equipe do projeto."""
+        por_frente = {BUSINESS: [10, 11, 12]}
+        usuarios = [usuario(i) for i in (10, 11, 12)] + [usuario(99, "diretor")]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12, 99}
+        )
+
+        assert (business.membros, business.liderancas) == (3, 0)
 
 
 class TestPisoPorFrente:

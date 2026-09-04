@@ -42,7 +42,11 @@ from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
 from src.utils.banca_nota import calcular_nota_final
 from src.utils.banca_status import calcular_status_banca
-from src.utils.composicao_banca import ComposicaoBancaChecker, eh_lideranca
+from src.utils.composicao_banca import (
+    ComposicaoBancaChecker,
+    LIDERANCA_SEM_FRENTE_POSICOES,
+    eh_lideranca,
+)
 from src.utils.equipe_banca import membros_da_banca
 
 
@@ -186,11 +190,24 @@ class GetBancaDetalhesUseCase:
                     # cruza com `frentes_da_banca`.
                     "posicao": posicao,
                     "eh_lideranca": eh_lideranca(posicao),
-                    # Liderança SEM frente: a ficha lista o coordenador de
-                    # vendas entre as lideranças, mas ele não fecha o piso de
-                    # liderança de frente nenhuma (ver `composicao_banca`).
+                    # Coordenador de vendas puro — só para o "· vendas" no
+                    # nome. Quem decide o BLOCO ("outras frentes") é o campo
+                    # de baixo, mais largo.
                     "coordenador_vendas": bool(
                         usuario and getattr(usuario, "coordenador_vendas", False)
+                    ),
+                    # ⭐ Liderança SEM frente (2026-09-04): coordenador de
+                    # vendas OU diretoria (qualquer uma — projetos, pessoas,
+                    # geral). Nenhum dos dois fecha o piso de liderança de
+                    # frente nenhuma (ver `composicao_banca`); a ficha os joga
+                    # no bloco "outras frentes" mesmo vinculados a uma frente
+                    # da banca.
+                    "lideranca_sem_frente": bool(
+                        usuario
+                        and (
+                            getattr(usuario, "coordenador_vendas", False)
+                            or posicao in LIDERANCA_SEM_FRENTE_POSICOES
+                        )
                     ),
                     "frente_ids": self._frentes_do_usuario(c.usuario_id),
                     "avaliacao_id": minha.id if minha else None,
