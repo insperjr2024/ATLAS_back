@@ -150,26 +150,25 @@ class PushAlocacaoAutomaticaUseCase:
                 break
             membros_ids = membros_por_frente[frente.id]
 
+            # ⚠ Diretoria NÃO cobre aqui (2026-09-04): ela é liderança SEM
+            # frente, como o coordenador de vendas — espelha
+            # `ComposicaoBancaChecker.contar`. Contá-la faria o push achar a
+            # liderança coberta enquanto a ficha e a inscrição ainda diriam
+            # "falta 1 liderança de Business".
             lideres_presentes = {
                 uid
                 for uid in contabilizados()
                 if uid not in excluidos
                 and usuarios_por_id.get(uid)
-                and (
-                    (
-                        uid in membros_ids
-                        and usuarios_por_id[uid].posicao in LIDERANCA_DA_FRENTE_POSICOES
-                    )
-                    or usuarios_por_id[uid].posicao in DIRETORIA
-                )
+                and uid in membros_ids
+                and usuarios_por_id[uid].posicao in LIDERANCA_DA_FRENTE_POSICOES
             }
             regra = regra_por_frente.get(frente.id)
             lideranca_minima = regra.min_lideranca if regra else 1
             falta_lideranca = max(0, lideranca_minima - len(lideres_presentes))
             if falta_lideranca > 0:
-                # Puxa GERENTE ou COORDENADOR da frente automaticamente —
-                # diretor conta pra liderança se já estiver lá por conta
-                # própria, mas o push não escala diretoria pra rotina de banca.
+                # Puxa GERENTE ou COORDENADOR da frente automaticamente — o
+                # push não escala diretoria pra rotina de banca.
                 pool_lideres = [
                     u
                     for u in ativos

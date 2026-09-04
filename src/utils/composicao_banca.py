@@ -14,24 +14,30 @@ O que mudou em 2026-09-03, também a pedido da diretoria:
 
 3. **Coordenador conta como liderança.** Antes era só gerente e diretoria; o
    coordenador caía entre os membros. Agora gerente E coordenador cobrem a
-   liderança DA FRENTE deles, e a diretoria cobre a de qualquer frente (por
-   enxergar todas — §3).
+   liderança DA FRENTE deles.
 4. **Não há mais TETO por frente.** O piso (membros e liderança) continua
    tendo de ser gente DAQUELA frente. Mas, para completar a banca acima do
    piso, tanto faz a frente — o único teto é o TOTAL da banca (`vagas` da
    combinação, em `calcular_vagas_banca`), conferido em `create_candidatura`.
    Sumiram daqui `max_membros`, `max_lideranca` e o `recusa_por_teto`.
 
+O que mudou em 2026-09-04, de novo a pedido:
+
+5. **Diretoria também é liderança SEM frente.** Até aqui a diretoria cobria o
+   `min_lideranca` de QUALQUER frente, por "enxergar todas" (§3, 2026-09-03).
+   Isso saiu: agora diretor_projetos, diretor_pessoas e diretor têm o MESMO
+   tratamento do coordenador de vendas — mesma categoria, `LIDERANCA_SEM_FRENTE`.
+
 E o que não mudou:
 
-- **Liderança da frente é gerente ou coordenador DELA; a diretoria cobre
-  qualquer uma.** Consultor nunca é liderança.
-- **Coordenador de vendas é liderança SEM frente** (2026-09-03, a pedido).
+- **Liderança da frente é gerente ou coordenador DELA.** Consultor nunca é
+  liderança.
+- **Liderança SEM frente** — coordenador de vendas e toda a diretoria.
   Aparece na ficha entre as lideranças (`eh_lideranca` continua `True`), mas
   não cobre o `min_lideranca` de frente nenhuma nem entra no `min_membros` —
   some da contagem por frente como a equipe do projeto, e só conta no TOTAL
   da banca (`calcular_vagas_banca`). É a liderança que "pode ir, mas não
-  fecha o piso da frente".
+  fecha o piso de frente nenhuma".
 - **A equipe do próprio projeto nunca conta**, nem como membro nem como
   liderança. Ela já não pode se candidatar à própria banca
   (`create_candidatura`); aqui é a mesma exclusão, e ela vale ANTES de
@@ -64,10 +70,15 @@ from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.middlewares.authorization import DIRETORIA
 
-#: Gerente e coordenador cobrem a liderança DA FRENTE deles; a diretoria
-#: cobre a de qualquer uma.
+#: Gerente e coordenador cobrem a liderança DA FRENTE deles. A diretoria NÃO
+#: entra aqui (2026-09-04): ela é liderança SEM frente, como o coordenador de
+#: vendas — ver `LIDERANCA_SEM_FRENTE_POSICOES`.
 LIDERANCA_DA_FRENTE_POSICOES = ("gerente", "coordenador")
 LIDERANCA_POSICOES = (*LIDERANCA_DA_FRENTE_POSICOES, *DIRETORIA)
+#: Quem é liderança mas não cobre o piso de frente nenhuma — só o coordenador
+#: de vendas é identificado pela FLAG (`coordenador_vendas`, cruza com
+#: qualquer posição); a diretoria é identificada pela POSIÇÃO.
+LIDERANCA_SEM_FRENTE_POSICOES = DIRETORIA
 
 
 def eh_lideranca(posicao: str) -> bool:
@@ -170,52 +181,43 @@ class ComposicaoBancaChecker:
         excluidos = self._excluidos_do_projeto(banca)
         usuarios_por_id = self._usuarios_por_id()
         elegiveis = {uid for uid in candidato_ids if uid not in excluidos}
-        # A diretoria cobre a liderança de QUALQUER frente, por enxergar todas
-        # (§3) — inclusive de uma a que não está vinculada. Os três cargos
-        # contam: o critério é enxergar tudo, e isso os três têm.
-        cobrem_qualquer_frente = {
-            uid
-            for uid in elegiveis
-            if usuarios_por_id.get(uid) and usuarios_por_id[uid].posicao in DIRETORIA
-        }
-        # Coordenador de vendas é liderança SEM frente (2026-09-03): pode ir à
-        # banca, mas não cobre o `min_lideranca` de nenhuma frente nem entra no
-        # `min_membros`. Sai da contagem por frente inteira — como a equipe do
-        # projeto —, e só conta no TOTAL da banca. `getattr` porque os fakes
-        # dos testes de `contar` nem sempre trazem o campo.
+        # Liderança SEM frente (2026-09-04): coordenador de vendas e TODA a
+        # diretoria — os três cargos, sem distinção. Pode ir à banca, mas não
+        # cobre o `min_lideranca` de nenhuma frente nem entra no `min_membros`.
+        # Sai da contagem por frente inteira — como a equipe do projeto —, e
+        # só conta no TOTAL da banca. `getattr` porque os fakes dos testes de
+        # `contar` nem sempre trazem `coordenador_vendas`.
         lideranca_sem_frente = {
             uid
             for uid in elegiveis
             if usuarios_por_id.get(uid)
-            and getattr(usuarios_por_id[uid], "coordenador_vendas", False)
+            and (
+                getattr(usuarios_por_id[uid], "coordenador_vendas", False)
+                or usuarios_por_id[uid].posicao in LIDERANCA_SEM_FRENTE_POSICOES
+            )
         }
 
         contagens: List[ContagemFrente] = []
         for regra in regras:
             da_frente = self._da_frente(regra.frente_id)
-            # ⚠ A exclusão da equipe do projeto e do coordenador de vendas vale
-            # ANTES de contar: os dois somem da frente inteira, não só da lista
-            # de membros.
+            # ⚠ A exclusão da equipe do projeto e da liderança sem frente vale
+            # ANTES de contar: as duas somem da frente inteira, não só da
+            # lista de membros.
             presentes = (elegiveis & da_frente) - lideranca_sem_frente
             # Gerente E coordenador da frente cobrem a liderança dela
-            # (2026-09-03). Consultor nunca.
-            lideres_da_frente = {
+            # (2026-09-03). Consultor nunca, e quem é liderança SEM frente já
+            # saiu de `presentes` acima.
+            lideres = {
                 uid
                 for uid in presentes
                 if usuarios_por_id.get(uid)
                 and usuarios_por_id[uid].posicao in LIDERANCA_DA_FRENTE_POSICOES
             }
-            lideres = lideres_da_frente | cobrem_qualquer_frente
 
             # ⭐ **Liderança é vaga A MAIS** (2026-09-01, a pedido). Quem ocupa
             # a cota de liderança sai da conta de membros: a banca de Business
             # pede 3 membros E 1 liderança, quatro pessoas.
-            #
-            # Só sai da conta quem é DA FRENTE: a diretoria cobre a liderança
-            # sem estar vinculada a ela, e por isso nunca ocupava vaga de
-            # membro dela para começar.
             lideranca_usada = min(len(lideres), regra.min_lideranca)
-            consumidos_da_frente = min(len(lideres_da_frente), lideranca_usada)
 
             contagens.append(
                 ContagemFrente(
@@ -223,7 +225,7 @@ class ComposicaoBancaChecker:
                     frente_nome=regra.frente_nome,
                     min_membros=regra.min_membros,
                     min_lideranca=regra.min_lideranca,
-                    membros=len(presentes) - consumidos_da_frente,
+                    membros=len(presentes) - lideranca_usada,
                     liderancas=len(lideres),
                 )
             )
