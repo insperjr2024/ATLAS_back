@@ -243,10 +243,11 @@ class RegistrarEntregaEscopoUseCase:
         # a banca, e a banca aprovar.
         #
         # O terceiro degrau só existe porque agora há como preenchê-lo: o
-        # resultado sai do VOTO dos avaliadores (`utils/apuracao_banca.py`).
-        # Enquanto o veredito era uma string que ninguém digitava, exigi-lo aqui
-        # teria travado todas as entregas sem caminho de saída — foi por isso
-        # que a exigência tinha sido removida antes.
+        # resultado sai da assinatura de diretoria + gerente da frente
+        # (`use_cases/banca/aprovar_banca.py`). Enquanto o veredito era uma
+        # string que ninguém digitava, exigi-lo aqui teria travado todas as
+        # entregas sem caminho de saída — foi por isso que a exigência tinha
+        # sido removida antes.
         if data_antiga is None:
             banca = self.banca_repository.get_by_projeto_escopo(escopo_id)
             if not banca:

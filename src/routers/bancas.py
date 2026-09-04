@@ -10,6 +10,7 @@ from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     exigir_acesso_ao_projeto,
     require_diretor_projetos,
+    require_gestao,
     require_pode_aprovar_pedidos,
     require_pode_ver_dashboard_bancas,
     require_lideranca,
@@ -17,6 +18,11 @@ from src.middlewares.authorization import (
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.banca.aprovar_banca import (
+    ListarBancasEsperandoAprovacaoUseCase,
+    RegistrarAprovacaoBancaRequest,
+    RegistrarAprovacaoBancaUseCase,
+)
 from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequest
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
@@ -42,8 +48,6 @@ from src.use_cases.banca.marcar_banca_escopo import (
     MarcarBancaEscopoUseCase,
     RegistrarRealizacaoBancaUseCase,
     RegistrarRealizacaoRequest,
-    RegistrarResultadoBancaUseCase,
-    RegistrarResultadoRequest,
 )
 from src.use_cases.banca.registrar_descricao_coordenador import (
     RegistrarDescricaoCoordenadorRequest,
@@ -120,6 +124,16 @@ def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_
 @router.get("/bancas")
 def list_bancas(db: Session = Depends(get_db)):
     return ListBancasUseCase(db).execute()
+
+
+# ⚠️ Precisa vir ANTES de /bancas/{banca_id}, senão o FastAPI casa
+# "esperando-aprovacao" como `banca_id` (int) e devolve 422 — mesma armadilha
+# documentada em /formularios/ativo (routers/avaliacoes.py).
+@router.get("/bancas/esperando-aprovacao")
+def listar_bancas_esperando_aprovacao(current_user=Depends(require_gestao), db: Session = Depends(get_db)):
+    """A fila "Esperando aprovação" da aba Bancas — diretoria vê tudo, gerente
+    só as bancas com frente dele (§3)."""
+    return ListarBancasEsperandoAprovacaoUseCase(db).execute(current_user)
 
 
 @router.get("/bancas/{banca_id}")
@@ -228,23 +242,27 @@ def registrar_descricao_coordenador(
     return result
 
 
-@router.patch("/bancas/{banca_id}/resultado")
-def registrar_resultado(banca_id: int, request: RegistrarResultadoRequest, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
-    """🔒 Override da diretoria sobre o resultado da banca (§5.5, §8).
+@router.post("/bancas/{banca_id}/aprovacao")
+def registrar_aprovacao_banca(
+    banca_id: int,
+    request: RegistrarAprovacaoBancaRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """🔒 Aprovar ou reprovar a banca (§5.5, §8).
 
-    ⭐ O caminho normal é o VOTO: a maioria dos avaliadores presentes decide, e
-    a apuração grava sozinha (`src/utils/apuracao_banca.py`). Esta rota é a
-    saída de emergência para o que o voto não resolve — a banca em que ninguém
-    votou e o prazo venceu, que ficaria travada para sempre e trancaria a
-    entrega ao cliente junto.
+    ⭐ Quem decide é a diretoria de projetos OU o gerente de qualquer frente
+    da banca — qualquer um decide sozinho, sem esperar os demais. O papel de
+    quem está chamando é resolvido AQUI a partir do `current_user`, não
+    recebido no corpo: se viesse do corpo, qualquer um poderia se declarar
+    "gerente" e assinar por um cargo que não é seu.
 
-    ⚠ Por isso `require_diretor_projetos`, e não `require_pode_definir_cronograma`: quem
-    marca a banca não pode decidir o resultado dela por cima dos avaliadores. A
-    checagem de acesso ao projeto sai junto — a diretoria enxerga todos, e
-    exigir vínculo impediria justamente quem precisa destravar.
+    Não exige acesso prévio ao projeto: a diretoria decide qualquer banca, e o
+    gerente só consegue assinar pela própria frente (o use case rejeita quem
+    tenta assinar pela frente de outra pessoa).
     """
     try:
-        result = RegistrarResultadoBancaUseCase(db).execute(banca_id, request)
+        result = RegistrarAprovacaoBancaUseCase(db).execute(banca_id, request, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not result:

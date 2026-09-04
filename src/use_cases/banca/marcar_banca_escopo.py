@@ -270,34 +270,15 @@ class MarcarBancaEscopoUseCase:
         return campos
 
     def _apurar_sessao_em_curso(self, banca):
-        """Fecha a conta dos votos ANTES de decidir o destino da sessão (§8).
+        """Recarrega a banca antes de decidir o destino da sessão (§8).
 
-        ⭐ Roda no exato ponto em que a 2ª banca vai ser julgada, e é essa
-        ordem que importa. A sessão que está prestes a ser descartada pode ter
-        votos que nunca viraram veredito — 2 de 3 votaram e o terceiro sumiu.
-        Duas coisas dependem de apurá-los agora:
-
-        1. **Não perder os votos.** Arquivada a sessão, eles ficam presos ao
-           número antigo, e o job diário — que varre `banca.realizado_em`,
-           zerado na remarcação — nunca mais os alcança.
-        2. **Deixar a guarda enxergar a aprovação.** `_exigir_segunda_permitida`
-           recusa a 2ª banca de uma banca APROVADA. Se a apuração só rodasse
-           depois dela, uma banca que a urna acabou de aprovar ganharia uma 2ª
-           banca e perderia o veredito que libera a entrega — o mesmo estrago
-           que a guarda existe para impedir, por uma janela de ordenação.
-
-        `prazo_vencido=True` porque a sessão acaba AQUI, não daqui a dois dias:
-        quem não votou até a remarcação não vai mais votar naquela banca. Sem
-        voto nenhum continua sem veredito, como sempre.
-
-        Devolve a banca RECARREGADA — `apurar_banca` grava direto no banco, e
-        quem chama precisa enxergar o resultado que acabou de nascer.
+        ⭐ O resultado passou a ser gravado só pela assinatura de diretoria +
+        gerente da frente (`use_cases/banca/aprovar_banca.py`), de forma
+        SÍNCRONA — não existe mais apuração pendente para fechar aqui antes da
+        remarcação. A recarga continua valendo: `_exigir_segunda_permitida`,
+        logo em seguida, precisa do `resultado` mais atual em memória para
+        recusar 2ª banca de quem já foi aprovada.
         """
-        # Import local: `submeter_avaliacao` importa `registrar_resultado_na_sessao`
-        # deste módulo, e no topo isto seria circular.
-        from src.use_cases.avaliacao.submeter_avaliacao import apurar_banca
-
-        apurar_banca(self.db, banca, prazo_vencido=True)
         return self.repository.get_by_id(banca.id) or banca
 
     def _sincronizar_sessao(self, banca, request: MarcarBancaEscopoRequest) -> None:
@@ -807,50 +788,13 @@ class RegistrarRealizacaoBancaUseCase:
         )
 
 
-class RegistrarResultadoRequest(BaseModel):
-    resultado: str  # "aprovada" | "nao_aprovada"
-
-
-class RegistrarResultadoBancaUseCase:
-    """🔒 O resultado é o que libera ou trava a entrega ao cliente (§8).
-
-    ⚠ **Isto é o OVERRIDE da diretoria, não o caminho normal.** O veredito sai
-    do voto de quem assistiu (`utils/apuracao_banca.py`) — esta rota existe
-    para o caso que a apuração não resolve: banca realizada em que ninguém
-    votou, e que ficaria travando a entrega para sempre.
-
-    Por isso o router a restringe a `require_diretor_projetos`: sobrescrever a maioria
-    não é ação de rotina de quem conduz o cronograma.
-    """
-
-    def __init__(self, db: Session):
-        self.repository = BancaRepository(db)
-        self.sessao_repository = BancaSessaoRepository(db)
-
-    def execute(self, banca_id: int, request: RegistrarResultadoRequest):
-        if request.resultado not in ("aprovada", "nao_aprovada"):
-            raise RegraDeNegocioError("O resultado precisa ser 'aprovada' ou 'nao_aprovada'")
-
-        banca = self.repository.get_by_id(banca_id)
-        if not banca:
-            return None
-        # Não há resultado de banca que não aconteceu.
-        if not banca.realizado_em:
-            raise RegraDeNegocioError(
-                "Registre primeiro que a banca foi realizada, depois o resultado"
-            )
-
-        banca = self.repository.update(banca_id, resultado=request.resultado)
-        registrar_resultado_na_sessao(self.sessao_repository, banca)
-        return {"id": banca.id, "resultado": banca.resultado}
-
-
 def registrar_resultado_na_sessao(sessao_repository, banca) -> None:
     """Copia o veredito para a sessão corrente e a ENCERRA.
 
-    Função solta porque tem dois chamadores por natureza diferentes: o override
-    da diretoria acima e a apuração automática por voto. Duplicar isso nos dois
-    seria duas versões de "o que significa fechar uma sessão".
+    Função solta porque o veredito é gravado de um único lugar hoje
+    (`use_cases/banca/aprovar_banca.py::RegistrarAprovacaoBancaUseCase`), mas
+    "o que significa fechar uma sessão" não deveria virar uma segunda versão
+    se um outro caminho passar a gravar `resultado` no futuro.
 
     ⭐ Encerrar aqui é o que faz a próxima marcação abrir a sessão seguinte em
     vez de sobrescrever esta — é a fronteira entre "adiar" e "2ª banca".

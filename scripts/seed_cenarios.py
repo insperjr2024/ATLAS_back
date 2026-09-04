@@ -565,10 +565,14 @@ class Construtor:
         return b
 
     def votos(self, banca, escalados, votos, *, sessao=1):
-        """Avaliações submetidas, com o voto que decide a banca (§8).
+        """Avaliações submetidas (notas e feedback pedagógico).
 
-        Cada voto é uma linha de `avaliacao` com `voto_aprovacao` e o carimbo da
-        sessão — é assim que a apuração separa a 1ª banca da 2ª.
+        ⚠ O nome e o parâmetro `votos` são história: quem decide a banca hoje
+        é diretoria + gerente da frente (`use_cases/banca/aprovar_banca.py`),
+        não estas avaliações. `banca.resultado`/`BancaSessaoModel.resultado`
+        já vêm gravados direto por quem chamou `banca()`, acima — o que esta
+        função cria são só as notas/feedback de quem assistiu, coerentes com o
+        veredito para o cenário fazer sentido na tela.
         """
         formulario = self.db.query(FormularioModel).filter_by(ativo=True).first()
         if not formulario:
@@ -596,7 +600,6 @@ class Construtor:
                     sessao=sessao,
                     status="submetida",
                     submetida_em=quando,
-                    voto_aprovacao=voto,
                     nome_avaliador=usuario.nome,
                     tipo_avaliador="consultor" if usuario.posicao == "consultor" else "lideranca",
                     projeto_avaliado=banca.nome_projeto,

@@ -37,10 +37,9 @@ class CreateAvaliacaoUseCase:
         # 🔒 Só quem foi ESCALADO para esta banca avalia (§8).
         #
         # ⚠ Não era checado — qualquer pessoa logada podia criar uma avaliação
-        # para qualquer banca. Enquanto a avaliação era só um formulário isso
-        # passava por descuido; agora o voto DECIDE o resultado, e o resultado
-        # libera a entrega ao cliente (§5.5). Sem esta trava, um estranho ao
-        # projeto reprovaria a banca de qualquer time.
+        # para qualquer banca. Um estranho ao projeto deixaria nota e feedback
+        # numa banca de outro time, e a pessoa avaliada não teria como saber
+        # que aquela opinião não vinha de quem esteve lá.
         candidaturas = self.candidatura_repository.get_by_banca(request.banca_id)
         if not any(c.usuario_id == avaliador_id for c in candidaturas):
             raise RegraDeNegocioError(
@@ -61,27 +60,18 @@ class CreateAvaliacaoUseCase:
         corrente = self.sessao_repository.get_corrente(request.banca_id)
         sessao = corrente.numero if corrente else 1
 
-        # 🔒 Um voto por pessoa por sessão, e voto dado não se retoma.
-        #
-        # ⚠ A tela já esconde o caminho (a banca sai de "Com avaliação
-        # pendente") e a apuração já não conta em dobro — `votos_por_avaliador`
-        # reduz a uma avaliação por pessoa. Mas ela reduz pelo envio MAIS
-        # RECENTE, e era exatamente aí que o buraco ficava: bastava abrir o
-        # formulário de novo pela API para enviar um segundo voto e virar o
-        # próprio resultado, depois de já ter visto o placar. Como o resultado
-        # é o portão da entrega ao cliente (§5.5), trocar o voto em silêncio
-        # vale tanto quanto votar duas vezes.
+        # 🔒 Uma avaliação por pessoa por sessão, e enviada não se retoma.
         #
         # 📐 Barra só o que JÁ FOI SUBMETIDO. Rascunho duplicado continua
         # podendo nascer — o front cria a avaliação ao abrir o formulário, e
         # quem abre duas vezes não está tentando burlar nada.
-        ja_votou = any(
+        ja_enviou = any(
             a.avaliador_id == avaliador_id and a.status == "submetida"
             for a in self.repository.get_by_banca(request.banca_id, sessao)
         )
-        if ja_votou:
+        if ja_enviou:
             raise RegraDeNegocioError(
-                "Você já enviou sua avaliação desta banca — o voto não pode ser refeito"
+                "Você já enviou sua avaliação desta banca — não pode ser refeita"
             )
 
         avaliacao = self.repository.create(

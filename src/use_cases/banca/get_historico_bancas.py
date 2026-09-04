@@ -30,11 +30,11 @@ class GetHistoricoBancasUseCase:
             semestre_id=semestre_id
         )
 
-        resultado = []
+        linhas = []
         for banca in bancas_filtradas:
             notas = self.avaliacao_nota_repository.get_by_banca(banca.id)
             semestre = identificar_semestre(banca.data_hora, semestres)
-            resultado.append({
+            linhas.append({
                 "id": banca.id,
                 "nome_projeto": banca.nome_projeto,
                 "escopo_id": banca.escopo_id,
@@ -47,5 +47,10 @@ class GetHistoricoBancasUseCase:
                 # dois lados da mesma banca na mesma tela de acompanhamento.
                 "descricao_coordenador": banca.descricao_coordenador,
                 "descricao_coordenador_enviada_em": banca.descricao_coordenador_enviada_em,
+                # ⭐ "aprovada" | "nao_aprovada" | `None` (aconteceu, mas ainda
+                # esperando diretoria ou gerente decidir — ver
+                # `use_cases/banca/aprovar_banca.py`). Sem isto, o histórico
+                # de bancas não tinha onde mostrar o veredito.
+                "resultado": banca.resultado,
             })
-        return resultado
+        return linhas
