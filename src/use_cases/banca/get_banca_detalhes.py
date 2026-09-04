@@ -18,7 +18,6 @@ bancas nascidas do fluxo novo, que são a maioria hoje. `membros_da_banca` já
 sabe olhar os dois lados (ver `utils/equipe_banca.py`).
 """
 
-from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
@@ -38,8 +37,7 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
-from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
-from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
+from src.use_cases.banca.aprovar_banca import montar_situacao_aprovacao, sessao_corrente
 from src.utils.banca_nota import calcular_nota_final
 from src.utils.banca_status import calcular_status_banca
 from src.utils.composicao_banca import ComposicaoBancaChecker, eh_lideranca
@@ -92,9 +90,10 @@ class GetBancaDetalhesUseCase:
         )
         equipe.discard(banca.coordenador_id)
 
-        # Calculada antes: a nota final precisa da MESMA sessão que a apuração,
-        # senão os dois números do cabeçalho falam de tentativas diferentes.
-        apuracao = self._apuracao(banca, banca_id)
+        # A MESMA sessão da nota final, senão os dois números do cabeçalho
+        # falam de tentativas diferentes.
+        numero_sessao = sessao_corrente(self.db, banca_id)
+        aprovacao = montar_situacao_aprovacao(self.db, banca)
 
         return {
             "id": banca.id,
@@ -124,45 +123,44 @@ class GetBancaDetalhesUseCase:
             "coordenador_id": banca.coordenador_id,
             "membros": sorted(self._nome(i) for i in equipe),
             # ⭐ Objetos, não nomes soltos: a aba precisa saber QUEM é cada um
-            # para responder "sou eu?" e "já votei?" sem cruzar listas do lado
-            # do cliente. É o que permite votar de dentro do projeto.
+            # para responder "sou eu?" e "já enviou?" sem cruzar listas do
+            # lado do cliente.
             "avaliadores": self._avaliadores(banca_id),
             "descricao_coordenador": banca.descricao_coordenador,
             # ⭐ Cada TENTATIVA (§9) — é o que responde "por que este escopo
             # teve duas bancas?".
             "sessoes": self._sessoes(banca_id),
-            # ⭐ Quem votou o quê, e o que cada um escreveu. O §8 diz que o
-            # resultado sai da MAIORIA dos presentes; sem mostrar os votos, o
-            # veredito é um oráculo.
+            # ⭐ As notas e o feedback de quem avaliou — pedagógico, não decide
+            # a banca (ver `aprovacao` abaixo).
             "avaliacoes": self._avaliacoes(banca_id),
-            "apuracao": apuracao,
-            "nota_final": self._nota_final(banca_id, apuracao["sessao"]),
+            # ⭐ Quem aprova a banca é diretoria de projetos ou gerente da
+            # frente, não os avaliadores (§5.5, §8) — ver
+            # `use_cases/banca/aprovar_banca.py`.
+            "aprovacao": aprovacao,
+            "nota_final": self._nota_final(banca_id, numero_sessao),
             # Para a tela poder linkar de volta ao projeto — a ficha é aberta
             # de dentro dele, mas a banca pode cobrir escopo de outro lugar.
             "projeto_id": escopos[0].projeto_id if escopos else None,
         }
 
     def _avaliadores(self, banca_id: int) -> list:
-        """Quem foi escalado, se compareceu e o que já votou NESTA sessão.
+        """Quem foi escalado, se compareceu e se já enviou a avaliação NESTA sessão.
 
         ⭐ O estado de cada pessoa numa linha só. Sem isto a tela não consegue
-        oferecer "dar meu voto" a quem tem direito: ela receberia uma lista de
+        oferecer "avaliar" a quem tem direito: ela receberia uma lista de
         nomes e não teria como saber qual deles é o usuário logado, nem se ele
-        já votou.
+        já enviou.
 
-        A avaliação vem da sessão CORRENTE: numa 2ª banca, o voto que a pessoa
-        deu na primeira não a impede de votar de novo — é outra tentativa.
+        A avaliação vem da sessão CORRENTE: numa 2ª banca, a avaliação que a
+        pessoa deu na primeira não a impede de avaliar de novo — é outra
+        tentativa.
         """
-        corrente = self.sessao_repository.get_corrente(banca_id)
-        if corrente is None:
-            sessoes = self.sessao_repository.get_by_banca(banca_id)
-            corrente = sessoes[-1] if sessoes else None
-        numero = corrente.numero if corrente else 1
+        numero = sessao_corrente(self.db, banca_id)
 
         # Rascunho entra aqui de propósito, ao contrário de `_avaliacoes`: a
         # tela precisa reaproveitar o rascunho da própria pessoa em vez de
         # criar um segundo — dois rascunhos do mesmo avaliador viram duas
-        # linhas que a apuração teria de deduplicar.
+        # linhas duplicadas.
         por_avaliador = {
             a.avaliador_id: a
             for a in self.avaliacao_repository.get_by_banca(banca_id, sessao=numero)
@@ -194,8 +192,7 @@ class GetBancaDetalhesUseCase:
                     ),
                     "frente_ids": self._frentes_do_usuario(c.usuario_id),
                     "avaliacao_id": minha.id if minha else None,
-                    "ja_votou": bool(minha and minha.status == "submetida"),
-                    "voto_aprovacao": minha.voto_aprovacao if minha else None,
+                    "ja_enviou": bool(minha and minha.status == "submetida"),
                     "comentario_feedback": minha.comentario_feedback if minha else None,
                 }
             )
@@ -216,11 +213,11 @@ class GetBancaDetalhesUseCase:
         ]
 
     def _avaliacoes(self, banca_id: int) -> list:
-        """Uma linha por avaliação SUBMETIDA: quem, de qual sessão, voto e texto.
+        """Uma linha por avaliação SUBMETIDA: quem, de qual sessão, notas e texto.
 
         ⚠ Rascunho fica de fora de propósito. É o formulário aberto e não
-        enviado — mostrá-lo exporia uma opinião que a pessoa ainda não decidiu
-        tornar pública, e ele não conta na apuração.
+        enviado — mostrá-lo exporia notas que a pessoa ainda não decidiu
+        tornar públicas.
         """
         # As notas por critério, agrupadas pela avaliação que as recebeu. Uma
         # consulta só para a banca inteira — buscar por avaliação seria um N+1
@@ -252,12 +249,9 @@ class GetBancaDetalhesUseCase:
                 "avaliador": self._nome(a.avaliador_id),
                 "avaliador_id": a.avaliador_id,
                 "sessao": getattr(a, "sessao", 1) or 1,
-                "voto_aprovacao": a.voto_aprovacao,
                 "comentario_feedback": a.comentario_feedback,
                 "submetida_em": a.submetida_em,
-                # ⭐ O que a pessoa respondeu, critério a critério. É o que a aba
-                # abre ao clicar no nome dela: sem isto, o voto aparece sem a
-                # avaliação que o justifica.
+                # ⭐ O que a pessoa respondeu, critério a critério.
                 "notas": detalhar_notas(a.id),
             }
             for a in sorted(
@@ -270,64 +264,12 @@ class GetBancaDetalhesUseCase:
             )
         ]
 
-    def _apuracao(self, banca, banca_id: int) -> dict:
-        """A conta dos votos da sessão CORRENTE, como a tela precisa mostrá-la.
-
-        Não decide nada — quem grava o veredito é `apurar_banca`, no ato do
-        voto e no job diário. Aqui é leitura: "3 de 4 votaram, 2 a favor".
-        """
-        # A sessão corrente; na falta dela (todas encerradas), a ÚLTIMA.
-        #
-        # ⚠ Cair para `1` mostrava a conta da PRIMEIRA tentativa numa banca já
-        # decidida na segunda — a tela exibiria os votos que reprovaram ao lado
-        # do veredito "aprovada".
-        corrente = self.sessao_repository.get_corrente(banca_id)
-        if corrente is None:
-            sessoes = self.sessao_repository.get_by_banca(banca_id)
-            corrente = sessoes[-1] if sessoes else None
-        numero = corrente.numero if corrente else 1
-        candidaturas = self.candidatura_repository.get_by_banca(banca_id)
-        escalados = {c.usuario_id for c in candidaturas}
-        submetidas = [
-            a
-            for a in self.avaliacao_repository.get_by_banca(banca_id, sessao=numero)
-            if a.status == "submetida"
-            and a.voto_aprovacao is not None
-            and (not escalados or a.avaliador_id in escalados)
-        ]
-        votantes = list(votos_por_avaliador(submetidas).values())
-        # ⚠ O prazo REAL, não "já tem veredito".
-        #
-        # `motivo` é o que a tela usa para escolher a mensagem, e os dois casos
-        # pedem ações opostas: "aguardando" manda esperar o último voto,
-        # "sem_votos" manda a diretoria registrar o resultado à mão. Uma banca
-        # com prazo vencido e zero voto aparecia como "aguardando" — a tela
-        # pedia paciência num beco que só a diretoria destrava.
-        prazo_vencido = bool(
-            banca.resultado is not None
-            or (
-                banca.realizado_em
-                and datetime.now() > banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
-            )
-        )
-        conta = apurar(
-            [a.voto_aprovacao for a in votantes],
-            esperados=eleitorado(candidaturas, [a.avaliador_id for a in votantes]),
-            prazo_vencido=prazo_vencido,
-        )
-        return {
-            "sessao": numero,
-            "aprovacoes": conta.aprovacoes,
-            "reprovacoes": conta.reprovacoes,
-            "esperados": conta.esperados,
-            "motivo": conta.motivo,
-        }
-
     def _nota_final(self, banca_id: int, sessao: int):
-        """A média das notas por critério — outra dimensão que o VOTO.
+        """A média das notas por critério — outra dimensão que a aprovação.
 
-        A nota diz quão bem o trabalho foi feito; o voto responde se ele pode
-        ir ao cliente. Dá para ir bem na nota e reprovar por um ponto isolado.
+        A nota diz quão bem o trabalho foi feito; a aprovação responde se ele
+        pode ir ao cliente. Dá para ir bem na nota e reprovar por um ponto
+        isolado.
 
         ⚠ **Só as notas DESTA tentativa.** Somar as duas misturava a banca que
         reprovou com a que aprovou e produzia uma média que não descreve

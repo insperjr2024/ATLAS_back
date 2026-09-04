@@ -6,11 +6,10 @@
    confirmasse um pedido aberto — e ele virava avaliador da banca dele mesmo.
    Era o contorno da regra que `create_candidatura` cobra no caminho normal.
 
-2. **Voto único.** A avaliação submetida não podia mais ser editada, mas nada
-   impedia ABRIR outra para a mesma banca e submeter com o voto contrário. A
-   apuração reduz a um voto por pessoa pelo envio MAIS RECENTE — então a
-   segunda submissão trocava o voto em silêncio, depois de a pessoa já ter
-   visto o placar. E o resultado é o portão da entrega ao cliente (§5.5).
+2. **Avaliação única.** A avaliação submetida não podia mais ser editada, mas
+   nada impedia ABRIR outra para a mesma banca e submeter de novo — trocando
+   nota e feedback em silêncio, sem que ninguém soubesse que a primeira versão
+   deixou de valer.
 """
 
 from types import SimpleNamespace
@@ -147,7 +146,7 @@ class TestUmVotoPorPessoa:
         uc = montar_avaliacao([avaliacao(1, avaliador_id=7, status="submetida")])
         with pytest.raises(RegraDeNegocioError) as erro:
             uc.execute(pedido(), avaliador_id=7)
-        assert "não pode ser refeito" in str(erro.value)
+        assert "não pode ser refeita" in str(erro.value)
 
     def test_rascunho_duplicado_continua_permitido(self):
         """O front cria a avaliação ao ABRIR o formulário — quem abre duas

@@ -80,6 +80,14 @@ class BancaRepository:
     def get_by_id(self, banca_id: int) -> Optional[BancaModel]:
         return self.db.query(BancaModel).filter(BancaModel.id == banca_id).first()
 
+    def get_realizadas_sem_resultado(self) -> List[BancaModel]:
+        """Aconteceu e ainda não tem veredito — a fila "Esperando aprovação"."""
+        return (
+            self.db.query(BancaModel)
+            .filter(BancaModel.realizado_em.isnot(None), BancaModel.resultado.is_(None))
+            .all()
+        )
+
     def get_all(self) -> List[BancaModel]:
         return self.db.query(BancaModel).all()
 

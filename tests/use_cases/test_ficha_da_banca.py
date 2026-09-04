@@ -125,9 +125,9 @@ def mundo(monkeypatch):
             def get_by_usuario(self, usuario_id):
                 return []
 
-        # A ficha passou a trazer as TENTATIVAS, os votos e a nota (§8, §9).
-        # Estes testes medem os NOMES resolvidos, não a apuração — que tem
-        # cobertura própria em `test_apuracao_banca.py` e `test_urna_da_banca.py`.
+        # A ficha passou a trazer as TENTATIVAS e a nota (§9). Estes testes
+        # medem os NOMES resolvidos, não a aprovação — que tem cobertura
+        # própria em `test_aprovar_banca.py` e `test_apuracao_banca.py`.
         # Vazio aqui mantém cada teste medindo uma coisa só.
         class SessaoFake:
             def __init__(self, db): pass
@@ -172,6 +172,20 @@ def mundo(monkeypatch):
             GetBancaDetalhesUseCase, "_composicao", lambda self, banca, banca_id: []
         )
 
+        # A aprovação (diretoria + gerente da frente) tem cobertura própria em
+        # `test_aprovar_banca.py`. Vazia aqui mantém este teste medindo só os
+        # nomes resolvidos, não quem assina a banca.
+        monkeypatch.setattr(get_banca_detalhes, "sessao_corrente", lambda db, banca_id: 1)
+        monkeypatch.setattr(
+            get_banca_detalhes,
+            "montar_situacao_aprovacao",
+            lambda db, banca: {
+                "resultado": banca.resultado,
+                "aprovacao_diretoria": None,
+                "aprovacao_gerente": [],
+            },
+        )
+
         return GetBancaDetalhesUseCase(db=None)
 
     return _mundo
@@ -190,10 +204,10 @@ def test_resolve_os_nomes_da_ficha(mundo):
     assert ficha["frentes"] == ["Tech"]
     assert ficha["frentes_da_banca"] == [{"id": 0, "nome": "Tech"}]
     # ⭐ Avaliador virou OBJETO: a aba Banca precisa do id para saber "sou eu?"
-    # e do estado do voto para oferecer (ou não) o formulário.
+    # e se já enviou a avaliação, para oferecer (ou não) o formulário.
     assert [a["nome"] for a in ficha["avaliadores"]] == ["Bia Martins"]
     assert ficha["avaliadores"][0]["usuario_id"] == 92
-    assert ficha["avaliadores"][0]["ja_votou"] is False
+    assert ficha["avaliadores"][0]["ja_enviou"] is False
     # ⭐ E a categoria, para a ficha agrupar liderança x membro por frente.
     assert ficha["avaliadores"][0]["posicao"] == "consultor"
     assert ficha["avaliadores"][0]["eh_lideranca"] is False

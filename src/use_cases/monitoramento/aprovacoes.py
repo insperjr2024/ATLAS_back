@@ -38,15 +38,13 @@ ninguém a confiar nela. Quem decide isso é o front; o backend sempre devolve
 as seis chaves.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 from src.models.projeto_model import ProjetoModel
-from src.repositories.avaliacao_repository import AvaliacaoRepository
 from src.repositories.banca_repository import BancaRepository
-from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.cronograma_reajuste_repository import CronogramaReajusteRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.justificativa_pedido_repository import JustificativaPedidoRepository
@@ -58,12 +56,11 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 )
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.banca.aprovar_banca import montar_situacao_aprovacao
 from src.use_cases.banca.excecao_choque import ListarExcecoesChoquePendentesUseCase
 from src.use_cases.banca.fora_janela import ListarForaJanelaPendentesUseCase
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
-from src.utils.apuracao_banca import apurar, eleitorado, votos_por_avaliador
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
-from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.calendario_variante import (
     apenas_globais,
     datas_por_escopo,
@@ -136,8 +133,6 @@ class ListarAprovacoesPendentesUseCase:
         self.reajuste_repository = CronogramaReajusteRepository(db)
         self.justificativa_repository = ProjetoJustificativaAtrasoRepository(db)
         self.usuario_repository = UsuarioRepository(db)
-        self.candidatura_repository = CandidaturaRepository(db)
-        self.avaliacao_repository = AvaliacaoRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.frente_repository = FrenteRepository(db)
         self.pedido_repository = JustificativaPedidoRepository(db)
@@ -255,21 +250,12 @@ class ListarAprovacoesPendentesUseCase:
         return [p for p in pedidos if p["status"] == "pendente"]
 
     def _bancas_sem_resultado(self, escopos, por_id, nomes_escopo, hoje: date) -> List[dict]:
-        """§5.5: a banca aconteceu e ninguém registrou o veredito.
+        """§5.5: a banca aconteceu e ainda espera diretoria + gerente da frente.
 
-        ⭐ **Esta fila virou o bloqueio mais duro do sistema.** Enquanto não há
-        veredito, a entrega ao cliente NÃO libera (`RegistrarEntregaEscopoUseCase`):
-        o escopo fica parado esperando alguém agir. O caminho normal é o voto
-        dos avaliadores, que apura sozinho; o que cai aqui é o que o voto não
-        resolveu — ninguém votou e o prazo venceu — e só a diretoria destrava,
-        registrando o resultado à mão.
-
-        ⭐ **A urna vem junto.** Sem ela a linha dizia só "projeto — escopo,
-        realizada em 22/07", e as duas situações que exigem respostas OPOSTAS
-        ficavam idênticas na tela: *ninguém votou e o prazo venceu* (a
-        diretoria precisa decidir no lugar deles) e *falta um voto e o prazo
-        corre* (a diretoria precisa cobrar, não decidir). É a diferença entre
-        registrar um veredito legítimo e atropelar uma votação em curso.
+        ⭐ **Esta é a fila mais dura do sistema.** Enquanto não há veredito, a
+        entrega ao cliente NÃO libera (`RegistrarEntregaEscopoUseCase`): o
+        escopo fica parado esperando as duas assinaturas
+        (`use_cases/banca/aprovar_banca.py`).
 
         Só bancas de escopo (as legadas, sem vínculo, não têm projeto para
         cobrar) e só de projeto vivo — o recorte de `execute`.
@@ -287,25 +273,10 @@ class ListarAprovacoesPendentesUseCase:
             # de cada um, e mostrar só o primeiro escondia os outros.
             por_banca.setdefault(banca.id, [banca, []])[1].append(escopo)
 
-        ids = list(por_banca)
-        candidaturas = _agrupar_por(self.candidatura_repository.get_by_bancas(ids), "banca_id")
-        avaliacoes = _agrupar_por(self.avaliacao_repository.get_by_bancas(ids), "banca_id")
-
         linhas = []
         for banca_id, (banca, escopos_da_banca) in por_banca.items():
             primeiro = escopos_da_banca[0]
             projeto = por_id.get(primeiro.projeto_id)
-            prazo = (banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)).date()
-            vencido = hoje > prazo
-
-            submetidas = [
-                a
-                for a in avaliacoes.get(banca_id, [])
-                if a.status == "submetida" and a.voto_aprovacao is not None
-            ]
-            votos = list(votos_por_avaliador(submetidas).values())
-            esperados = eleitorado(candidaturas.get(banca_id, []), [v.avaliador_id for v in votos])
-            apuracao = apurar([v.voto_aprovacao for v in votos], esperados, prazo_vencido=vencido)
 
             linhas.append(
                 {
@@ -320,17 +291,9 @@ class ListarAprovacoesPendentesUseCase:
                         for e in escopos_da_banca
                     ],
                     "realizado_em": banca.realizado_em,
-                    "prazo_avaliacao_em": prazo,
-                    "prazo_vencido": vencido,
-                    # ⭐ O que a diretoria precisa saber ANTES de dar o veredito
-                    # no lugar dos avaliadores.
-                    "apuracao": {
-                        "recebidos": apuracao.recebidos,
-                        "esperados": apuracao.esperados,
-                        "aprovacoes": apuracao.aprovacoes,
-                        "reprovacoes": apuracao.reprovacoes,
-                        "motivo": apuracao.motivo,
-                    },
+                    # ⭐ O que falta assinar — diretoria, o gerente de qual
+                    # frente, ou as duas coisas.
+                    **montar_situacao_aprovacao(self.db, banca),
                 }
             )
         # A mais antiga primeiro: é a que está esperando há mais tempo.

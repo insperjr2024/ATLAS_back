@@ -565,48 +565,6 @@ class TestSegundaBancaNaoEhRemarcacao:
 
         assert executar(data_hora=alvo, justificativa=None)
 
-    def test_aprovacao_que_nasce_na_apuracao_tambem_barra_a_segunda(self, marcar):
-        """⚠ A janela de ordenação que quase custou a trava da entrega.
-
-        A banca aconteceu e ainda não tinha veredito na linha de `banca` — o
-        veredito só nasce quando a apuração roda. Como a apuração acontecia
-        DEPOIS da guarda, `_exigir_segunda_permitida` lia `resultado=None` e
-        deixava passar: a sessão era arquivada como "aprovada", a 2ª banca
-        nascia, e `_campos_da_remarcacao` apagava o resultado da linha que a
-        trava do §5.5 lê. O escopo ficava aprovado no histórico e travado na
-        tela.
-
-        Aqui a apuração já rodou quando a guarda decide, e a recusa acontece.
-        """
-        banca = self._reprovada_no_passado()
-        banca.resultado = None  # ainda sem veredito quando a request chega
-        executar, estado = marcar(banca_existente=banca)
-        estado.sessoes.append(
-            SimpleNamespace(
-                id=1, banca_id=banca.id, numero=1, data_hora=banca.data_hora,
-                realizado_em=banca.realizado_em, resultado=None, encerrada_em=None,
-            )
-        )
-
-        # A apuração (dublada abaixo) grava "aprovada" ao ser chamada.
-        import src.use_cases.avaliacao.submeter_avaliacao as submeter
-
-        def apurar_falso(db, alvo, prazo_vencido=None):
-            alvo.resultado = "aprovada"
-            return SimpleNamespace(resultado="aprovada", decidida=True)
-
-        original = submeter.apurar_banca
-        submeter.apurar_banca = apurar_falso
-        try:
-            with pytest.raises(RegraDeNegocioError, match="APROVADA"):
-                executar(data_hora=DENTRO)
-        finally:
-            submeter.apurar_banca = original
-
-        # E nada foi arquivado nem aberto: a recusa veio antes.
-        assert len(estado.sessoes) == 1
-        assert estado.sessoes[0].encerrada_em is None
-
     def test_banca_aprovada_nao_ganha_segunda(self, marcar):
         """⚠ Antes isto passava e apagava a aprovação em silêncio — o escopo
         perdia o veredito que liberava a entrega, sem registro nenhum."""

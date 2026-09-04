@@ -13,6 +13,8 @@ from src.models.equipe_projeto_model import EquipeProjetoModel
 from src.models.usuario_frente_model import UsuarioFrenteModel
 from src.models.banca_frente_model import BancaFrenteModel
 from src.models.banca_escopo_model import BancaEscopoModel
+# A decisão de diretoria + gerente da frente que aprova/reprova a banca (§5.5).
+from src.models.banca_aprovacao_model import BancaAprovacaoModel
 # Cada tentativa de uma banca (§9) — é ela que preserva a reprovação quando o
 # escopo precisa de uma segunda banca.
 from src.models.banca_excecao_choque_model import BancaExcecaoChoqueModel

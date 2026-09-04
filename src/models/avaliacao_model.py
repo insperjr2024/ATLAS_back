@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from src.database.database import Base
 
 
@@ -22,22 +22,10 @@ class AvaliacaoModel(Base):
     avaliador_id = Column(Integer, ForeignKey("usuario.id"), nullable=False)
     formulario_id = Column(Integer, ForeignKey("formulario.id"), nullable=False)
     status = Column(String(20), nullable=False, default="rascunho")
-    #: ⭐ O VOTO de quem assistiu: esta banca aprova o trabalho?
+    #: ⭐ Em QUAL tentativa da banca esta avaliação foi dada (§9).
     #:
-    #: É daqui que sai `banca.resultado` — por MAIORIA dos votos submetidos, e
-    #: não da caneta de uma pessoa (ver `utils/apuracao_banca.py`). As notas
-    #: por critério continuam existindo e medem outra coisa: elas dão a nota
-    #: final do projeto; o voto decide se o trabalho pode ir ao cliente.
-    #:
-    #: ⚠ **Nullable, e tem de ser.** Rascunho ainda não votou, e as avaliações
-    #: gravadas antes desta coluna existir não têm voto nenhum. A
-    #: obrigatoriedade é da SUBMISSÃO, cobrada no use case — pôr `NOT NULL`
-    #: aqui exigiria inventar um voto para o passado.
-    voto_aprovacao = Column(Boolean, nullable=True)
-    #: ⭐ Em QUAL tentativa da banca este voto foi dado (§9).
-    #:
-    #: ⚠ Sem isto, os votos da 1ª banca contariam na apuração da 2ª — que é
-    #: exatamente a sessão que existe para dar ao escopo uma chance nova.
+    #: ⚠ Sem isto, o feedback da 1ª banca apareceria misturado com o da 2ª —
+    #: que é exatamente a sessão que existe para dar ao escopo uma chance nova.
     #: `avaliacao.banca_id` sozinho não distingue tentativa, porque a linha de
     #: `banca` é a mesma nas duas.
     #:
