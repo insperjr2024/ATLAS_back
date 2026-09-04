@@ -139,6 +139,14 @@ class PushAlocacaoAutomaticaUseCase:
         def vagas_restantes() -> int:
             return vaga_disponivel - len(selecionados)
 
+        # ⭐ Quanto de liderança faltou por FALTA DE POOL — nenhum
+        # gerente/coordenador daquela frente disponível pra puxar (2026-09-04,
+        # a pedido). Essas vagas ficam RESERVADAS lá embaixo: o preenchimento
+        # geral não pode gastá-las com quem não é líder da frente, senão a
+        # banca bate o piso TOTAL com a liderança ainda de fato faltando —
+        # espelha a reserva de `create_candidatura` pro mesmo caso.
+        lideranca_nao_coberta = 0
+
         # §8: piso e liderança são POR FRENTE — cada frente vinculada puxa
         # gente DELA MESMA primeiro, liderança antes do resto do piso (um
         # gerente/coordenador presente também conta como membro da frente,
@@ -178,7 +186,12 @@ class PushAlocacaoAutomaticaUseCase:
                     and u.posicao in LIDERANCA_DA_FRENTE_POSICOES
                 ]
                 fila_lideres = self._ordenar_por_rodizio(pool_lideres, ultima_alocacao)
-                selecionados.extend(fila_lideres[: min(falta_lideranca, vagas_restantes())])
+                escalados_lideranca = fila_lideres[: min(falta_lideranca, vagas_restantes())]
+                selecionados.extend(escalados_lideranca)
+                # Sorteia SÓ entre quem cobre a cota (`pool_lideres`, acima).
+                # O que sobrar sem pool pra puxar fica reservado, não vai pro
+                # preenchimento geral do fim da função.
+                lideranca_nao_coberta += falta_lideranca - len(escalados_lideranca)
 
             if vagas_restantes() <= 0:
                 continue
@@ -202,6 +215,11 @@ class PushAlocacaoAutomaticaUseCase:
         # piso — qualquer frente cobre, senão a banca fica presa sem nunca
         # bater o mínimo total.
         deficit_restante = min(max(0, piso_total - len(contabilizados())), vagas_restantes())
+        # ⚠ Menos o que é liderança sem pool pra cobrir: essas vagas ficam
+        # vazias de propósito (ver `lideranca_nao_coberta` acima) — vão pra
+        # quem se alocar sozinho depois cobrindo a cota, não pro primeiro
+        # nome da fila geral.
+        deficit_restante = max(0, deficit_restante - lideranca_nao_coberta)
         if deficit_restante > 0:
             # ⚠ **Diretoria fica de fora daqui também** (2026-09-01). A regra
             # já valia para a cota de liderança logo acima — "o push não escala
