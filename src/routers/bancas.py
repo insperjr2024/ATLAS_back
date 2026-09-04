@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
+    exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
     require_diretor_projetos,
     require_gestao,
@@ -148,20 +149,26 @@ def get_banca(banca_id: int, db: Session = Depends(get_db)):
 def get_banca_detalhes(
     banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """A ficha da banca com os nomes resolvidos, para abrir de dentro do
-    cronograma do projeto.
+    """A ficha da banca com os nomes resolvidos — abre de dentro do
+    cronograma do projeto E do "ver mais" da página `/bancas`.
 
-    ⚠ **Exige login e acesso ao projeto**, diferente do `GET /bancas/{id}` ao
-    lado: aqui saem NOMES de pessoas (equipe e avaliadores), e o recorte de
-    visão do §3 vale para eles como vale para o resto do projeto. Banca legada,
-    sem escopo vinculado, não tem projeto de onde derivar acesso — fica com o
-    login só, que é o que o `GET` vizinho já pedia (nem isso, na verdade).
+    ⚠ **Exige login e acesso ao projeto OU ser avaliador escalado nesta
+    banca** (`exigir_acesso_a_banca_do_projeto`, o mesmo portão da aba Banca
+    do projeto): aqui saem NOMES de pessoas (equipe e avaliadores), e o
+    recorte de visão do §3 vale para eles como vale para o resto do projeto.
+    Mas o avaliador comum — o caso mais frequente de quem abre isto pela
+    página `/bancas` — não é da equipe do próprio projeto por definição (§8:
+    ninguém avalia o próprio grupo), então `exigir_acesso_ao_projeto` sozinho
+    barrava exatamente quem mais usa esta rota: só o `pode_ver_projeto`
+    entrava, sem a exceção de avaliador. Banca legada, sem escopo vinculado,
+    não tem projeto de onde derivar acesso — fica com o login só, que é o que
+    o `GET` vizinho já pedia (nem isso, na verdade).
     """
     detalhes = GetBancaDetalhesUseCase(db).execute(banca_id)
     if not detalhes:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     if detalhes["projeto_id"]:
-        exigir_acesso_ao_projeto(detalhes["projeto_id"], current_user, db, somente_leitura_ok=True)
+        exigir_acesso_a_banca_do_projeto(detalhes["projeto_id"], current_user, db)
     return detalhes
 
 
