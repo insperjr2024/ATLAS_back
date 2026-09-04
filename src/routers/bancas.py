@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
-    exigir_acesso_a_banca_do_projeto,
     exigir_acesso_ao_projeto,
     require_diretor_projetos,
     require_gestao,
@@ -152,23 +151,20 @@ def get_banca_detalhes(
     """A ficha da banca com os nomes resolvidos — abre de dentro do
     cronograma do projeto E do "ver mais" da página `/bancas`.
 
-    ⚠ **Exige login e acesso ao projeto OU ser avaliador escalado nesta
-    banca** (`exigir_acesso_a_banca_do_projeto`, o mesmo portão da aba Banca
-    do projeto): aqui saem NOMES de pessoas (equipe e avaliadores), e o
-    recorte de visão do §3 vale para eles como vale para o resto do projeto.
-    Mas o avaliador comum — o caso mais frequente de quem abre isto pela
-    página `/bancas` — não é da equipe do próprio projeto por definição (§8:
-    ninguém avalia o próprio grupo), então `exigir_acesso_ao_projeto` sozinho
-    barrava exatamente quem mais usa esta rota: só o `pode_ver_projeto`
-    entrava, sem a exceção de avaliador. Banca legada, sem escopo vinculado,
-    não tem projeto de onde derivar acesso — fica com o login só, que é o que
-    o `GET` vizinho já pedia (nem isso, na verdade).
+    ⚠ **Só exige login** (2026-09-04, a pedido — quem está NA banca sempre
+    foi informação aberta a qualquer um da casa, avaliador ou não). Chegou a
+    ter recorte de acesso ao projeto aqui (§3, com exceção de avaliador
+    escalado — `exigir_acesso_a_banca_do_projeto`), mas isso quebrava
+    exatamente o caso comum: a lista corrida de nomes que a página `/bancas`
+    sempre mostrou pra qualquer um (via `contexto.candidaturas` +
+    `contexto.usuarios`, sem checagem nenhuma) virava 404 nesta versão
+    agrupada só porque a pessoa não tinha OUTRO vínculo com o projeto além
+    de estar avaliando — ou nem isso. Essa ficha não é dado sensível do
+    projeto (orçamento, cliente, proposta); é só quem está na banca.
     """
     detalhes = GetBancaDetalhesUseCase(db).execute(banca_id)
     if not detalhes:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
-    if detalhes["projeto_id"]:
-        exigir_acesso_a_banca_do_projeto(detalhes["projeto_id"], current_user, db)
     return detalhes
 
 
