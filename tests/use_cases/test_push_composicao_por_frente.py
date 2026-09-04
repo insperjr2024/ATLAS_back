@@ -266,6 +266,51 @@ class TestLiderancaNoPush:
         assert 99 not in resultado["usuarios_alocados"]
 
 
+class TestVagaDeLiderancaReservadaNoPush:
+    """2026-09-04, a pedido: sem gerente/coordenador da frente disponível pra
+    cobrir a liderança que falta, a vaga fica RESERVADA — o preenchimento
+    geral (fila de qualquer frente, mais embaixo) não pode gastá-la com um
+    consultor qualquer só pra "fechar o número". Espelha a reserva de
+    `create_candidatura` pro mesmo caso."""
+
+    def test_sem_lider_disponivel_a_vaga_fica_vazia(self, monkeypatch):
+        uc, banca, candidaturas = montar(
+            monkeypatch,
+            frente_ids=[1],
+            frentes={1: frente(1, "Business", 3)},
+            por_frente={1: [10, 11, 12]},  # ninguém aqui é gerente/coordenador
+            usuarios=[usuario(i) for i in (10, 11, 12, 30)],  # 30 é de fora
+            lideranca_minima=1,
+            teto=6,
+        )
+
+        resultado = uc._processar_banca(banca, teto=6, ultima_alocacao={})
+
+        selecionados = set(resultado["usuarios_alocados"])
+        # Os 3 membros de Business entram; a vaga de liderança fica vazia —
+        # 30 NÃO é puxado pra "completar" o piso com quem não é líder.
+        assert selecionados == {10, 11, 12}
+        assert 30 not in selecionados
+
+    def test_com_lider_disponivel_a_vaga_e_preenchida_normalmente(self, monkeypatch):
+        """A reserva não atrapalha o caso feliz: havendo líder, ele entra e
+        não sobra vaga reservada nenhuma."""
+        uc, banca, candidaturas = montar(
+            monkeypatch,
+            frente_ids=[1],
+            frentes={1: frente(1, "Business", 2)},
+            por_frente={1: [10, 11, 12]},  # 10 é gerente
+            usuarios=[usuario(10, "gerente"), usuario(11), usuario(12)],
+            lideranca_minima=1,
+            teto=5,
+        )
+
+        resultado = uc._processar_banca(banca, teto=5, ultima_alocacao={})
+
+        # Gerente + os 2 membros: piso fechado, nada sobra pro geral.
+        assert set(resultado["usuarios_alocados"]) == {10, 11, 12}
+
+
 class TestRespeitaOTeto:
     def test_nao_ultrapassa_o_teto_mesmo_com_deficit_maior(self, monkeypatch):
         uc, banca, candidaturas = montar(
