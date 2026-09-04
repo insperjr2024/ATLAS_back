@@ -170,10 +170,11 @@ class GetBancaDetalhesUseCase:
             for a in self.avaliacao_repository.get_by_banca(banca_id, sessao=numero)
         }
 
+        usuarios_por_id = self._usuarios_por_id()
         linhas = []
         for c in self.candidatura_repository.get_by_banca(banca_id):
             minha = por_avaliador.get(c.usuario_id)
-            usuario = self.usuario_repository.get_by_id(c.usuario_id)
+            usuario = usuarios_por_id.get(c.usuario_id)
             posicao = usuario.posicao if usuario else "consultor"
             linhas.append(
                 {
@@ -305,10 +306,40 @@ class GetBancaDetalhesUseCase:
         nota = calcular_nota_final(notas)
         return float(nota) if nota is not None else None
 
+    def _usuarios_por_id(self) -> dict:
+        """A tabela inteira, uma vez por ficha (2026-09-04 — a query que
+        faltava pro `/bancas/{id}/detalhes` de 12 avaliadores parar de levar
+        ~17s).
+
+        ⚠ `_nome`, `_avaliadores` e `_avaliacoes` juntos chamavam isto uma vez
+        POR REFERÊNCIA a um usuário — coordenador, cada membro, cada
+        avaliador, cada nome de avaliação — sem cache nenhum: 20+ queries
+        redondas pro banco remoto onde uma só bastava. `ListBancasDoProjetoUseCase`
+        reaproveita a MESMA instância desta classe pra todas as bancas do
+        projeto, então o cache também vale entre bancas — melhor ainda.
+        """
+        cache = getattr(self, "_cache_usuarios", None)
+        if cache is None:
+            cache = {u.id: u for u in self.usuario_repository.get_all()}
+            self._cache_usuarios = cache
+        return cache
+
+    def _frentes_por_usuario(self) -> dict:
+        """usuario_id → [frente_id, ...], a tabela de vínculos inteira numa
+        query só — `_frentes_do_usuario` chamava `get_by_usuario` um por
+        avaliador (mesmo motivo de `_usuarios_por_id` acima)."""
+        cache = getattr(self, "_cache_frentes_por_usuario", None)
+        if cache is None:
+            cache = {}
+            for v in self.usuario_frente_repository.get_all():
+                cache.setdefault(v.usuario_id, []).append(v.frente_id)
+            self._cache_frentes_por_usuario = cache
+        return cache
+
     def _nome(self, usuario_id) -> str:
         if not usuario_id:
             return "—"
-        usuario = self.usuario_repository.get_by_id(usuario_id)
+        usuario = self._usuarios_por_id().get(usuario_id)
         return usuario.nome if usuario else "—"
 
     def _nome_do_escopo(self, escopo) -> str:
@@ -324,18 +355,24 @@ class GetBancaDetalhesUseCase:
         return sorted(f["nome"] for f in self._frentes_da_banca(banca_id))
 
     def _frentes_da_banca(self, banca_id: int) -> list:
-        frentes = []
-        for vinculo in self.banca_frente_repository.get_by_banca(banca_id):
-            frente = self.frente_repository.get_by_id(vinculo.frente_id)
-            if frente:
-                frentes.append({"id": frente.id, "nome": frente.nome})
-        return sorted(frentes, key=lambda f: f["nome"])
+        # Memoizado por banca_id: `execute()` chama isto direto (campo
+        # `frentes_da_banca`) E via `_nomes_das_frentes` E via `_composicao` —
+        # três vezes a mesma consulta, sem isto.
+        cache = getattr(self, "_cache_frentes_da_banca", None)
+        if cache is None:
+            cache = {}
+            self._cache_frentes_da_banca = cache
+        if banca_id not in cache:
+            frentes = []
+            for vinculo in self.banca_frente_repository.get_by_banca(banca_id):
+                frente = self.frente_repository.get_by_id(vinculo.frente_id)
+                if frente:
+                    frentes.append({"id": frente.id, "nome": frente.nome})
+            cache[banca_id] = sorted(frentes, key=lambda f: f["nome"])
+        return cache[banca_id]
 
     def _frentes_do_usuario(self, usuario_id: int) -> list:
-        return sorted(
-            v.frente_id
-            for v in self.usuario_frente_repository.get_by_usuario(usuario_id)
-        )
+        return sorted(self._frentes_por_usuario().get(usuario_id, []))
 
     def _composicao(self, banca, banca_id: int) -> list:
         """Mín./máx. de membro e liderança por frente da combinação, ao lado do

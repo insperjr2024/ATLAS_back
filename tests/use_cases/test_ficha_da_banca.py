@@ -119,10 +119,14 @@ def mundo(monkeypatch):
             def __init__(self, db): pass
             def get_by_id(self, usuario_id):
                 return USUARIOS.get(usuario_id)
+            def get_all(self):
+                return list(USUARIOS.values())
 
         class UsuarioFrenteFake:
             def __init__(self, db): pass
             def get_by_usuario(self, usuario_id):
+                return []
+            def get_all(self):
                 return []
 
         # A ficha passou a trazer as TENTATIVAS e a nota (§9). Estes testes
