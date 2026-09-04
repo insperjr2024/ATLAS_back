@@ -6,10 +6,13 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    #: 7 dias. O token é renovado a cada vez que a plataforma abre (ver
-    #: `POST /auth/renovar`), então quem usa toda semana nunca reloga; o prazo
-    #: só corre para sessão abandonada.
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    #: 60 min (2026-09-04, a pedido — era 7 dias). A renovação (`POST
+    #: /auth/renovar`) só roda quando o app CARREGA, não num intervalo fixo
+    #: enquanto a aba fica aberta — então, diferente do prazo de 7 dias, uma
+    #: sessão ativa numa aba aberta sem reload pode expirar NO MEIO do uso, e
+    #: a próxima chamada à API vira 401. Foi um troca consciente: segurança
+    #: de sessão curta em vez de nunca incomodar quem está ativo.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # ─── Recuperação de senha ────────────────────────────────────────────
     # Tudo com default para o `.env` de quem já clonou continuar valendo. Sem
