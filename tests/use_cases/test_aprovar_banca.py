@@ -88,20 +88,29 @@ def mundo(monkeypatch):
 
         class UsuarioFake:
             def __init__(self, db): pass
-            def get_by_id(self, usuario_id):
-                todos = {DIRETOR.id: DIRETOR, GERENTE_TECH.id: GERENTE_TECH, GERENTE_BUSINESS.id: GERENTE_BUSINESS}
-                u = todos.get(usuario_id)
-                if u is None:
-                    return None
-                return SimpleNamespace(id=u.id, posicao=u.posicao, ativo=True, nome=f"Usuário {u.id}")
-            def get_por_posicao(self, posicao):
-                # O fallback de "possíveis gerentes" quando a frente não tem
-                # ninguém vinculado ainda — vazio por padrão nos testes que não
-                # mexem nisso de propósito.
-                return [
+            def _todos(self):
+                # `get_all` alimenta o cache `usuarios_por_id` que
+                # `montar_situacao_aprovacao` monta uma vez só (2026-09-04) —
+                # os três cadastrados MAIS o fallback de "possíveis gerentes"
+                # do sistema, que antes vinha de `get_por_posicao` à parte.
+                cadastrados = {
+                    DIRETOR.id: DIRETOR,
+                    GERENTE_TECH.id: GERENTE_TECH,
+                    GERENTE_BUSINESS.id: GERENTE_BUSINESS,
+                }
+                usuarios = [
+                    SimpleNamespace(id=u.id, posicao=u.posicao, ativo=True, nome=f"Usuário {u.id}")
+                    for u in cadastrados.values()
+                ]
+                usuarios += [
                     SimpleNamespace(id=nome, posicao="gerente", ativo=True, nome=nome)
                     for nome in possiveis_gerentes_sistema
                 ]
+                return usuarios
+            def get_by_id(self, usuario_id):
+                return next((u for u in self._todos() if u.id == usuario_id), None)
+            def get_all(self):
+                return self._todos()
 
         class FrenteFake:
             def __init__(self, db): pass
@@ -310,4 +319,14 @@ class TestSituacaoAntesDeDecidir:
 
         situacao = montar_situacao_aprovacao(uc.db, banca)
 
-        assert situacao["aprovacao_gerente"][0]["possiveis_gerentes"] == ["Fulano", "Beltrano"]
+        # "Todo gerente ativo do sistema" (docstring de `_possiveis_gerentes`):
+        # inclui Fulano/Beltrano (o fallback do cenário) E os gerentes
+        # cadastrados de OUTRAS frentes (GERENTE_TECH, GERENTE_BUSINESS) —
+        # a frente sem vínculo pede ajuda a qualquer gerente da casa, não só a
+        # quem nunca geriu frente nenhuma.
+        assert set(situacao["aprovacao_gerente"][0]["possiveis_gerentes"]) == {
+            "Fulano",
+            "Beltrano",
+            f"Usuário {GERENTE_TECH.id}",
+            f"Usuário {GERENTE_BUSINESS.id}",
+        }

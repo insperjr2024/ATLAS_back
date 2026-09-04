@@ -50,21 +50,26 @@ def _frentes_da_banca(db: Session, banca_id: int) -> List[int]:
     return sorted({bf.frente_id for bf in BancaFrenteRepository(db).get_by_banca(banca_id)})
 
 
-def _gerentes_da_frente(db: Session, frente_id: int) -> List:
+def _gerentes_da_frente(
+    usuario_frente_repository: UsuarioFrenteRepository, usuarios_por_id: dict, frente_id: int
+) -> List:
     """Os gerentes ATIVOS vinculados a esta frente especificamente — pode ser
-    mais de um, e qualquer um deles pode aprovar por ela (ver `execute`)."""
-    usuario_frente_repository = UsuarioFrenteRepository(db)
-    usuario_repository = UsuarioRepository(db)
+    mais de um, e qualquer um deles pode aprovar por ela (ver `execute`).
+
+    ⚠ `usuarios_por_id` vem de fora (montado uma vez por `montar_situacao_
+    aprovacao`, não um `get_by_id` por vínculo): antes, uma frente com uma
+    dúzia de pessoas vinculadas custava uma dúzia de queries redondas só pra
+    achar o gerente — o maior custo do `/bancas/{id}/detalhes` (2026-09-04)."""
     vinculos = usuario_frente_repository.get_by_frente(frente_id)
-    usuarios = [usuario_repository.get_by_id(v.usuario_id) for v in vinculos]
+    usuarios = [usuarios_por_id.get(v.usuario_id) for v in vinculos]
     return [u for u in usuarios if u and u.posicao == "gerente" and u.ativo]
 
 
-def _possiveis_gerentes(db: Session) -> List:
+def _possiveis_gerentes(usuarios_por_id: dict) -> List:
     """Fallback para quando a frente ainda não tem gerente vinculado: todo
     gerente ativo do sistema — quem lê a fila sabe a quem pedir para cadastrar
     o vínculo."""
-    return [u for u in UsuarioRepository(db).get_por_posicao("gerente") if u.ativo]
+    return [u for u in usuarios_por_id.values() if u.posicao == "gerente" and u.ativo]
 
 
 def projeto_da_banca(db: Session, banca_id: int) -> Optional[int]:
@@ -117,18 +122,24 @@ def montar_situacao_aprovacao(db: Session, banca) -> dict:
     diretoria_linha = next((l for l in linhas if l.papel == "diretoria"), None)
     gerente_linhas = {l.frente_id: l for l in linhas if l.papel == "gerente"}
 
+    # ⭐ A tabela inteira, UMA vez (2026-09-04): `_gerentes_da_frente` e
+    # `nome_usuario` juntos custavam um `get_by_id` por vínculo de frente MAIS
+    # um por linha de aprovação — o grosso da lentidão do `/bancas/{id}/
+    # detalhes`, que chama esta função a cada ficha aberta.
     usuario_repository = UsuarioRepository(db)
+    usuarios_por_id = {u.id: u for u in usuario_repository.get_all()}
+    usuario_frente_repository = UsuarioFrenteRepository(db)
     frente_repository = FrenteRepository(db)
 
     def nome_usuario(usuario_id):
-        u = usuario_repository.get_by_id(usuario_id) if usuario_id else None
+        u = usuarios_por_id.get(usuario_id) if usuario_id else None
         return u.nome if u else None
 
     aprovacao_gerente = []
     for frente_id in frentes_da_banca:
         frente = frente_repository.get_by_id(frente_id)
         linha = gerente_linhas.get(frente_id)
-        gerentes_vinculados = _gerentes_da_frente(db, frente_id)
+        gerentes_vinculados = _gerentes_da_frente(usuario_frente_repository, usuarios_por_id, frente_id)
         aprovacao_gerente.append(
             {
                 "frente_id": frente_id,
@@ -141,7 +152,7 @@ def montar_situacao_aprovacao(db: Session, banca) -> dict:
                 # gerentes vinculados, ou o fallback de gerentes do sistema
                 # quando ninguém está vinculado ainda.
                 "possiveis_gerentes": [
-                    u.nome for u in (gerentes_vinculados or _possiveis_gerentes(db))
+                    u.nome for u in (gerentes_vinculados or _possiveis_gerentes(usuarios_por_id))
                 ],
             }
         )
