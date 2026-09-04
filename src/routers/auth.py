@@ -112,9 +112,15 @@ def renovar(current_user=Depends(get_current_user_em_definicao_de_senha)):
     """Devolve um token novo, com o prazo cheio, para quem já está logado.
 
     ⭐ É o que faz a sessão ser deslizante: o front chama isto toda vez que a
-    plataforma abre, então quem usa o ATLAS regularmente nunca é deslogado no
-    meio do trabalho. O prazo do `ACCESS_TOKEN_EXPIRE_MINUTES` passa a valer
-    para sessão ABANDONADA — que é o caso em que ele deve mesmo expirar.
+    plataforma CARREGA (não num intervalo fixo enquanto a aba já aberta
+    continua no ar), então quem fecha e reabre o ATLAS regularmente nunca é
+    deslogado. O prazo do `ACCESS_TOKEN_EXPIRE_MINUTES` passa a valer para
+    sessão ABANDONADA — que é o caso em que ele deve mesmo expirar.
+
+    ⚠ Com `ACCESS_TOKEN_EXPIRE_MINUTES` curto (60 min, 2026-09-04), isso NÃO
+    cobre uma aba deixada aberta e ativa sem reload por mais que esse prazo:
+    a renovação só dispara no carregamento, então uma sessão assim expira de
+    qualquer jeito e a próxima chamada à API vira 401.
 
     Não é refresh token: não há um segundo segredo nem armazenamento de
     sessão. É o mesmo access token, reemitido enquanto o atual ainda vale —
