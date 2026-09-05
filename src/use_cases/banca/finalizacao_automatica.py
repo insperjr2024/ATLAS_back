@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
@@ -54,6 +55,7 @@ class FinalizacaoAutomaticaBancaUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.banca_repository = BancaRepository(db)
+        self.candidatura_repository = CandidaturaRepository(db)
         self.banca_escopo_repository = BancaEscopoRepository(db)
         self.escopo_repository = ProjetoEscopoRepository(db)
         self.catalogo_repository = EscopoRepository(db)
@@ -83,9 +85,19 @@ class FinalizacaoAutomaticaBancaUseCase:
         # mínimo de composição. A banca ACONTECEU pelo relógio; o job não tem
         # como julgar se "valeu a pena" — só um diretor olhando decidia isso,
         # e essa decisão saiu de cena junto com o botão.
+        #
+        # ⚠ `presentes` = todo mundo que se candidatou, de propósito. Sem
+        # isto, `candidatura.confirmado` (default `False` no banco) nunca
+        # seria tocado — `RegistrarRealizacaoBancaUseCase` só atualiza
+        # presença quando `presentes` vem preenchido — e a tela de Presença
+        # (`PresencaBancas.tsx`) passaria a marcar 100% de falta em toda
+        # banca automática, para todo mundo, sempre. Sem humano para
+        # apontar quem faltou, a suposição mais honesta é a mesma que o
+        # antigo modal já usava por padrão: todo inscrito compareceu.
+        candidatos = [c.usuario_id for c in self.candidatura_repository.get_by_banca(banca.id)]
         RegistrarRealizacaoBancaUseCase(self.db).execute(
             banca.id,
-            RegistrarRealizacaoRequest(forcar=True),
+            RegistrarRealizacaoRequest(forcar=True, presentes=candidatos),
             eh_diretor_projetos=True,
         )
 
