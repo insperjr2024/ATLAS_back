@@ -297,7 +297,7 @@ def serializar_escopo(
                 "data_hora": banca.data_hora,
                 "realizado_em": banca.realizado_em,
                 "resultado": banca.resultado,
-                "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+                "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
                 # Todos os escopos que esta banca cobre, este incluído.
                 "escopo_ids": (escopos_da_banca or {}).get(banca.id, [escopo.id]),
                 # ⭐ Cada TENTATIVA, da primeira à atual (§9).

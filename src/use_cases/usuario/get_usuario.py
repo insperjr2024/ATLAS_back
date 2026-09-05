@@ -51,9 +51,21 @@ class ListUsuariosUseCase:
         self.membro_repository = ProjetoMembroRepository(db)
 
     def execute(self, posicao: Optional[str] = None, apenas_ativos: bool = False):
-        """Quem some da lista: o `desligado` (§10). O `ex_membro` continua
-        aparecendo, porque o histórico dele precisa ficar íntegro."""
-        usuarios = [u for u in self.repository.get_all() if u.status != "desligado"]
+        """⭐ 2026-09-05, corrigido a pedido: `desligado` não some mais daqui.
+
+        Até aqui, só `desligado` desaparecia da lista — a tela de Membros
+        promete, pro `ex_membro` E pro `desligado` (mesmo texto, os dois
+        juntos): "a participação em projetos passados permanece íntegra".
+        Excluir `desligado` daqui quebrava essa promessa por baixo dos panos:
+        toda tela que resolve nome a partir de `GET /usuarios` (equipe do
+        projeto, tarefas, histórico, avaliações...) parava de achar a pessoa
+        e caía no fallback "Usuário {id}" — o nome sumia de todo lugar onde
+        ela já tinha participado, mesmo a plataforma dizendo o contrário.
+
+        `ex_membro` nunca teve esse problema porque nunca foi filtrado aqui;
+        `desligado` passa a ter o MESMO tratamento — a única saída continua
+        sendo `apenas_ativos=True`, pra quem realmente só quer gente ativa."""
+        usuarios = self.repository.get_all()
         if posicao:
             usuarios = [u for u in usuarios if u.posicao == posicao]
         if apenas_ativos:

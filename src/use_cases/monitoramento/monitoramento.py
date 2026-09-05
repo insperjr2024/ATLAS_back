@@ -683,7 +683,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
             dia = banca.data_hora.date()
             if not (hoje <= dia <= limite):
                 continue
-            if calcular_status_banca(banca.data_hora, banca.realizado_em) != ABERTA:
+            if calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)) != ABERTA:
                 continue
             projeto_id = escopo_para_projeto.get(escopo_id)
             item = por_banca.setdefault(

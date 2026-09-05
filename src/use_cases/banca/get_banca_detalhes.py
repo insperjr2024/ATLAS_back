@@ -104,8 +104,9 @@ class GetBancaDetalhesUseCase:
             "nome_projeto": banca.nome_projeto,
             "data_hora": banca.data_hora,
             "realizado_em": banca.realizado_em,
+            "cancelada_em": getattr(banca, "cancelada_em", None),
             "resultado": banca.resultado,
-            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
             # Plural: uma banca pode cobrir vários escopos do projeto de uma
             # sentada (ver `BancaEscopoModel`). Vazio nas bancas legadas, que
             # não têm linha em `banca_escopo`.

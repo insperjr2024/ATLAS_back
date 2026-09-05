@@ -80,7 +80,7 @@ class CreateBancaUseCase:
             "projeto_escopo_ids": [],
             "realizado_em": banca.realizado_em,
             "resultado": banca.resultado,
-            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
             "piso_minimo_override": banca.piso_minimo_override,
             "consultor_ids": request.consultor_ids,
             "frente_ids": request.frente_ids

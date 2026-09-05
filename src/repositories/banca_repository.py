@@ -65,7 +65,11 @@ class BancaRepository:
 
     def get_por_periodo(self, inicio: datetime, fim: datetime) -> List[BancaModel]:
         """Bancas ainda não realizadas com data dentro do intervalo — o
-        universo candidato do push automático (§8: uma semana antes)."""
+        universo candidato do push automático (§8: uma semana antes).
+
+        ⚠ Exclui `cancelada_em` (2026-09-04): uma banca cancelada não deve
+        ganhar avaliador por rodízio — ela não vai acontecer de propósito.
+        """
         return (
             self.db.query(BancaModel)
             .filter(
@@ -73,6 +77,23 @@ class BancaRepository:
                 BancaModel.data_hora >= inicio,
                 BancaModel.data_hora <= fim,
                 BancaModel.realizado_em.is_(None),
+                BancaModel.cancelada_em.is_(None),
+            )
+            .all()
+        )
+
+    def get_para_finalizacao_automatica(self, referencia: datetime) -> List[BancaModel]:
+        """O universo do job que substitui o botão "Registrar realização"
+        (2026-09-04): `data_hora` já passou, ninguém marcou como realizada
+        nem cancelou. Sem limite inferior de data — um servidor que ficou
+        fora do ar pega tudo que passou, igual ao push de alocação."""
+        return (
+            self.db.query(BancaModel)
+            .filter(
+                BancaModel.data_hora.isnot(None),
+                BancaModel.data_hora <= referencia,
+                BancaModel.realizado_em.is_(None),
+                BancaModel.cancelada_em.is_(None),
             )
             .all()
         )

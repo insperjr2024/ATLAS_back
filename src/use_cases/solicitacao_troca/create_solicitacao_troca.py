@@ -48,7 +48,7 @@ class CreateSolicitacaoTrocaUseCase:
             raise RegraDeNegocioError("Você só pode pedir troca da sua própria candidatura")
 
         banca = self.banca_repository.get_by_id(candidatura.banca_id)
-        status = calcular_status_banca(banca.data_hora, banca.realizado_em)
+        status = calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None))
         if not aceita_inscricao(status):
             raise RegraDeNegocioError("Não é possível pedir troca: esta banca não aceita mais inscrições")
 

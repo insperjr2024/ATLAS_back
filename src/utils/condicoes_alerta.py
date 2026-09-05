@@ -315,6 +315,7 @@ def _do_projeto(
             banca.data_hora if banca else None,
             banca.realizado_em if banca else None,
             datetime.combine(hoje, datetime.max.time()),
+            cancelada_em=getattr(banca, "cancelada_em", None) if banca else None,
         )
 
         # O escopo precisa ter COMEÇADO para a banca ser cobrável: sem a

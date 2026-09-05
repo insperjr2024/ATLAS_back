@@ -44,10 +44,9 @@ from src.use_cases.banca.fora_janela import (
     SolicitarForaJanelaUseCase,
 )
 from src.use_cases.banca.marcar_banca_escopo import (
+    CancelarBancaUseCase,
     MarcarBancaEscopoRequest,
     MarcarBancaEscopoUseCase,
-    RegistrarRealizacaoBancaUseCase,
-    RegistrarRealizacaoRequest,
 )
 from src.use_cases.banca.registrar_descricao_coordenador import (
     RegistrarDescricaoCoordenadorRequest,
@@ -205,22 +204,24 @@ def push_alocacao_automatica(_=Depends(require_diretor_projetos), db: Session = 
 
 # ------------------------------------------------------- realização e resultado (F5)
 #
-# ⚠ Marcar a banca PELO CRONOGRAMA é uma ação de `pode_definir_cronograma`
-# (não confundir com as rotas de banca "avulsa" abaixo, que checam outra
-# caixa) — é a coordenadora cravando o cronograma do projeto dela.
+# ⚠ 2026-09-04, a pedido: não existe mais "Registrar realização". `data_hora`
+# passar sozinho já marca a banca como realizada e dispara a avaliação de
+# banca e a de desempenho de finalização (ver
+# `use_cases/banca/finalizacao_automatica.py`, rodado pelo agendador). A
+# única ação manual que resta é CANCELAR — ver `cancelar_banca` abaixo.
 
 
-@router.post("/bancas/{banca_id}/realizar")
-def realizar_banca(banca_id: int, request: RegistrarRealizacaoRequest, current_user=Depends(get_current_user), _=Depends(require_pode_definir_cronograma), db: Session = Depends(get_db)):
-    """⭐ Marca que a banca ACONTECEU. Sem isto ela fica `atrasada` para sempre.
+@router.post("/bancas/{banca_id}/cancelar")
+def cancelar_banca(banca_id: int, _=Depends(require_gestao), db: Session = Depends(get_db)):
+    """⭐ A saída pra "isto não vai acontecer". Gerência e diretoria de
+    projetos — tirar uma banca da rotina automática é decisão de gestão do
+    calendário, não de condução do projeto (por isso `require_gestao`, e não
+    `require_pode_definir_cronograma`, que a coordenação também tem).
 
-    Exige o mínimo de gente alocada; `forcar` passa por cima, e só para a
-    diretoria — é ela que libera exceção de composição (§8).
-    """
+    Só antes de `realizado_em`: depois disso a banca já aconteceu, não há o
+    que cancelar (ver `CancelarBancaUseCase`)."""
     try:
-        result = RegistrarRealizacaoBancaUseCase(db).execute(
-            banca_id, request, eh_diretor_projetos=eh_diretoria_de_projetos(current_user)
-        )
+        result = CancelarBancaUseCase(db).execute(banca_id)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
     if not result:

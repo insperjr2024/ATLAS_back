@@ -137,7 +137,9 @@ def calcular_atraso_projeto(
         if not banca or not banca.data_hora:
             continue
 
-        status = calcular_status_banca(banca.data_hora, banca.realizado_em, inicio_do_dia)
+        status = calcular_status_banca(
+            banca.data_hora, banca.realizado_em, inicio_do_dia, cancelada_em=getattr(banca, "cancelada_em", None)
+        )
         if status != ATRASADA:
             continue
 

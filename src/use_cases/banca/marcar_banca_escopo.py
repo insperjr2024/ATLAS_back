@@ -238,7 +238,7 @@ class MarcarBancaEscopoUseCase:
             "projeto_escopo_ids": [e.id for e in escopos_cobertos],
             "frente_ids": sorted({e.frente_id for e in escopos_cobertos}),
             "data_hora": banca.data_hora,
-            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
         }
 
     def _campos_da_remarcacao(self, existente, request: MarcarBancaEscopoRequest) -> dict:
@@ -688,7 +688,7 @@ class RegistrarRealizacaoBancaUseCase:
         return {
             "id": banca.id,
             "realizado_em": banca.realizado_em,
-            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
         }
 
     def _avancar_status_do_projeto(self, banca_id: int) -> None:
@@ -786,6 +786,37 @@ class RegistrarRealizacaoBancaUseCase:
             banca_id=banca.id,
             tipo="descricao_coordenador_pendente",
         )
+
+
+class CancelarBancaUseCase:
+    """⭐ A única saída manual que resta (§8, 2026-09-04).
+
+    Desde que o botão "Registrar realização" saiu, `data_hora` passar sozinho
+    já dispara a realização automática e as avaliações que vêm dela (ver
+    `use_cases/banca/finalizacao_automatica.py`). Cancelar é o jeito de dizer
+    "isto não vai acontecer" ANTES desse trilho rodar — depois de
+    `realizado_em` preenchido não há o que desfazer, a banca já aconteceu.
+
+    Gerência e diretoria de projetos, não coordenação: quem cancela está
+    tirando a banca da rotina automática de toda a plataforma, uma decisão
+    de gestão do calendário, não de condução do próprio projeto.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.repository = BancaRepository(db)
+
+    def execute(self, banca_id: int) -> Optional[dict]:
+        banca = self.repository.get_by_id(banca_id)
+        if not banca:
+            return None
+        if banca.realizado_em is not None:
+            raise RegraDeNegocioError("Esta banca já foi realizada — não há o que cancelar")
+        if banca.cancelada_em is not None:
+            return {"id": banca.id, "cancelada_em": banca.cancelada_em}
+
+        banca = self.repository.update(banca_id, cancelada_em=datetime.now())
+        return {"id": banca.id, "cancelada_em": banca.cancelada_em}
 
 
 def registrar_resultado_na_sessao(sessao_repository, banca) -> None:

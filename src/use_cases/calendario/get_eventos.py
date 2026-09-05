@@ -95,7 +95,7 @@ class GetEventosCalendarioUseCase:
                         "projeto_nome": projeto.nome if projeto else b.nome_projeto,
                         "titulo": f"Banca: {nomes or b.nome_projeto}",
                         "referencia_id": b.id,
-                        "status": calcular_status_banca(b.data_hora, b.realizado_em),
+                        "status": calcular_status_banca(b.data_hora, b.realizado_em, cancelada_em=getattr(b, "cancelada_em", None)),
                     }
                 )
 
