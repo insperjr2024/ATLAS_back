@@ -162,9 +162,17 @@ def rodar_lembrete_prazo_avaliacao() -> None:
     """§8: dois avisos por dia sobre o prazo de 2 dias pra avaliar uma banca
     realizada — pro avaliador, a 1 dia do fim (a notificação de "banca
     realizada" já sai na hora, em `RegistrarRealizacaoBancaUseCase`; esta é
-    o empurrão final antes do bloqueio); pra diretoria, no dia seguinte a
-    quem perdeu o prazo (uma vez só — comparar com "ontem" evita repetir o
-    aviso todo dia pra sempre pra quem nunca vai mais poder enviar)."""
+    o empurrão final antes do bloqueio); pra diretoria DE PROJETOS, no dia
+    seguinte a quem perdeu o prazo (uma vez só — comparar com "ontem" evita
+    repetir o aviso todo dia pra sempre pra quem nunca vai mais poder
+    enviar).
+
+    ⚠ `diretor_projetos`, nunca `diretor` (2026-09-05, corrigido a pedido:
+    "SEMPRE pra avisar diretoria de projetos e NUNCA avisar a diretoria
+    normal"). Quem conduz banca — cancela, aprova, cobra prazo — é sempre a
+    diretoria de projetos em toda esta plataforma; a diretoria genérica
+    (`posicao == "diretor"`) não tem nada a ver com o ciclo de vida de uma
+    banca."""
     db = SessionLocal()
     try:
         hoje = datetime.now().date()
@@ -172,7 +180,7 @@ def rodar_lembrete_prazo_avaliacao() -> None:
         ontem = hoje - timedelta(days=1)
         pendentes = GetAvaliacoesPendentesUseCase(db).execute()
         usuario_repository = UsuarioRepository(db)
-        diretores = usuario_repository.get_por_posicao("diretor")
+        diretores = usuario_repository.get_por_posicao("diretor_projetos")
 
         lembretes = 0
         avisos_diretoria = 0
@@ -318,7 +326,11 @@ def rodar_lembrete_prazo_pdi() -> None:
     uma pasta com Foto + Relatório pode notificar duas vezes se faltarem os
     dois.
 
-    O envio nunca é bloqueado depois do prazo — isto é só o aviso."""
+    O envio nunca é bloqueado depois do prazo — isto é só o aviso.
+
+    ⚠ `diretor_projetos`, nunca `diretor` (2026-09-05, mesma correção de
+    `rodar_lembrete_prazo_avaliacao`, estendida pra cá a pedido: "a regra
+    vale pra plataforma inteira")."""
     db = SessionLocal()
     try:
         hoje = datetime.now().date()
@@ -332,7 +344,7 @@ def rodar_lembrete_prazo_pdi() -> None:
         usuario_repository = UsuarioRepository(db)
 
         mentorias = mentoria_repository.get_all()
-        diretores = usuario_repository.get_por_posicao("diretor")
+        diretores = usuario_repository.get_por_posicao("diretor_projetos")
 
         lembretes = 0
         avisos_vencido = 0

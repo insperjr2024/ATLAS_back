@@ -251,6 +251,29 @@ class SolicitacaoProjetoUseCase:
             )
 
         saida.sort(key=lambda p: (p["impedimento"] is not None, -p["vagas"], p["nome"]))
+
+        # ⭐ 2026-09-05, a pedido: o selo "N vagas abertas" (fora desta tela,
+        # em `/projetos`) contava `len(projetos)` — o número de PROJETOS com
+        # vaga, não a SOMA de vagas de verdade, e ainda somava vaga de
+        # qualquer frente pra qualquer um ("não adianta parecer que tem 1
+        # vaga de Direito pra um cara de Tech"). Aqui já é a soma certa
+        # (`vagas`, que é `max(0, max_consultores - alocados)` — projeto
+        # cheio contribui 0 sozinho) e, pra quem pede (`pode_solicitar`),
+        # recortada pelas frentes do próprio usuário — um projeto sinérgico
+        # que inclui a frente dele conta, pela mesma interseção que
+        # `aplicar_recorte_visao` já usa pro gerente. Gestão continua vendo o
+        # total: ela decide alocação em qualquer frente, não só na dela.
+        if pode_solicitar:
+            minhas_frentes = set(frentes_do_usuario(current_user, self.db))
+            frente_ids_por_projeto = self._frente_ids_por_projeto([p.id for p in projetos])
+            vagas_disponiveis = sum(
+                item["vagas"]
+                for item in saida
+                if minhas_frentes & set(frente_ids_por_projeto.get(item["id"], []))
+            )
+        else:
+            vagas_disponiveis = sum(item["vagas"] for item in saida)
+
         return {
             "projetos": saida,
             "minha_carga": minha_carga,
@@ -259,6 +282,7 @@ class SolicitacaoProjetoUseCase:
             "pode_responder": gestao,
             "coordena_projeto": self._coordena_algum(usuario_id),
             "filtra_por_frente": self._vale_filtrar_frente(current_user, gestao),
+            "vagas_disponiveis": vagas_disponiveis,
         }
 
     def _vale_filtrar_frente(self, current_user, gestao: bool) -> bool:
@@ -312,6 +336,18 @@ class SolicitacaoProjetoUseCase:
         ):
             saida.setdefault(v.projeto_id, []).append(nomes_frente.get(v.frente_id))
         return {pid: sorted(n for n in nomes if n) for pid, nomes in saida.items()}
+
+    def _frente_ids_por_projeto(self, projeto_ids: List[int]) -> dict:
+        """Os IDS das frentes de cada projeto — `_frentes_por_projeto` só dá o
+        nome, e comparar frente por nome é frágil (duas frentes homônimas
+        entre semestres, ou um nome editado). Consulta própria porque o uso é
+        diferente: aqui é pra CASAR com a frente do usuário, não pra exibir."""
+        saida: dict = {}
+        for v in self.db.query(ProjetoFrenteModel).filter(
+            ProjetoFrenteModel.projeto_id.in_(projeto_ids or [0])
+        ):
+            saida.setdefault(v.projeto_id, []).append(v.frente_id)
+        return saida
 
     def listar_para_decisao(self, current_user) -> List[dict]:
         """Os pedidos que ESTA pessoa pode responder — gerência e diretoria.

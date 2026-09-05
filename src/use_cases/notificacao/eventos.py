@@ -172,12 +172,22 @@ def notificar_lote_desempenho(db: Session, lote, pendencias) -> None:
 
     Uma notificação por PESSOA, não por par avaliador→avaliado: quem tem 6
     avaliações receberia 6 linhas idênticas, e o sino viraria ruído.
+
+    ⭐ O corpo leva o prazo (2026-09-05, a pedido — "nem quando aparece pra
+    eles poderem responder"), espelhando o que a avaliação de banca já fazia
+    em `_notificar_prazo_avaliacao`. Data E hora, não só a data: o lote de
+    finalização fecha em 48h corridas a partir de um instante, não à meia-
+    noite de um dia — "até 07/09" seria impreciso pra ele.
     """
     por_avaliador: dict = {}
     for pendencia in pendencias:
         if pendencia.get("respondida"):
             continue
         por_avaliador[pendencia["avaliador_id"]] = por_avaliador.get(pendencia["avaliador_id"], 0) + 1
+
+    data_fim = getattr(lote, "data_fim", None)
+    prazo = f" Responda até {data_fim:%d/%m/%Y às %H:%M}." if data_fim else ""
+    corpo = f"{getattr(lote, 'nome', '') or ''}{prazo}".strip() or None
 
     for avaliador_id, total in por_avaliador.items():
         registrar(
@@ -188,7 +198,7 @@ def notificar_lote_desempenho(db: Session, lote, pendencias) -> None:
                 f"Avaliação de Desempenho aberta — {total} "
                 f"{'avaliação' if total == 1 else 'avaliações'} para responder"
             ),
-            corpo=getattr(lote, "nome", None),
+            corpo=corpo,
             rota="/avaliacao-desempenho",
             payload={"lote_id": lote.id},
             # Por lote e por pessoa: reabrir o mesmo lote não gera aviso novo,
