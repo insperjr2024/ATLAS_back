@@ -41,6 +41,14 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: 📌 Avaliação de Desempenho (Prioridade 2) — não é de projeto: o
     #: destinatário é quem tem o que responder, venha do projeto que vier.
     "lote_desempenho_aberto",
+    #: ⚠ Faltava também no Postgres — ver a migration `a2c8f61de930`, que
+    #: fecha o mesmo buraco de `e4b1d7c9a052` (Enum do model não é Enum do
+    #: banco em Postgres; sem a migration, o INSERT falha e o lembrete de
+    #: 24h nunca sairia).
+    "lote_desempenho_lembrete",
+    #: A banca que abriu este lote sozinha foi cancelada DEPOIS de já
+    #: realizada — o lote é desfeito e quem tinha o que responder é avisado.
+    "lote_desempenho_cancelado",
     #: 📌 PDI (relatório de mentoria) — mesmo motivo: destinatário é o
     #: mentor (ou a diretoria), não quem "enxerga o projeto".
     "pdi_prazo_proximo",

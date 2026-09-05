@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,6 +16,11 @@ class CreateDesempenhoLoteRequest(BaseModel):
     data_inicio: datetime
     data_fim: datetime
     projeto_ids: List[int]
+    #: ⭐ Só a finalização automática preenche (2026-09-05) — é a referência
+    #: que `CancelarBancaUseCase` usa pra desfazer o lote certo se a banca
+    #: for cancelada depois de já realizada. Nunca vem da tela de Formulários
+    #: (lote aberto à mão não tem banca de origem).
+    banca_id: Optional[int] = None
 
 
 class CreateDesempenhoLoteUseCase:
@@ -31,6 +36,7 @@ class CreateDesempenhoLoteUseCase:
             data_inicio=request.data_inicio,
             data_fim=request.data_fim,
             override_manual=None,
+            banca_id=request.banca_id,
         )
         if request.projeto_ids:
             self.lote_projeto_repo.bulk_create(

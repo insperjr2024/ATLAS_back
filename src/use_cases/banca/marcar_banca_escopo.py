@@ -794,12 +794,31 @@ class CancelarBancaUseCase:
     Desde que o botão "Registrar realização" saiu, `data_hora` passar sozinho
     já dispara a realização automática e as avaliações que vêm dela (ver
     `use_cases/banca/finalizacao_automatica.py`). Cancelar é o jeito de dizer
-    "isto não vai acontecer" ANTES desse trilho rodar — depois de
-    `realizado_em` preenchido não há o que desfazer, a banca já aconteceu.
+    "isto não vai acontecer".
 
     Gerência e diretoria de projetos, não coordenação: quem cancela está
     tirando a banca da rotina automática de toda a plataforma, uma decisão
     de gestão do calendário, não de condução do próprio projeto.
+
+    ⭐ 2026-09-05, a pedido: também dá pra cancelar DEPOIS de `realizado_em`
+    preenchido — o imprevisto de última hora que a automação não tinha como
+    prever (a banca foi marcada realizada pelo relógio, mas na prática não
+    rolou). Nesse caso, além de `cancelada_em`, o use case desfaz o que a
+    automação já tinha disparado:
+
+    - `realizado_em` volta a `None` — a banca nunca aconteceu de verdade.
+    - o lote de desempenho de finalização que a automação abriu sozinha (se
+      existir — `desempenho_lote.banca_id`) é FECHADO (`override_manual`
+      "fechado") se já tem alguma avaliação respondida (não apaga trabalho
+      de verdade), ou APAGADO por inteiro se ninguém respondeu nada ainda.
+      Quem tinha o que responder é avisado de que a rodada foi cancelada.
+    - a avaliação de BANCA (dos candidatos escalados) não precisa de
+      desfazer equivalente: `calcular_status_banca` já prioriza
+      `cancelada_em` sobre `realizado_em`, então o status vira "cancelada"
+      na hora, e `create_avaliacao` recusa abrir formulário novo pra banca
+      cancelada (ver o gate lá) — só falta quem já tinha rascunho aberto
+      não conseguir enviar, o que também é responsabilidade daquele use
+      case, não deste.
     """
 
     def __init__(self, db: Session):
@@ -810,13 +829,55 @@ class CancelarBancaUseCase:
         banca = self.repository.get_by_id(banca_id)
         if not banca:
             return None
-        if banca.realizado_em is not None:
-            raise RegraDeNegocioError("Esta banca já foi realizada — não há o que cancelar")
         if banca.cancelada_em is not None:
             return {"id": banca.id, "cancelada_em": banca.cancelada_em}
 
-        banca = self.repository.update(banca_id, cancelada_em=datetime.now())
+        cancelamento_tardio = banca.realizado_em is not None
+        banca = self.repository.update(
+            banca_id, cancelada_em=datetime.now(), realizado_em=None
+        )
+        if cancelamento_tardio:
+            self._desfazer_lote_de_desempenho(banca_id)
         return {"id": banca.id, "cancelada_em": banca.cancelada_em}
+
+    def _desfazer_lote_de_desempenho(self, banca_id: int) -> None:
+        """Só entra aqui no cancelamento TARDIO (banca já tinha
+        `realizado_em`) — import local pelo mesmo motivo dos outros métodos
+        desta classe que cruzam módulo: evitar ciclo de import entre
+        `banca` e `desempenho_lote`, que não se importam um do outro em
+        nenhuma outra direção."""
+        from src.repositories.desempenho_avaliacao_repository import (
+            DesempenhoAvaliacaoRepository,
+        )
+        from src.repositories.desempenho_lote_projeto_repository import (
+            DesempenhoLoteProjetoRepository,
+        )
+        from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
+        from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
+        from src.use_cases.notificacao.eventos import notificar_lote_desempenho_cancelado
+
+        lote_repo = DesempenhoLoteRepository(self.db)
+        lote = lote_repo.get_by_banca_id(banca_id)
+        if not lote:
+            return
+
+        pendencias = GetPendenciasLoteUseCase(self.db).execute(lote.id) or []
+        avaliador_ids = {p["avaliador_id"] for p in pendencias}
+        if avaliador_ids:
+            notificar_lote_desempenho_cancelado(self.db, lote, avaliador_ids)
+
+        avaliacao_repo = DesempenhoAvaliacaoRepository(self.db)
+        ja_respondido = len(avaliacao_repo.get_by_lote(lote.id)) > 0
+        if ja_respondido:
+            # Alguém já preencheu de verdade — fecha, não apaga. O trabalho
+            # de quem respondeu fica registrado; só para de cobrar quem
+            # ainda faltava.
+            lote_repo.update(lote.id, override_manual="fechado")
+        else:
+            # Ninguém respondeu nada ainda: o lote inteiro foi um alarme
+            # falso, pode sumir sem perder nada.
+            DesempenhoLoteProjetoRepository(self.db).delete_by_lote(lote.id)
+            lote_repo.delete(lote.id)
 
 
 def registrar_resultado_na_sessao(sessao_repository, banca) -> None:

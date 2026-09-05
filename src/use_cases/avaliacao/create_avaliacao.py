@@ -46,6 +46,15 @@ class CreateAvaliacaoUseCase:
                 "Você não foi escalado para esta banca e não pode avaliá-la"
             )
 
+        # 🔒 2026-09-05: banca cancelada não abre formulário novo — nem a que
+        # nunca chegou a acontecer, nem a que foi cancelada DEPOIS de já
+        # marcada realizada (`CancelarBancaUseCase` zera `realizado_em` nesse
+        # caso, então sem esta checagem o gate de prazo logo abaixo nem
+        # chegaria a rodar, e o formulário abriria como se nada tivesse
+        # acontecido).
+        if banca and getattr(banca, "cancelada_em", None):
+            raise RegraDeNegocioError("Esta banca foi cancelada — não há o que avaliar")
+
         if banca and banca.realizado_em:
             prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
             if datetime.now() > prazo:

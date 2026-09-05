@@ -137,6 +137,7 @@ class FinalizacaoAutomaticaBancaUseCase:
                 data_inicio=agora,
                 data_fim=agora + timedelta(hours=PRAZO_DESEMPENHO_HORAS),
                 projeto_ids=[projeto_id],
+                banca_id=banca.id,
             )
         )
         lote_id = lote_resultado["id"]
