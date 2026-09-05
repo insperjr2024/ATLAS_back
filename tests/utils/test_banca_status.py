@@ -41,6 +41,38 @@ class TestOsQuatroEstados:
         assert calcular_status_banca(AGORA, None, AGORA) == "atrasada"
 
 
+class TestOEstadoCancelada:
+    """2026-09-04, a pedido: sem o botão "Registrar realização", `cancelada_em`
+    é a única saída manual — a fonte da verdade vira `cancelada_em` ANTES de
+    `realizado_em`, que continua antes da data."""
+
+    def test_cancelada_em_preenchido_e_cancelada(self):
+        assert (
+            calcular_status_banca(FUTURO, None, AGORA, cancelada_em=datetime(2026, 9, 11))
+            == "cancelada"
+        )
+
+    def test_cancelada_vence_atrasada(self):
+        """Sem cancelar, a mesma banca (data passada, sem realizado_em) seria
+        atrasada — cancelar tira ela desse trilho."""
+        assert (
+            calcular_status_banca(PASSADO, None, AGORA, cancelada_em=datetime(2026, 9, 11))
+            == "cancelada"
+        )
+
+    def test_cancelada_em_e_checado_antes_de_realizado_em(self):
+        """Não deveria acontecer na prática — `CancelarBancaUseCase` recusa
+        cancelar uma banca que já tem `realizado_em` — mas a função é pura e
+        não sabe disso: `cancelada_em` é o primeiro `if`, então se os dois
+        vierem preenchidos ele vence."""
+        assert (
+            calcular_status_banca(
+                PASSADO, datetime(2026, 9, 12), AGORA, cancelada_em=datetime(2026, 9, 11)
+            )
+            == "cancelada"
+        )
+
+
 class TestBancaJaOcorreu:
     def test_so_realizada_conta_como_ocorrida(self):
         assert banca_ja_ocorreu("realizada")
@@ -52,6 +84,9 @@ class TestBancaJaOcorreu:
     def test_aberta_e_nao_marcada_nao_ocorreram(self):
         assert not banca_ja_ocorreu("aberta")
         assert not banca_ja_ocorreu("nao_marcada")
+
+    def test_cancelada_nao_ocorreu(self):
+        assert not banca_ja_ocorreu("cancelada")
 
 
 class TestAceitaInscricao:
@@ -68,6 +103,9 @@ class TestAceitaInscricao:
 
     def test_banca_nao_marcada_nao_aceita(self):
         assert not aceita_inscricao("nao_marcada")
+
+    def test_banca_cancelada_nao_aceita(self):
+        assert not aceita_inscricao("cancelada")
 
 
 class TestDiasDeAtraso:

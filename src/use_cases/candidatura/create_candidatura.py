@@ -61,10 +61,12 @@ class CreateCandidaturaUseCase:
         # Quem fecha a inscrição é a REALIZAÇÃO, não o calendário: uma banca
         # `atrasada` (venceu e não aconteceu) continua aceitando gente, porque
         # ela ainda vai acontecer. Antes da F5 a data passada bloqueava.
-        status = calcular_status_banca(banca.data_hora, banca.realizado_em)
+        status = calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None))
         if not aceita_inscricao(status):
             if status == "realizada":
                 raise RegraDeNegocioError("Não é possível se candidatar: esta banca já foi realizada")
+            if status == "cancelada":
+                raise RegraDeNegocioError("Não é possível se candidatar: esta banca foi cancelada")
             raise RegraDeNegocioError("Não é possível se candidatar: esta banca ainda não tem data marcada")
 
         # Ninguém avalia o próprio grupo: nem quem coordena, nem quem está na

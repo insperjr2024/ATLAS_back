@@ -47,3 +47,11 @@ class BancaModel(Base):
     #: isto substitui o formulário de avaliação pra ele, não se soma a ele.
     descricao_coordenador = Column(Text, nullable=True)
     descricao_coordenador_enviada_em = Column(DateTime, nullable=True)
+
+    #: ⭐ A saída pra "isto não vai acontecer" (2026-09-04, a pedido). Sem
+    #: nenhuma banca sendo marcada `realizada` na mão, `data_hora` passar
+    #: sozinho dispara a realização automática e as avaliações — cancelar
+    #: é a única forma de tirar uma banca desse trilho. Só permitido antes
+    #: de `realizado_em` (ver `CancelarBancaUseCase`); depois disso ela já
+    #: aconteceu, cancelar não desfaz nada.
+    cancelada_em = Column(DateTime, nullable=True)

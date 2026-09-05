@@ -22,7 +22,7 @@ def calcular_desempenho_consultor(
     bancas_realizadas_semestre = [
         b for b in bancas
         if banca_no_semestre(b.id)
-        and banca_ja_ocorreu(calcular_status_banca(b.data_hora, b.realizado_em))
+        and banca_ja_ocorreu(calcular_status_banca(b.data_hora, b.realizado_em, cancelada_em=getattr(b, "cancelada_em", None)))
     ]
 
     avaliacoes_submetidas_usuario = [

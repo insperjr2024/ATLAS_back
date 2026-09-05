@@ -25,6 +25,7 @@ from src.routers import (
     solicitacoes_projeto,
     usuarios,
 )
+from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 from src.repositories.desempenho_mentoria_repository import DesempenhoMentoriaRepository
 from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
 from src.repositories.desempenho_pdi_item_repository import DesempenhoPdiItemRepository
@@ -32,9 +33,15 @@ from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaR
 from src.repositories.notificacao_repository import NotificacaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.avaliacao.get_avaliacoes_pendentes import GetAvaliacoesPendentesUseCase
+from src.use_cases.banca.finalizacao_automatica import FinalizacaoAutomaticaBancaUseCase
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
 from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
-from src.use_cases.notificacao.eventos import notificar_pdi_prazo_proximo, notificar_pdi_prazo_vencido
+from src.use_cases.notificacao.eventos import (
+    notificar_lote_desempenho_lembrete,
+    notificar_pdi_prazo_proximo,
+    notificar_pdi_prazo_vencido,
+)
 from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.use_cases.monitoramento.monitoramento import _BaseMonitoramento, _agrupar
@@ -95,6 +102,58 @@ def rodar_avanco_de_status() -> None:
         avancados = AvancarStatusAutomaticoUseCase(db).execute()
         if avancados:
             logger.info("Status avançado automaticamente nos projetos: %s", avancados)
+    finally:
+        db.close()
+
+
+def rodar_finalizacao_automatica_de_bancas() -> None:
+    """§8/§6.5: substitui o botão "Registrar realização" (2026-09-04, a
+    pedido). De 5 em 5 minutos — mesma frequência do push de alocação, e pelo
+    mesmo motivo: uma banca marcada logo depois da passada do job não pode
+    esperar até o dia seguinte pra abrir a avaliação de desempenho.
+
+    Idempotente pela própria condição da varredura
+    (`get_para_finalizacao_automatica`): uma vez `realizado_em` gravado, a
+    banca sai do universo candidato e não é processada de novo."""
+    db = SessionLocal()
+    try:
+        resumo = FinalizacaoAutomaticaBancaUseCase(db).execute()
+        if resumo:
+            logger.info("Finalização automática de bancas: %s", resumo)
+    finally:
+        db.close()
+
+
+def rodar_lembrete_lote_finalizacao() -> None:
+    """24h depois de aberto, quem ainda tem pendência num lote de
+    FINALIZAÇÃO recebe um lembrete (2026-09-04, a pedido).
+
+    ⚠ Só "finalizacao", nunca "periodico": o periódico já não tem lembrete de
+    24h nenhum hoje (o dele é `rodar_lembrete_prazo_pdi`-like, inexistente até
+    aqui) — inventar um pra ele agora seria mudar comportamento que ninguém
+    pediu. A janela de disparo é a mesma do lote estar aberto
+    (`get_abertos_agora`): passado o `data_fim` (48h), o lote fecha sozinho e
+    o lembrete para de fazer sentido.
+
+    Dedup por `chave_dedup` (lote+pessoa) faz a varredura de 5 em 5 minutos
+    custar uma query e nada mais depois do primeiro disparo — mesmo padrão
+    dos outros lembretes deste arquivo."""
+    db = SessionLocal()
+    try:
+        agora = datetime.now()
+        lote_repo = DesempenhoLoteRepository(db)
+        avisos = 0
+        for lote in lote_repo.get_abertos_agora():
+            if lote.tipo != "finalizacao":
+                continue
+            if agora - lote.data_inicio < timedelta(hours=24):
+                continue
+            pendencias = GetPendenciasLoteUseCase(db).execute(lote.id) or []
+            if any(not p.get("respondida") for p in pendencias):
+                notificar_lote_desempenho_lembrete(db, lote, pendencias)
+                avisos += 1
+        if avisos:
+            logger.info("Lembrete de lote de finalização: %d lote(s) com pendência", avisos)
     finally:
         db.close()
 
@@ -336,6 +395,21 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
     )
     scheduler.add_job(
+        rodar_finalizacao_automatica_de_bancas,
+        # Mesma frequência e mesmo motivo do push de alocação: uma banca cuja
+        # `data_hora` acabou de passar não pode esperar até a meia-noite pra
+        # abrir a avaliação de desempenho de quem participou.
+        CronTrigger(minute="*/5"),
+        id="finalizacao_automatica_de_bancas",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_lembrete_lote_finalizacao,
+        CronTrigger(minute="*/5"),
+        id="lembrete_lote_finalizacao",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         rodar_encerramento_de_ambientacao,
         # 00:05, e não junto dos outros às 6h: é virada de DATA, e o projeto
         # precisa amanhecer no status certo.
@@ -388,6 +462,11 @@ async def lifespan(app: FastAPI):
     # atravessar a janela inteira de 7 dias sem ninguém escalado, e a primeira
     # subida seguinte não corrigia nada.
     rodar_push_alocacao_automatica()
+    # Mesmo motivo: sem confirmação manual nenhuma sobrando (o botão saiu),
+    # uma banca cuja `data_hora` passou enquanto o servidor estava fora do ar
+    # ficaria SEM avaliação de desempenho até a próxima subida se ninguém
+    # rodasse isto na hora.
+    rodar_finalizacao_automatica_de_bancas()
     yield
     scheduler.shutdown()
 

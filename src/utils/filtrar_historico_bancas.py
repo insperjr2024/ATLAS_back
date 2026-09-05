@@ -23,7 +23,7 @@ def filtrar_historico_bancas(
     for banca in bancas:
         # Histórico é do que aconteceu. Depois da F5, `realizado_em` é quem
         # diz isso — o backfill da migration 5 preservou as bancas antigas.
-        if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em)):
+        if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None))):
             continue
         if consultor_id is not None and banca.id not in bancas_ids_do_consultor:
             continue

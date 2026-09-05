@@ -61,7 +61,7 @@ class DeleteCandidaturaUseCase:
         # Mesma virada do create: só a realização tranca. Antes da F5, uma
         # banca que escorregava deixava as pessoas presas na inscrição.
         banca = self.banca_repository.get_by_id(candidatura.banca_id)
-        if banca and calcular_status_banca(banca.data_hora, banca.realizado_em) == "realizada":
+        if banca and calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)) == "realizada":
             raise RegraDeNegocioError("Não é possível se desalocar: esta banca já foi realizada")
 
         return self.repository.delete(candidatura_id)

@@ -197,6 +197,39 @@ def notificar_lote_desempenho(db: Session, lote, pendencias) -> None:
         )
 
 
+def notificar_lote_desempenho_lembrete(db: Session, lote, pendencias) -> None:
+    """24h depois de aberto um lote de FINALIZAÇÃO, quem ainda não terminou
+    (nem começou, ou respondeu só parte) recebe um empurrão (2026-09-04, a
+    pedido — dispara em `rodar_lembrete_lote_finalizacao`, no agendador).
+
+    ⚠ Mesma lógica de agregação de `notificar_lote_desempenho` — mas
+    `chave_dedup` própria, senão o dedup do aviso de abertura engoliria este.
+    "Só parte" e "nem começou" são o mesmo caso aqui: `pendencias` já é só o
+    que falta, sem distinguir 0 de N-1 respondidas — o lembrete é sobre o que
+    resta, não sobre o progresso.
+    """
+    por_avaliador: dict = {}
+    for pendencia in pendencias:
+        if pendencia.get("respondida"):
+            continue
+        por_avaliador[pendencia["avaliador_id"]] = por_avaliador.get(pendencia["avaliador_id"], 0) + 1
+
+    for avaliador_id, total in por_avaliador.items():
+        registrar(
+            db,
+            usuario_id=avaliador_id,
+            tipo="lote_desempenho_lembrete",
+            titulo=(
+                f"Falta pouco para o prazo da Avaliação de Desempenho — {total} "
+                f"{'avaliação' if total == 1 else 'avaliações'} ainda por responder"
+            ),
+            corpo=getattr(lote, "nome", None),
+            rota="/avaliacao-desempenho",
+            payload={"lote_id": lote.id},
+            chave_dedup=f"lote_desempenho_lembrete:lote={lote.id}:usuario={avaliador_id}",
+        )
+
+
 def notificar_pdi_prazo_proximo(
     db: Session, destinatario_id: int, pasta, item, mentorado_id: int, mentorado_nome: str
 ) -> None:

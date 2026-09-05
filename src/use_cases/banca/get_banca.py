@@ -89,7 +89,7 @@ class GetBancaUseCase:
             "projeto_escopo_ids": self.banca_escopo_repository.get_escopo_ids(banca.id),
             "realizado_em": banca.realizado_em,
             "resultado": banca.resultado,
-            "status": calcular_status_banca(banca.data_hora, banca.realizado_em),
+            "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
             "vagas": vagas,
             "alocados": len(candidaturas),
             "piso_minimo_override": banca.piso_minimo_override,
@@ -189,7 +189,7 @@ class ListBancasUseCase:
                 "projeto_escopo_ids": escopos_por_banca.get(b.id, []),
                 "realizado_em": b.realizado_em,
                 "resultado": b.resultado,
-                "status": calcular_status_banca(b.data_hora, b.realizado_em),
+                "status": calcular_status_banca(b.data_hora, b.realizado_em, cancelada_em=getattr(b, "cancelada_em", None)),
                 # O teto da combinação desta banca — o resolver acima já
                 # guarda em cache o que leu, então a lista não repete a
                 # consulta por linha.

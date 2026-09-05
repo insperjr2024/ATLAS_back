@@ -39,7 +39,7 @@ def calcular_avaliacoes_pendentes(
             continue
         # Banca que não aconteceu não tem o que avaliar. Depois da F5 isto
         # depende de `realizado_em`, não mais do relógio.
-        if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em)):
+        if not banca_ja_ocorreu(calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None))):
             continue
         sessao = sessao_por_banca.get(banca.id, 1)
         if (banca.id, c.usuario_id, sessao) in submetidas:
