@@ -256,7 +256,11 @@ class PushAlocacaoAutomaticaUseCase:
             notificar(
                 self.db,
                 usuario.id,
-                f"Você foi alocado(a) para a banca de {banca.nome_projeto} em {data_formatada}. "
+                # ⚠ Diz que foi AUTOMÁTICO (2026-09-07, a pedido): quem não se
+                # inscreveu precisa entender por que apareceu numa banca — sem
+                # isso, "você foi alocado(a)" parece coisa que ele fez.
+                f"Você foi escalado(a) automaticamente, por rodízio, para a banca de "
+                f"{banca.nome_projeto} em {data_formatada} — não precisou se inscrever. "
                 "Se não puder comparecer, peça uma troca em Bancas.",
                 banca_id=banca.id,
                 tipo="escalacao_banca",
