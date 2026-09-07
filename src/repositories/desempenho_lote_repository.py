@@ -9,6 +9,14 @@ from src.utils.desempenho_lote import esta_aberto
 class DesempenhoLoteRepository(BaseRepository[DesempenhoLoteModel]):
     model = DesempenhoLoteModel
 
+    def get_by_banca_id(self, banca_id: int):
+        """O lote que a finalização automática abriu PRA ESTA banca — nulo
+        pra toda banca sem lote (banca legada, ou sem escopo vinculado) e
+        pra toda banca cuja finalização não rodou ainda. Usado só por
+        `CancelarBancaUseCase` pra desfazer o lote certo, e só o certo,
+        quando alguém cancela DEPOIS da banca já ter sido realizada."""
+        return self.first_by(banca_id=banca_id)
+
     def get_abertos_agora(self) -> List[DesempenhoLoteModel]:
         return [
             lote

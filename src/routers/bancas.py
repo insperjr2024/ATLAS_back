@@ -218,8 +218,11 @@ def cancelar_banca(banca_id: int, _=Depends(require_gestao), db: Session = Depen
     calendário, não de condução do projeto (por isso `require_gestao`, e não
     `require_pode_definir_cronograma`, que a coordenação também tem).
 
-    Só antes de `realizado_em`: depois disso a banca já aconteceu, não há o
-    que cancelar (ver `CancelarBancaUseCase`)."""
+    ⭐ 2026-09-05: também aceita cancelar DEPOIS de `realizado_em` já
+    preenchido — o imprevisto de última hora (deu problema, a banca não
+    rolou de verdade, mas o relógio já tinha marcado como realizada). Nesse
+    caso o use case desfaz o que a automação já tinha disparado — ver o
+    docstring de `CancelarBancaUseCase`."""
     try:
         result = CancelarBancaUseCase(db).execute(banca_id)
     except RegraDeNegocioError as e:

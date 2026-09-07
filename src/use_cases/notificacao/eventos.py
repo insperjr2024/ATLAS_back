@@ -240,6 +240,30 @@ def notificar_lote_desempenho_lembrete(db: Session, lote, pendencias) -> None:
         )
 
 
+def notificar_lote_desempenho_cancelado(db: Session, lote, avaliador_ids) -> None:
+    """2026-09-05, a pedido: a banca que abriu este lote sozinha foi
+    cancelada DEPOIS de já realizada (imprevisto de última hora) —
+    `CancelarBancaUseCase` desfez o lote, e quem tinha o que responder
+    precisa saber que não precisa mais.
+
+    ⚠ Uma notificação por PESSOA que aparecia em `GetPendenciasLoteUseCase`
+    pra este lote, respondida ou não: mesmo quem já enviou merece saber que
+    a rodada inteira foi invalidada, não só quem ainda devia algo."""
+    for avaliador_id in set(avaliador_ids):
+        registrar(
+            db,
+            usuario_id=avaliador_id,
+            tipo="lote_desempenho_cancelado",
+            titulo="Avaliação de Desempenho cancelada",
+            corpo=(
+                f"{getattr(lote, 'nome', '')} foi cancelada — a banca que abriu esta rodada "
+                "não aconteceu de verdade. Não precisa responder."
+            ),
+            payload={"lote_id": lote.id},
+            chave_dedup=f"lote_desempenho_cancelado:lote={lote.id}:usuario={avaliador_id}",
+        )
+
+
 def notificar_pdi_prazo_proximo(
     db: Session, destinatario_id: int, pasta, item, mentorado_id: int, mentorado_nome: str
 ) -> None:

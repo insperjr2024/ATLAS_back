@@ -217,7 +217,21 @@ class ComposicaoBancaChecker:
             # ⭐ **Liderança é vaga A MAIS** (2026-09-01, a pedido). Quem ocupa
             # a cota de liderança sai da conta de membros: a banca de Business
             # pede 3 membros E 1 liderança, quatro pessoas.
-            lideranca_usada = min(len(lideres), regra.min_lideranca)
+            #
+            # ⭐ 2026-09-07, a pedido: a liderança que SOBRA (além do
+            # `min_lideranca`) só entra na conta de membros se de fato FALTAR
+            # membro na frente — antes ela sempre entrava, e "5/3" aparecia
+            # com 4 não-líderes na lista. Agora `membros` é os não-líderes
+            # presentes + só o tanto de líder excedente que o buraco de
+            # `min_membros` precisa (nunca mais que o buraco, nunca mais que
+            # o excedente). Isto NÃO muda o gate: `verificar` só olha
+            # `max(0, min_membros - membros)`, e a matemática do que falta dá
+            # igual dos dois jeitos — muda só o número exibido, que passa a
+            # bater com a lista de nomes.
+            nao_lideres = len(presentes) - len(lideres)
+            lideres_excedentes = max(0, len(lideres) - regra.min_lideranca)
+            buraco_de_membro = max(0, regra.min_membros - nao_lideres)
+            membros = nao_lideres + min(lideres_excedentes, buraco_de_membro)
 
             contagens.append(
                 ContagemFrente(
@@ -225,7 +239,7 @@ class ComposicaoBancaChecker:
                     frente_nome=regra.frente_nome,
                     min_membros=regra.min_membros,
                     min_lideranca=regra.min_lideranca,
-                    membros=len(presentes) - lideranca_usada,
+                    membros=membros,
                     liderancas=len(lideres),
                 )
             )

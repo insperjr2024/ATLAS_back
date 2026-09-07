@@ -99,7 +99,10 @@ class TestLiderancaEhVagaAMais:
 
     def test_o_segundo_gerente_volta_a_contar_como_membro(self):
         """A cota de liderança é 1: o gerente que sobra é gente da frente
-        como qualquer outra, senão dois gerentes valeriam menos que um."""
+        como qualquer outra, senão dois gerentes valeriam menos que um.
+
+        ⚠ 2026-09-07: mas SÓ enquanto ainda falta membro. Aqui há 1 não-líder
+        pra um mínimo de 2, então o gerente excedente cobre o buraco e fecha."""
         por_frente = {BUSINESS: [10, 11, 12]}
         usuarios = [usuario(10, "gerente"), usuario(11, "gerente"), usuario(12)]
         checker, banca = montar(por_frente, usuarios)
@@ -109,6 +112,45 @@ class TestLiderancaEhVagaAMais:
         )
 
         assert status.ok
+
+
+class TestLiderancaExcedenteSoCobreOBuraco:
+    """⭐ 2026-09-07, a pedido: a liderança que sobra além do `min_lideranca`
+    só entra na conta de `membros` até o tanto que FALTA — nunca infla o
+    número acima do que a lista de não-líderes já mostra."""
+
+    def test_piso_ja_batido_por_nao_lideres_o_lider_que_sobra_nao_conta(self):
+        """O caso do BLEND I: 3 consultores pra um mínimo de 3, mais 2
+        gerentes. `membros` é 3 (os consultores), não 4 — antes contava o
+        gerente excedente e a ficha mostrava "4/3" com 3 nomes na lista."""
+        por_frente = {BUSINESS: [10, 11, 12, 13, 14]}
+        usuarios = [usuario(10, "gerente"), usuario(11, "gerente")] + [
+            usuario(i) for i in (12, 13, 14)
+        ]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12, 13, 14}
+        )
+
+        assert (business.membros, business.liderancas) == (3, 2)
+
+    def test_lider_que_sobra_cobre_so_uma_parte_do_buraco(self):
+        """1 não-líder, mínimo 3, 1 gerente excedente: ele cobre 1 dos 2 que
+        faltavam — `membros` vira 2, ainda falta 1."""
+        por_frente = {BUSINESS: [10, 11, 12]}
+        usuarios = [usuario(10, "gerente"), usuario(11, "gerente"), usuario(12)]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12}
+        )
+
+        assert business.membros == 2
+        status = checker.verificar(
+            banca, [regra(BUSINESS, "Business", min_membros=3)], {10, 11, 12}
+        )
+        assert status.deficits[0].piso_faltando == 1
 
 
 class TestOCoordenador:
