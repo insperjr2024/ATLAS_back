@@ -10,7 +10,7 @@ from src.repositories.desempenho_formulario_repository import DesempenhoFormular
 from src.repositories.desempenho_lote_projeto_repository import DesempenhoLoteProjetoRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
-from src.use_cases.desempenho_avaliacao.get_fila import GetFilaUsuarioUseCase
+from src.use_cases.desempenho_avaliacao.get_fila import FORM_TYPE_ESCOPO, GetFilaUsuarioUseCase
 from src.utils.desempenho_fila import calcular_pares_lote, deduplicar_pares
 from src.utils.desempenho_lote import esta_aberto
 from src.utils.exceptions import RegraDeNegocioError
@@ -49,20 +49,42 @@ class CreateDesempenhoAvaliacaoUseCase:
         if not esta_aberto(lote.override_manual, lote.data_inicio, lote.data_fim):
             raise RegraDeNegocioError(f'O formulário "{lote.nome}" não está aberto para avaliações')
 
-        if avaliador_id == request.avaliado_id:
-            raise RegraDeNegocioError("Você não pode avaliar a si mesmo")
-
-        # Regra 2.3: o par precisa estar na fila esperada do lote.
         projeto_ids = self.lote_projeto_repo.get_projeto_ids(lote.id)
         membros = self.membro_repo.get_by_projetos(projeto_ids, apenas_atuais=True)
-        agregados = deduplicar_pares(calcular_pares_lote(membros))
-        chave = (avaliador_id, request.avaliado_id)
-        if chave not in agregados:
-            raise RegraDeNegocioError("Você não está habilitado a avaliar esta pessoa neste lote")
-        form_type = agregados[chave]["form_type"]
+
+        # ⭐ Avaliação do Escopo (2026-09-09): auto-avaliação (avaliador ==
+        # avaliado), um por participante do projeto na finalização. Não passa
+        # pela fila de pares — mas TODAS as outras travas continuam valendo
+        # (lote aberto, não respondeu antes, nota 1-5, critérios completos).
+        eh_escopo = (
+            avaliador_id == request.avaliado_id
+            and lote.tipo == "finalizacao"
+            and avaliador_id in {m.usuario_id for m in membros}
+            and self.formulario_repo.first_by(tipo="finalizacao", papel=FORM_TYPE_ESCOPO)
+            is not None
+        )
+
+        if avaliador_id == request.avaliado_id and not eh_escopo:
+            raise RegraDeNegocioError("Você não pode avaliar a si mesmo")
+
+        if eh_escopo:
+            form_type = FORM_TYPE_ESCOPO
+        else:
+            # Regra 2.3: o par precisa estar na fila esperada do lote.
+            agregados = deduplicar_pares(calcular_pares_lote(membros))
+            chave = (avaliador_id, request.avaliado_id)
+            if chave not in agregados:
+                raise RegraDeNegocioError(
+                    "Você não está habilitado a avaliar esta pessoa neste lote"
+                )
+            form_type = agregados[chave]["form_type"]
 
         if self.avaliacao_repo.existe_par(lote.id, avaliador_id, request.avaliado_id):
-            raise RegraDeNegocioError("Você já avaliou esta pessoa neste lote")
+            raise RegraDeNegocioError(
+                "Você já respondeu a Avaliação do Escopo deste lote"
+                if eh_escopo
+                else "Você já avaliou esta pessoa neste lote"
+            )
 
         if not 1 <= request.nota_geral <= 5:
             raise RegraDeNegocioError("A nota geral deve estar entre 1 e 5")
