@@ -59,7 +59,7 @@ class CreateAvaliacaoUseCase:
             prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
             if datetime.now() > prazo:
                 raise RegraDeNegocioError(
-                    "O prazo de 2 dias para avaliar esta banca já passou"
+                    f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"
                 )
 
         # ⭐ A avaliação nasce carimbada com a SESSÃO em curso (§9). Carimbar na

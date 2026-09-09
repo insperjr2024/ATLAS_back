@@ -5,9 +5,12 @@ from src.models.avaliacao_model import AvaliacaoModel
 from src.models.banca_model import BancaModel
 from src.utils.banca_status import banca_ja_ocorreu, calcular_status_banca
 
-#: §8 — quem avalia tem 2 dias corridos a partir da banca realizada. Depois
-#: disso o envio é bloqueado (`create_avaliacao.py`), não só destacado.
-PRAZO_AVALIACAO_DIAS = 2
+#: §8 — quem avalia tem 7 dias corridos a partir da banca realizada (2026-09-09,
+#: a pedido: era 2, curto demais). Depois disso o envio é bloqueado
+#: (`create_avaliacao.py`), não só destacado. O lembrete "amanhã é o último
+#: dia" (`rodar_lembrete_prazo_avaliacao`) é relativo a este prazo, então
+#: acompanha a mudança sozinho.
+PRAZO_AVALIACAO_DIAS = 7
 
 
 def calcular_avaliacoes_pendentes(
