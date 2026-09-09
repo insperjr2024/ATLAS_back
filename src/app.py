@@ -125,15 +125,21 @@ def rodar_finalizacao_automatica_de_bancas() -> None:
 
 
 def rodar_lembrete_lote_finalizacao() -> None:
-    """24h depois de aberto, quem ainda tem pendência num lote de
-    FINALIZAÇÃO recebe um lembrete (2026-09-04, a pedido).
+    """A 1 dia do fim, quem ainda tem pendência num lote de FINALIZAÇÃO
+    recebe um lembrete (2026-09-04, a pedido).
+
+    ⚠ O gatilho é `data_fim - agora <= 24h`, NÃO "24h depois de aberto": o
+    prazo virou 7 dias (2026-09-09, `PRAZO_DESEMPENHO`) e "24h depois de
+    aberto" mandaria o lembrete com 6 dias ainda pela frente. Amarrado ao
+    fim, acompanha qualquer mudança de prazo sozinho — inclusive um lote que
+    a diretoria editou à mão pra outra data.
 
     ⚠ Só "finalizacao", nunca "periodico": o periódico já não tem lembrete de
     24h nenhum hoje (o dele é `rodar_lembrete_prazo_pdi`-like, inexistente até
     aqui) — inventar um pra ele agora seria mudar comportamento que ninguém
     pediu. A janela de disparo é a mesma do lote estar aberto
-    (`get_abertos_agora`): passado o `data_fim` (48h), o lote fecha sozinho e
-    o lembrete para de fazer sentido.
+    (`get_abertos_agora`): passado o `data_fim`, o lote fecha sozinho e o
+    lembrete para de fazer sentido.
 
     Dedup por `chave_dedup` (lote+pessoa) faz a varredura de 5 em 5 minutos
     custar uma query e nada mais depois do primeiro disparo — mesmo padrão
@@ -146,7 +152,7 @@ def rodar_lembrete_lote_finalizacao() -> None:
         for lote in lote_repo.get_abertos_agora():
             if lote.tipo != "finalizacao":
                 continue
-            if agora - lote.data_inicio < timedelta(hours=24):
+            if lote.data_fim - agora > timedelta(hours=24):
                 continue
             pendencias = GetPendenciasLoteUseCase(db).execute(lote.id) or []
             if any(not p.get("respondida") for p in pendencias):
