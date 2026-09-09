@@ -51,6 +51,17 @@ def normalizar_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def agora_utc() -> datetime:
+    """"Agora" na MESMA régua que `banca.data_hora` — UTC sem tzinfo.
+
+    ⚠ `datetime.now()` do servidor é hora LOCAL. Comparar `banca.data_hora`
+    (UTC) com ela erra por 3h: a finalização automática de uma banca marcada
+    para meio-dia só disparava às 15h (2026-09-09). Quem compara `data_hora`
+    com "agora" usa isto.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def para_hora_local(dt: datetime) -> datetime:
     """Um `datetime` gravado em UTC, lido como hora de parede local.
 
