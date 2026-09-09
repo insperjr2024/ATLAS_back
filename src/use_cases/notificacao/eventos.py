@@ -20,6 +20,7 @@ from src.use_cases.notificacao.destinatarios import (
     todos_do_projeto,
 )
 from src.use_cases.notificacao.registrar_notificacao import registrar, registrar_varios
+from src.utils.fuso import para_hora_local
 
 
 def _formatar(valor) -> str:
@@ -185,8 +186,15 @@ def notificar_lote_desempenho(db: Session, lote, pendencias) -> None:
             continue
         por_avaliador[pendencia["avaliador_id"]] = por_avaliador.get(pendencia["avaliador_id"], 0) + 1
 
+    # `data_fim` é gravado em UTC (ver `finalizacao_automatica.py`); a pessoa
+    # lê em horário local. Sem converter, um lote aberto ao meio-dia dizia
+    # "responda até ... às 15:00" — a reclamação de 2026-09-09.
     data_fim = getattr(lote, "data_fim", None)
-    prazo = f" Responda até {data_fim:%d/%m/%Y às %H:%M}." if data_fim else ""
+    prazo = (
+        f" Responda até {para_hora_local(data_fim):%d/%m/%Y às %H:%M}."
+        if data_fim
+        else ""
+    )
     corpo = f"{getattr(lote, 'nome', '') or ''}{prazo}".strip() or None
 
     for avaliador_id, total in por_avaliador.items():

@@ -38,7 +38,7 @@ from src.utils.calendario_variante import apenas_globais, datas_por_escopo
 from src.utils.banca_status import calcular_status_banca
 from src.utils.escopos_da_banca import resolver_escopos
 from src.utils.exceptions import CODIGO_BANCA_ABAIXO_DO_MINIMO, RegraDeNegocioError
-from src.utils.fuso import normalizar_utc
+from src.utils.fuso import normalizar_utc, para_hora_local
 from src.utils.janela_escopo import (
     FOLGA_LIVRE_REMARCACAO_DIAS_UTEIS,
     calcular_janela,
@@ -766,10 +766,14 @@ class RegistrarRealizacaoBancaUseCase:
             )
 
     def _notificar_prazo_avaliacao(self, banca, usuario_ids) -> None:
-        prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+        # ⚠ Data E HORA, em horário local. Só a data ("até 11/09") faz a
+        # pessoa achar que tem até a meia-noite — o corte real é 48h corridas
+        # a partir da banca (`create_avaliacao.py` bloqueia depois disso).
+        # `realizado_em` é UTC (= `data_hora`); `para_hora_local` converte.
+        prazo = para_hora_local(banca.realizado_em) + timedelta(days=PRAZO_AVALIACAO_DIAS)
         mensagem = (
             f"A banca de {banca.nome_projeto} foi realizada. Você tem até "
-            f"{prazo:%d/%m/%Y} para enviar sua avaliação."
+            f"{prazo:%d/%m/%Y às %H:%M} para enviar sua avaliação."
         )
         for usuario_id in usuario_ids:
             notificar(
