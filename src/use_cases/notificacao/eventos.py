@@ -394,7 +394,12 @@ def notificar_escalacao_banca(
     servem para os dois casos, porque do ponto de vista de quem recebe a
     notícia é a mesma: "você tem banca em tal dia".
     """
-    quando = data_hora.strftime("%d/%m às %H:%M") if data_hora else "data a definir"
+    # Horário LOCAL — `data_hora` da banca é UTC (ver `push_alocacao_automatica`).
+    quando = (
+        para_hora_local(data_hora).strftime("%d/%m às %H:%M")
+        if data_hora
+        else "data a definir"
+    )
     registrar(
         db,
         usuario_id=usuario_id,

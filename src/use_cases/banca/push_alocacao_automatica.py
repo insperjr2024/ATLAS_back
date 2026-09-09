@@ -248,7 +248,13 @@ class PushAlocacaoAutomaticaUseCase:
             return None
 
         agora = datetime.now()
-        data_formatada = banca.data_hora.strftime("%d/%m/%Y às %H:%M") if banca.data_hora else ""
+        # ⚠ Horário LOCAL: `banca.data_hora` é UTC. Sem converter, o e-mail
+        # da escalação dizia "às 15:00" para uma banca de meio-dia.
+        data_formatada = (
+            para_hora_local(banca.data_hora).strftime("%d/%m/%Y às %H:%M")
+            if banca.data_hora
+            else ""
+        )
         for usuario in selecionados:
             self.candidatura_repository.create(
                 banca_id=banca.id, usuario_id=usuario.id, criado_em=agora, confirmado=False
