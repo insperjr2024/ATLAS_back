@@ -1,9 +1,13 @@
-"""Comentários de uma tarefa, e quem pode editá-la.
+"""Comentários de uma tarefa, e quem pode editá-la / movê-la.
 
-**Quem edita a tarefa**: a diretoria e quem criou. Todo o resto da equipe
-continua podendo MOVER a tarefa no kanban — o §3 dá isso aos quatro perfis, e
-travar o arrasto quebraria o board como ferramenta de time. O que fica
-protegido é o conteúdo: título, responsável e prazo.
+**Quem edita ou exclui a tarefa** (2026-09-09, a pedido): a **coordenação do
+projeto** e a diretoria de projetos. O consultor NÃO edita nem exclui — nem
+o que ele mesmo criou (antes "quem criou" também podia; saiu). Conteúdo
+protegido: título, responsáveis, prazo.
+
+**Quem move no kanban**: coordenação e diretoria movem qualquer tarefa; o
+consultor move só as em que está como **responsável**. Antes o §3 deixava os
+quatro perfis moverem qualquer uma.
 
 **Quem comenta**: quem enxerga o projeto. Discutir uma tarefa é trabalho de
 equipe; travar no autor faria o campo não servir para nada.
@@ -17,8 +21,9 @@ from sqlalchemy.orm import Session
 
 from src.models.tarefa_comentario_model import TarefaComentarioModel
 from src.repositories.base_repository import BaseRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.tarefa_repository import TarefaRepository
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import CODIGO_TAREFA_SEM_PERMISSAO, RegraDeNegocioError
 
 
 class TarefaComentarioRepository(BaseRepository[TarefaComentarioModel]):
@@ -33,22 +38,50 @@ class TarefaComentarioRepository(BaseRepository[TarefaComentarioModel]):
         )
 
 
-def pode_editar_tarefa(tarefa, current_user) -> bool:
-    """A diretoria e quem criou a tarefa.
+def eh_coordenador_do_projeto(db: Session, projeto_id: int, usuario_id: int) -> bool:
+    """`projeto_membro.papel == "coordenador"` para esta pessoa neste projeto —
+    o papel do PROJETO, não a `usuario.posicao` global."""
+    vinculo = ProjetoMembroRepository(db).get_atual_do_usuario_no_projeto(
+        projeto_id, usuario_id
+    )
+    return bool(vinculo and vinculo.papel == "coordenador")
 
-    Mover no kanban NÃO passa por aqui — só a edição de conteúdo.
+
+def pode_editar_tarefa(tarefa, current_user, db: Session) -> bool:
+    """Editar CONTEÚDO (título, responsáveis, prazo) e EXCLUIR: coordenação do
+    projeto e diretoria de projetos. O consultor não mexe — nem no que ele
+    mesmo criou (2026-09-09, a pedido).
+
+    Mover no kanban NÃO passa por aqui — ver `pode_mover_tarefa`.
     """
     return (
         eh_diretoria_de_projetos(current_user)
-        or tarefa.criado_por == current_user.id
+        or eh_coordenador_do_projeto(db, tarefa.projeto_id, current_user.id)
     )
 
 
-def exigir_permissao_de_edicao(tarefa, current_user) -> None:
-    if not pode_editar_tarefa(tarefa, current_user):
+def exigir_permissao_de_edicao(tarefa, current_user, db: Session) -> None:
+    if not pode_editar_tarefa(tarefa, current_user, db):
         raise RegraDeNegocioError(
-            "Só a diretoria e quem criou a tarefa podem editá-la. "
-            "Mover entre colunas continua liberado para a equipe."
+            "Só a coordenação do projeto e a diretoria podem editar ou excluir "
+            "uma tarefa. Mover no kanban continua liberado para quem é responsável.",
+            codigo=CODIGO_TAREFA_SEM_PERMISSAO,
+        )
+
+
+def pode_mover_tarefa(tarefa, current_user, db: Session, responsavel_ids) -> bool:
+    """Arrastar no kanban: coordenação e diretoria movem qualquer tarefa; o
+    consultor move só as em que está como responsável (2026-09-09)."""
+    if pode_editar_tarefa(tarefa, current_user, db):
+        return True
+    return current_user is not None and current_user.id in set(responsavel_ids or [])
+
+
+def exigir_permissao_de_movimento(tarefa, current_user, db: Session, responsavel_ids) -> None:
+    if not pode_mover_tarefa(tarefa, current_user, db, responsavel_ids):
+        raise RegraDeNegocioError(
+            "Você só pode mover tarefas em que está como responsável.",
+            codigo=CODIGO_TAREFA_SEM_PERMISSAO,
         )
 
 

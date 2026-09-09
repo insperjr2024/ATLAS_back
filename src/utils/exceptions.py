@@ -49,3 +49,10 @@ CODIGO_BANCA_ABAIXO_DO_MINIMO = "banca_abaixo_do_minimo"
 #: diretoria, decidindo um pedido de fora da janela (§13), pode conceder as
 #: duas coisas no mesmo ato — ela é a autoridade das duas regras.
 CODIGO_CHOQUE_DE_HORARIO = "choque_de_horario"
+
+
+#: Recusa de editar/mover/excluir tarefa por falta de papel (§6.4, 2026-09-09).
+#: A interface REAGE: o kanban esconde o formulário de edição/exclusão e trava
+#: o arrasto das tarefas que a pessoa não pode mover — precisa distinguir este
+#: 403 de um 422 de validação qualquer.
+CODIGO_TAREFA_SEM_PERMISSAO = "tarefa_sem_permissao"

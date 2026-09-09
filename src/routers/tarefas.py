@@ -51,7 +51,7 @@ from src.use_cases.tarefa.tarefas import (
     UpdateTarefaRequest,
     UpdateTarefaUseCase,
 )
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import CODIGO_TAREFA_SEM_PERMISSAO, RegraDeNegocioError
 
 router = APIRouter(tags=["tarefas"], dependencies=[Depends(get_current_user)])
 
@@ -167,23 +167,26 @@ def update_tarefa(tarefa_id: int, request: UpdateTarefaRequest, current_user=Dep
     try:
         return UpdateTarefaUseCase(db).execute(tarefa_id, request, current_user)
     except RegraDeNegocioError as e:
-        # Falta de permissão de edição vem como regra de negócio do use case;
-        # aqui vira 403, que é o código que a tela espera para esconder o form.
-        codigo = 403 if "podem editá-la" in str(e) else 422
-        raise HTTPException(status_code=codigo, detail=str(e))
+        # Falta de permissão (editar conteúdo ou mover) vem como regra de
+        # negócio do use case com `codigo=CODIGO_TAREFA_SEM_PERMISSAO`; aqui
+        # vira 403, que é o que a tela espera para esconder o form / travar o
+        # arrasto.
+        sem_permissao = getattr(e, "codigo", None) == CODIGO_TAREFA_SEM_PERMISSAO
+        raise HTTPException(status_code=403 if sem_permissao else 422, detail=str(e))
 
 
 @router.delete("/tarefas/{tarefa_id}", status_code=204)
 def delete_tarefa(tarefa_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Excluir é destrutivo: mesma régua da edição (diretoria ou quem criou)."""
+    """Excluir é destrutivo: mesma régua da edição — coordenação do projeto e
+    diretoria de projetos (2026-09-09). O consultor não exclui."""
     tarefa = TarefaRepository(db).get_by_id(tarefa_id)
     if not tarefa:
         raise HTTPException(status_code=404, detail="Tarefa não encontrada")
     exigir_acesso_ao_projeto(tarefa.projeto_id, current_user, db)
-    if not pode_editar_tarefa(tarefa, current_user):
+    if not pode_editar_tarefa(tarefa, current_user, db):
         raise HTTPException(
             status_code=403,
-            detail="Só a diretoria e quem criou a tarefa podem excluí-la",
+            detail="Só a coordenação do projeto e a diretoria podem excluir uma tarefa.",
         )
     DeleteTarefaUseCase(db).execute(tarefa_id)
 

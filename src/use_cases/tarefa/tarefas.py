@@ -23,7 +23,10 @@ from src.use_cases.cronograma.podar_escopo import (
     podar_cronograma_do_escopo,
     resumir_a_poda,
 )
-from src.use_cases.tarefa.comentarios import exigir_permissao_de_edicao
+from src.use_cases.tarefa.comentarios import (
+    exigir_permissao_de_edicao,
+    exigir_permissao_de_movimento,
+)
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.tarefa_status import (
     calcular_urgencia,
@@ -165,6 +168,7 @@ class CreateTarefaUseCase:
 
 class UpdateTarefaUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.repository = TarefaRepository(db)
         self.coluna_repository = TarefaColunaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
@@ -176,12 +180,22 @@ class UpdateTarefaUseCase:
 
         dados = request.dict(exclude_unset=True)
 
-        # ⭐ Mover ≠ editar. Trocar a COLUNA é do time inteiro (§3: os quatro
-        # perfis movem tarefa) — é o kanban funcionando. Mexer no CONTEÚDO
-        # (título, responsáveis, prazo) é da diretoria e de quem criou.
+        # ⭐ Mover ≠ editar, e as duas têm régua própria (2026-09-09):
+        # CONTEÚDO (título, responsáveis, prazo) é da coordenação do projeto e
+        # da diretoria; MOVER é delas também, e do consultor só nas tarefas em
+        # que ele é responsável. `current_user is None` = chamada interna (job,
+        # teste) — sem sujeito, sem checagem.
         campos_de_conteudo = set(dados) - {"coluna_id"}
         if campos_de_conteudo and current_user is not None:
-            exigir_permissao_de_edicao(tarefa, current_user)
+            exigir_permissao_de_edicao(tarefa, current_user, self.db)
+
+        if "coluna_id" in dados and current_user is not None:
+            responsavel_ids = self.repository.responsaveis_por_tarefa([tarefa_id]).get(
+                tarefa_id, []
+            )
+            exigir_permissao_de_movimento(
+                tarefa, current_user, self.db, responsavel_ids
+            )
 
         # Os responsáveis vivem em outra tabela: sai do dict do `update` e vira
         # um `definir_responsaveis` à parte.
