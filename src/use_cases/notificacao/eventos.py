@@ -216,7 +216,7 @@ def notificar_lote_desempenho(db: Session, lote, pendencias) -> None:
 
 
 def notificar_lote_desempenho_lembrete(db: Session, lote, pendencias) -> None:
-    """24h depois de aberto um lote de FINALIZAÇÃO, quem ainda não terminou
+    """A 1 dia do fim de um lote de FINALIZAÇÃO, quem ainda não terminou
     (nem começou, ou respondeu só parte) recebe um empurrão (2026-09-04, a
     pedido — dispara em `rodar_lembrete_lote_finalizacao`, no agendador).
 
@@ -232,6 +232,17 @@ def notificar_lote_desempenho_lembrete(db: Session, lote, pendencias) -> None:
             continue
         por_avaliador[pendencia["avaliador_id"]] = por_avaliador.get(pendencia["avaliador_id"], 0) + 1
 
+    # Mesmo prazo em horário local do aviso de abertura (ver
+    # `notificar_lote_desempenho`) — "falta pouco" sem dizer quanto obriga a
+    # pessoa a ir procurar.
+    data_fim = getattr(lote, "data_fim", None)
+    prazo = (
+        f" Responda até {para_hora_local(data_fim):%d/%m/%Y às %H:%M}."
+        if data_fim
+        else ""
+    )
+    corpo = f"{getattr(lote, 'nome', '') or ''}{prazo}".strip() or None
+
     for avaliador_id, total in por_avaliador.items():
         registrar(
             db,
@@ -241,7 +252,7 @@ def notificar_lote_desempenho_lembrete(db: Session, lote, pendencias) -> None:
                 f"Falta pouco para o prazo da Avaliação de Desempenho — {total} "
                 f"{'avaliação' if total == 1 else 'avaliações'} ainda por responder"
             ),
-            corpo=getattr(lote, "nome", None),
+            corpo=corpo,
             rota="/avaliacao-desempenho",
             payload={"lote_id": lote.id},
             chave_dedup=f"lote_desempenho_lembrete:lote={lote.id}:usuario={avaliador_id}",

@@ -17,7 +17,7 @@ Duas coisas disparam juntas, pela mesma passada do job:
    inalterados, só deixaram de esperar um clique.
 2. Se a banca finaliza escopo(s) de um projeto, abre um lote de Avaliação de
    Desempenho tipo "finalização" pra equipe inteira (membros + coordenador),
-   com 48h de prazo — e notifica todo mundo na hora.
+   com 7 dias de prazo (`PRAZO_DESEMPENHO`) — e notifica todo mundo na hora.
 
 ⚠ **Não há mais confirmação humana de que a banca realmente aconteceu.** A
 única saída é `banca.cancelada_em`, gravado ANTES desta rotina rodar — ver
@@ -51,11 +51,13 @@ from src.use_cases.notificacao.eventos import notificar_lote_desempenho
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.fuso import agora_utc
 
-#: 48h — mesmo prazo da avaliação de banca (`PRAZO_AVALIACAO_DIAS = 2`),
-#: só que em horas: o lote de desempenho nasce e morre no relógio, não no
-#: calendário (não faz sentido "2 dias" que emendam a virada da meia-noite
-#: de um jeito e a das 23h de outro).
-PRAZO_DESEMPENHO_HORAS = 48
+#: 7 dias corridos pra responder a Avaliação do Escopo (2026-09-09, a
+#: pedido — antes eram 48h, curto demais pra equipe inteira). Conta a
+#: partir do INSTANTE em que o lote abre, não do calendário: 7*24h cravado,
+#: sem depender de a abertura cair 00:05 ou 23:50. O lembrete de "falta 1
+#: dia" está amarrado a `data_fim` (ver `rodar_lembrete_lote_finalizacao`),
+#: então acompanha esta mudança sozinho.
+PRAZO_DESEMPENHO = timedelta(days=7)
 
 #: Folga entre o `data_hora` da banca e o gatilho da finalização automática
 #: (2026-09-09, a pedido: nasceu como 1h e virou 15 min no mesmo dia — 1h
@@ -163,7 +165,7 @@ class FinalizacaoAutomaticaBancaUseCase:
                 nome=f"Finalização - {projeto.nome} - {', '.join(nomes_escopo)}",
                 tipo="finalizacao",
                 data_inicio=agora,
-                data_fim=agora + timedelta(hours=PRAZO_DESEMPENHO_HORAS),
+                data_fim=agora + PRAZO_DESEMPENHO,
                 projeto_ids=[projeto_id],
                 banca_id=banca.id,
             )
