@@ -17,6 +17,26 @@ from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.equipe_banca import membros_da_banca
 
 
+def escopos_avaliados_ids(projeto_escopo_ids, projeto_escopo_por_id, escopo_id_legado) -> list:
+    """Os escopos do CATÁLOGO que a banca cobre — a chave que casa com
+    `pergunta.escopo_id` no formulário de avaliação (2026-09-09).
+
+    `banca_escopo` guarda ids de `projeto_escopo` (o escopo VENDIDO de um
+    projeto); a pergunta técnica é marcada com o escopo do catálogo. Esta
+    função traduz um no outro, dedup e ordenado. Banca legada, sem escopo
+    vendido vinculado, cai no `banca.escopo_id` de sempre — para ela o
+    formulário segue com um bloco só.
+    """
+    catalogo = []
+    for pe_id in projeto_escopo_ids:
+        pe = projeto_escopo_por_id.get(pe_id)
+        if pe and pe.escopo_id and pe.escopo_id not in catalogo:
+            catalogo.append(pe.escopo_id)
+    if catalogo:
+        return sorted(catalogo)
+    return [escopo_id_legado] if escopo_id_legado else []
+
+
 def composicao_da_banca(banca, frentes, candidatura_usuario_ids, checker, resolver) -> list:
     """⭐ A composição desta banca, frente a frente — o que a matriz de
     Configurações exige e o que a banca TEM (2026-09-02).
@@ -79,6 +99,8 @@ class GetBancaUseCase:
         vagas = calcular_vagas_banca(frentes, self.db)
         semestres = self.semestre_repository.get_all()
         semestre = identificar_semestre(banca.data_hora, semestres)
+        pe_ids = self.banca_escopo_repository.get_escopo_ids(banca.id)
+        pe_por_id = {pe.id: pe for pe in self.escopo_repository.get_by_ids(pe_ids)}
         return {
             "id": banca.id,
             "nome_projeto": banca.nome_projeto,
@@ -86,7 +108,10 @@ class GetBancaUseCase:
             "coordenador_id": banca.coordenador_id,
             "data_hora": banca.data_hora,
             # Os escopos vendidos que esta banca cobre — vazio nas legadas.
-            "projeto_escopo_ids": self.banca_escopo_repository.get_escopo_ids(banca.id),
+            "projeto_escopo_ids": pe_ids,
+            # Os escopos do CATÁLOGO cobertos — um bloco de perguntas por
+            # item no formulário de avaliação. Legada: cai no `escopo_id`.
+            "escopos_avaliados_ids": escopos_avaliados_ids(pe_ids, pe_por_id, banca.escopo_id),
             "realizado_em": banca.realizado_em,
             "cancelada_em": getattr(banca, "cancelada_em", None),
             "resultado": banca.resultado,
@@ -169,6 +194,10 @@ class ListBancasUseCase:
         escopos_por_banca = self.banca_escopo_repository.get_escopo_ids_por_banca(
             [b.id for b in bancas]
         )
+        # Tradução `projeto_escopo` → escopo do catálogo, uma consulta só para
+        # a listagem inteira (ver `escopos_avaliados_ids`).
+        todos_pe_ids = {pe_id for ids in escopos_por_banca.values() for pe_id in ids}
+        pe_por_id = {pe.id: pe for pe in self.escopo_repository.get_by_ids(list(todos_pe_ids))}
         # As frentes uma vez só: o piso de cada banca é a soma dos pisos delas,
         # e buscar por banca dentro do laço seria N+1.
         frentes_por_id = {f.id: f for f in self.frente_repository.get_all()}
@@ -188,6 +217,9 @@ class ListBancasUseCase:
                 "coordenador_id": b.coordenador_id,
                 "data_hora": b.data_hora,
                 "projeto_escopo_ids": escopos_por_banca.get(b.id, []),
+                "escopos_avaliados_ids": escopos_avaliados_ids(
+                    escopos_por_banca.get(b.id, []), pe_por_id, b.escopo_id
+                ),
                 "realizado_em": b.realizado_em,
                 "cancelada_em": getattr(b, "cancelada_em", None),
                 "resultado": b.resultado,

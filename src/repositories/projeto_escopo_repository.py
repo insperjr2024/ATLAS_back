@@ -25,3 +25,15 @@ class ProjetoEscopoRepository(BaseRepository[ProjetoEscopoModel]):
             .filter(ProjetoEscopoModel.projeto_id.in_(projeto_ids))
             .all()
         )
+
+    def get_by_ids(self, ids: List[int]) -> List[ProjetoEscopoModel]:
+        """Vários escopos vendidos de uma vez, por id — para traduzir os ids
+        que `banca_escopo` guarda no `escopo_id` do catálogo sem um
+        `get_by_id` por linha na listagem de bancas."""
+        if not ids:
+            return []
+        return (
+            self.db.query(ProjetoEscopoModel)
+            .filter(ProjetoEscopoModel.id.in_(ids))
+            .all()
+        )
