@@ -484,10 +484,13 @@ def delete_candidatura(candidatura_id: int, current_user=Depends(get_current_use
     existente = GetCandidaturaUseCase(db).execute(candidatura_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Candidatura não encontrada")
-    if existente["usuario_id"] != current_user.id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
+    eh_gestao = usuario_tem_permissao(current_user, db, "pode_gerir_membros")
+    if existente["usuario_id"] != current_user.id and not eh_gestao:
         raise HTTPException(status_code=403, detail="Você só pode remover suas próprias candidaturas")
     try:
-        deleted = DeleteCandidaturaUseCase(db).execute(candidatura_id)
+        # `eh_gestao` passa por cima da trava dos 7 dias — a diretoria decide
+        # caso a caso quem sai perto da banca.
+        deleted = DeleteCandidaturaUseCase(db).execute(candidatura_id, eh_gestao=eh_gestao)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not deleted:
