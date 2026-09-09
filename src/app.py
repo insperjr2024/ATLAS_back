@@ -165,8 +165,9 @@ def rodar_lembrete_lote_finalizacao() -> None:
 
 
 def rodar_lembrete_prazo_avaliacao() -> None:
-    """§8: dois avisos por dia sobre o prazo de 2 dias pra avaliar uma banca
-    realizada — pro avaliador, a 1 dia do fim (a notificação de "banca
+    """§8: dois avisos por dia sobre o prazo (7 dias, `PRAZO_AVALIACAO_DIAS`)
+    pra avaliar uma banca realizada — pro avaliador, a 1 dia do fim (a
+    notificação de "banca
     realizada" já sai na hora, em `RegistrarRealizacaoBancaUseCase`; esta é
     o empurrão final antes do bloqueio); pra diretoria DE PROJETOS, no dia
     seguinte a quem perdeu o prazo (uma vez só — comparar com "ontem" evita
