@@ -41,6 +41,7 @@ from src.use_cases.desempenho_lote.create_lote import (
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
 from src.use_cases.notificacao.eventos import notificar_lote_desempenho
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
+from src.utils.fuso import agora_utc
 
 #: 48h — mesmo prazo da avaliação de banca (`PRAZO_AVALIACAO_DIAS = 2`),
 #: só que em horas: o lote de desempenho nasce e morre no relógio, não no
@@ -63,7 +64,11 @@ class FinalizacaoAutomaticaBancaUseCase:
         self.lote_repository = DesempenhoLoteRepository(db)
 
     def execute(self, referencia: Optional[datetime] = None) -> list[dict]:
-        referencia = referencia or datetime.now()
+        # ⚠ UTC, não `datetime.now()` local (2026-09-09): `banca.data_hora`
+        # é gravado em UTC pelo front. Comparar com hora local do servidor
+        # atrasava a finalização em 3h — a banca do meio-dia só finalizava
+        # às 15h.
+        referencia = referencia or agora_utc()
         candidatas = self.banca_repository.get_para_finalizacao_automatica(referencia)
         resumo = []
         for banca in candidatas:
