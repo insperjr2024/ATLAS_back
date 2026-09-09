@@ -1,5 +1,11 @@
-"""§8/§6.5 — quando `data_hora` de uma banca chega, sem ninguém clicar em nada
-(2026-09-04, a pedido: o botão "Registrar realização" saiu de vez).
+"""§8/§6.5 — quando `data_hora` de uma banca chega (+ 1h de folga), sem
+ninguém clicar em nada (2026-09-04, a pedido: o botão "Registrar realização"
+saiu de vez).
+
+⚠ 2026-09-09, a pedido: dispara **1h DEPOIS** do `data_hora`, não no
+horário marcado — a banca não acaba na hora que começa (apresentação, Q&A);
+abrir a avaliação no minuto do início era cedo demais. `realizado_em`
+continua sendo o `data_hora` marcado, só o gatilho é que espera.
 
 Duas coisas disparam juntas, pela mesma passada do job:
 
@@ -49,6 +55,12 @@ from src.utils.fuso import agora_utc
 #: de um jeito e a das 23h de outro).
 PRAZO_DESEMPENHO_HORAS = 48
 
+#: Folga entre o `data_hora` da banca e o gatilho da finalização automática
+#: (2026-09-09, a pedido). A banca começa no `data_hora`, mas não ACABA
+#: nele — 1h é a margem pra ela ter de fato acontecido antes de abrir a
+#: avaliação.
+ATRASO_FINALIZACAO = timedelta(hours=1)
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,7 +80,10 @@ class FinalizacaoAutomaticaBancaUseCase:
         # é gravado em UTC pelo front. Comparar com hora local do servidor
         # atrasava a finalização em 3h — a banca do meio-dia só finalizava
         # às 15h.
-        referencia = referencia or agora_utc()
+        #
+        # ⚠ `- ATRASO_FINALIZACAO`: só entra banca cujo `data_hora` já passou
+        # há pelo menos 1h — margem pra ela ter acontecido de fato.
+        referencia = (referencia or agora_utc()) - ATRASO_FINALIZACAO
         candidatas = self.banca_repository.get_para_finalizacao_automatica(referencia)
         resumo = []
         for banca in candidatas:
