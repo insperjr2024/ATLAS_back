@@ -35,6 +35,7 @@ from src.use_cases.formulario.create_nova_versao_formulario import (
 )
 from src.use_cases.formulario.get_formulario import GetFormularioUseCase, ListFormulariosUseCase
 from src.use_cases.formulario.get_formulario_ativo import GetFormularioAtivoUseCase
+from src.use_cases.formulario.get_formulario_para_editar import GetFormularioParaEditarUseCase
 from src.use_cases.formulario.update_formulario import (
     UpdateFormularioUseCase,
     UpdateFormularioRequest,
@@ -48,14 +49,25 @@ router = APIRouter(tags=["avaliações"], dependencies=[Depends(get_current_user
 
 
 # ---------------------------------------------------------------- formulários
-# ⚠️ /formularios/ativo precisa vir ANTES de /formularios/{id}, senão o FastAPI
-# casa "ativo" como path param e devolve 422.
+# ⚠️ /formularios/ativo e /formularios/para-editar precisam vir ANTES de
+# /formularios/{id}, senão o FastAPI casa a palavra como path param e dá 422.
 
 @router.get("/formularios/ativo")
 def get_formulario_ativo(db: Session = Depends(get_db)):
     result = GetFormularioAtivoUseCase(db).execute()
     if not result:
         raise HTTPException(status_code=404, detail="Nenhum formulário ativo encontrado")
+    return result
+
+
+@router.get("/formularios/para-editar")
+def get_formulario_para_editar(_=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
+    """O que o editor abre: a versão ativa se tiver conteúdo, senão a última
+    que tem — para "Publicar nova versão" nunca partir do zero e apagar o
+    que já estava salvo. Ver `GetFormularioParaEditarUseCase`."""
+    result = GetFormularioParaEditarUseCase(db).execute()
+    if not result:
+        raise HTTPException(status_code=404, detail="Nenhum formulário encontrado")
     return result
 
 
