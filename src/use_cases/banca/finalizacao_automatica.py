@@ -1,11 +1,13 @@
-"""§8/§6.5 — quando `data_hora` de uma banca chega (+ 1h de folga), sem
+"""§8/§6.5 — quando `data_hora` de uma banca chega (+ 15 min de folga), sem
 ninguém clicar em nada (2026-09-04, a pedido: o botão "Registrar realização"
 saiu de vez).
 
-⚠ 2026-09-09, a pedido: dispara **1h DEPOIS** do `data_hora`, não no
-horário marcado — a banca não acaba na hora que começa (apresentação, Q&A);
-abrir a avaliação no minuto do início era cedo demais. `realizado_em`
-continua sendo o `data_hora` marcado, só o gatilho é que espera.
+⚠ 2026-09-09, a pedido: dispara **15 min DEPOIS** do `data_hora`, não no
+horário marcado — abrir a avaliação no minuto do início é cedo demais (a
+apresentação mal começou), mas a primeira tentativa de 1h também não serviu:
+o e-mail chegava com a banca ainda rolando e todo mundo reclamou. 15 min é o
+meio-termo. `realizado_em` continua sendo o `data_hora` marcado, só o
+gatilho é que espera.
 
 Duas coisas disparam juntas, pela mesma passada do job:
 
@@ -56,10 +58,11 @@ from src.utils.fuso import agora_utc
 PRAZO_DESEMPENHO_HORAS = 48
 
 #: Folga entre o `data_hora` da banca e o gatilho da finalização automática
-#: (2026-09-09, a pedido). A banca começa no `data_hora`, mas não ACABA
-#: nele — 1h é a margem pra ela ter de fato acontecido antes de abrir a
-#: avaliação.
-ATRASO_FINALIZACAO = timedelta(hours=1)
+#: (2026-09-09, a pedido: nasceu como 1h e virou 15 min no mesmo dia — 1h
+#: fazia o e-mail chegar com a banca ainda em andamento). A banca começa no
+#: `data_hora`, mas não ACABA nele; 15 min é a margem mínima pra ela ter de
+#: fato começado antes de abrir a avaliação.
+ATRASO_FINALIZACAO = timedelta(minutes=15)
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +85,7 @@ class FinalizacaoAutomaticaBancaUseCase:
         # às 15h.
         #
         # ⚠ `- ATRASO_FINALIZACAO`: só entra banca cujo `data_hora` já passou
-        # há pelo menos 1h — margem pra ela ter acontecido de fato.
+        # há pelo menos 15 min — margem pra ela ter de fato começado.
         referencia = (referencia or agora_utc()) - ATRASO_FINALIZACAO
         candidatas = self.banca_repository.get_para_finalizacao_automatica(referencia)
         resumo = []
