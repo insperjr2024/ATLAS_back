@@ -152,7 +152,12 @@ class FinalizacaoAutomaticaBancaUseCase:
         }
         nomes_escopo = [nome_do_escopo(e, catalogo_por_id) for e in escopos]
 
-        agora = datetime.now()
+        # UTC, mesma régua de `banca.data_hora` e de `criado_em` (`func.now()`).
+        # `datetime.now()` cru aqui gravava a hora local do servidor (UTC no
+        # Railway) e o e-mail do lote mostrava esse valor sem converter: um
+        # lote aberto ao meio-dia dizia "responda até ... às 15:00". Quem
+        # formata pra pessoa (`notificar_lote_desempenho`) agora converte.
+        agora = agora_utc()
         lote_resultado = CreateDesempenhoLoteUseCase(self.db).execute(
             CreateDesempenhoLoteRequest(
                 nome=f"Finalização - {projeto.nome} - {', '.join(nomes_escopo)}",
