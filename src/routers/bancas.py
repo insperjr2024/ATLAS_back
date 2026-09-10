@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -28,7 +28,16 @@ from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
+from src.use_cases.banca.local_e_entrega import (
+    EntregaLinkBancaRequest,
+    LocalBancaRequest,
+    RegistrarEntregaLinkBancaUseCase,
+    RegistrarLocalBancaUseCase,
+    RemoverEntregaBancaUseCase,
+    SubirEntregaArquivoBancaUseCase,
+)
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.repositories.banca_repository import BancaRepository
 from src.use_cases.banca.excecao_choque import (
     DecidirExcecaoChoqueRequest,
     DecidirExcecaoChoqueUseCase,
@@ -173,6 +182,77 @@ def get_banca_detalhes(
         detalhes["avaliacoes"] = []
         detalhes["nota_final"] = None
     return detalhes
+
+
+# ---------------------------------------------- local da banca e anexo da entrega
+# ⚠ Sem `_exigir_acesso_a_banca`: os use cases já cobram que a pessoa seja do
+# PROJETO avaliado (`membros_da_banca`), que é mais estrito.
+
+@router.put("/bancas/{banca_id}/local")
+def registrar_local_banca(
+    banca_id: int,
+    request: LocalBancaRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return RegistrarLocalBancaUseCase(db).execute(banca_id, request.local, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.put("/bancas/{banca_id}/entrega-link")
+def registrar_entrega_link_banca(
+    banca_id: int,
+    request: EntregaLinkBancaRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return RegistrarEntregaLinkBancaUseCase(db).execute(banca_id, request.link, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/bancas/{banca_id}/entrega-arquivo")
+def subir_entrega_arquivo_banca(
+    banca_id: int,
+    arquivo: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return SubirEntregaArquivoBancaUseCase(db).execute(banca_id, arquivo, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/bancas/{banca_id}/entrega", status_code=204)
+def remover_entrega_banca(
+    banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    try:
+        RemoverEntregaBancaUseCase(db).execute(banca_id, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return None
+
+
+@router.get("/bancas/{banca_id}/entrega-arquivo")
+def baixar_entrega_arquivo_banca(
+    banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Qualquer pessoa logada baixa — a entrega aparece nas informações da
+    banca pra todo mundo (§ mesma régua do `local`)."""
+    banca = BancaRepository(db).get_by_id(banca_id)
+    if not banca or not getattr(banca, "entrega_arquivo_conteudo", None):
+        raise HTTPException(status_code=404, detail="Sem arquivo de entrega nesta banca")
+    nome = banca.entrega_arquivo_nome or "entrega"
+    return Response(
+        content=banca.entrega_arquivo_conteudo,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
