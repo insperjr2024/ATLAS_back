@@ -28,6 +28,13 @@ class AvaliacaoNotaRepository:
     def get_all(self) -> List[AvaliacaoNotaModel]:
         return self.db.query(AvaliacaoNotaModel).all()
 
+    def get_by_avaliacao(self, avaliacao_id: int) -> List[AvaliacaoNotaModel]:
+        return (
+            self.db.query(AvaliacaoNotaModel)
+            .filter(AvaliacaoNotaModel.avaliacao_id == avaliacao_id)
+            .all()
+        )
+
     def get_by_banca(self, banca_id: int) -> List[AvaliacaoNotaModel]:
         return (
             self.db.query(AvaliacaoNotaModel)
