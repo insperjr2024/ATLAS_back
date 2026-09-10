@@ -59,6 +59,7 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.banca.aprovar_banca import montar_situacao_aprovacao
 from src.use_cases.banca.excecao_choque import ListarExcecoesChoquePendentesUseCase
 from src.use_cases.banca.fora_janela import ListarForaJanelaPendentesUseCase
+from src.use_cases.banca.remarcacao_solicitacao import ListarRemarcacoesPendentesUseCase
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.atraso_monitoramento import calcular_atraso_projeto, justificativa_cobrindo
 from src.utils.calendario_variante import (
@@ -192,6 +193,10 @@ class ListarAprovacoesPendentesUseCase:
         # mesma chamada — pedido e decisão eram o mesmo clique. Agora quem
         # marca pede aqui, e esta fila é onde a diretoria decide.
         fora_janela = ListarForaJanelaPendentesUseCase(self.db).execute()
+        # ⭐ §13, 2026-09-10: remarcar banca com data já marcada deixou de ser
+        # livre — quem não é da diretoria pede, e esta fila é onde ela decide.
+        # Aprovar já remarca a banca.
+        remarcacoes = ListarRemarcacoesPendentesUseCase(self.db).execute()
 
         # ⚠ Havia aqui uma quinta fila, `entregas_sem_classificacao`: as
         # entregas atrasadas ainda não marcadas como atraso interno ou por
@@ -206,6 +211,7 @@ class ListarAprovacoesPendentesUseCase:
             "bancas_sem_resultado": sem_resultado,
             "excecoes_de_choque": choques,
             "bancas_fora_da_janela": fora_janela,
+            "remarcacoes_de_banca": remarcacoes,
             # O total é servido pronto porque o badge da aba precisa dele antes
             # de qualquer render — somar no front daria a mesma conta em dois
             # lugares, e é a que sai errada quando nasce uma fila nova.
@@ -216,6 +222,7 @@ class ListarAprovacoesPendentesUseCase:
                 + len(sem_resultado)
                 + len(choques)
                 + len(fora_janela)
+                + len(remarcacoes)
             ),
         }
 

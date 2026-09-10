@@ -22,6 +22,8 @@ from src.models.banca_excecao_choque_model import BancaExcecaoChoqueModel
 from src.models.banca_fora_janela_solicitacao_model import BancaForaJanelaSolicitacaoModel
 from src.models.banca_sessao_model import BancaSessaoModel
 from src.models.banca_remarcacao_model import BancaRemarcacaoModel
+# O pedido de remarcação de uma banca que já tem data — a diretoria decide (§13).
+from src.models.banca_remarcacao_solicitacao_model import BancaRemarcacaoSolicitacaoModel
 from src.models.configuracao_model import ConfiguracaoModel
 
 # Prioridade 1 — todo model novo precisa entrar aqui, senão o `alembic

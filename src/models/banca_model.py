@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, LargeBinary, String, Text
 from src.database.database import Base
 
 
@@ -55,3 +55,17 @@ class BancaModel(Base):
     #: de `realizado_em` (ver `CancelarBancaUseCase`); depois disso ela já
     #: aconteceu, cancelar não desfaz nada.
     cancelada_em = Column(DateTime, nullable=True)
+
+    #: ⭐ 2026-09-10, a pedido. Onde a banca acontece — texto livre. Só quem é
+    #: do PROJETO que a banca avalia (`membros_da_banca`) registra, e só até
+    #: 1h antes (`RegistrarLocalBancaUseCase`). Depois disso o campo tranca.
+    #: Aparece nas informações da banca pra qualquer um logado.
+    local = Column(Text, nullable=True)
+
+    #: ⭐ A entrega da banca: LINK ou ARQUIVO, nunca os dois (`entrega_link` é
+    #: zerado quando sobe arquivo, e vice-versa). Consultores e coordenação do
+    #: projeto anexam a qualquer momento, pra consultar antes ou depois.
+    #: Conteúdo no banco, não em disco — mesmo motivo do anexo de proposta.
+    entrega_link = Column(Text, nullable=True)
+    entrega_arquivo_nome = Column(String(255), nullable=True)
+    entrega_arquivo_conteudo = Column(LargeBinary, nullable=True)

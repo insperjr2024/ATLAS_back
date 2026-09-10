@@ -164,6 +164,67 @@ def rodar_lembrete_lote_finalizacao() -> None:
         db.close()
 
 
+def rodar_lembrete_local_banca() -> None:
+    """§ 2026-09-10 — local da banca.
+
+    ~2h antes, banca SEM local: e-mail pro TIME DO PROJETO pedindo pra
+    registrar em Bancas (dá até 1h antes). ~1h antes: e-mail pros AVALIADORES
+    escalados (menos o time do projeto) com o horário e o local.
+
+    Dedup por `chave`: cada aviso sai uma vez só, mesmo o job rodando de 5 em
+    5 min. Se o local for registrado entre 2h e 1h, o aviso de "chegando" já
+    sai com ele preenchido.
+    """
+    from src.repositories.banca_repository import BancaRepository
+    from src.repositories.candidatura_repository import CandidaturaRepository
+    from src.use_cases.banca.local_e_entrega import pessoas_do_projeto_da_banca
+    from src.utils.fuso import agora_utc, para_hora_local
+
+    db = SessionLocal()
+    try:
+        agora = agora_utc()
+        banca_repo = BancaRepository(db)
+        cand_repo = CandidaturaRepository(db)
+        avisos = 0
+        for banca in banca_repo.get_all():
+            if not banca.data_hora or banca.realizado_em or getattr(banca, "cancelada_em", None):
+                continue
+            faltando = banca.data_hora - agora
+            if faltando <= timedelta(0):
+                continue
+
+            time_projeto = pessoas_do_projeto_da_banca(db, banca)
+            tem_local = bool((getattr(banca, "local", None) or "").strip())
+
+            if timedelta(hours=1) < faltando <= timedelta(hours=2) and not tem_local:
+                for uid in time_projeto:
+                    notificar(
+                        db, uid,
+                        f"A banca de {banca.nome_projeto} é em cerca de 2h e ainda não tem "
+                        "local no Atlas. Registrem onde vai ser em Bancas — dá até 1h antes.",
+                        banca_id=banca.id,
+                        chave=f"local_faltando:banca={banca.id}",
+                    )
+                    avisos += 1
+
+            if faltando <= timedelta(hours=1):
+                quando = para_hora_local(banca.data_hora).strftime("%d/%m às %H:%M")
+                onde = (getattr(banca, "local", None) or "").strip() or "local ainda não registrado"
+                escalados = {c.usuario_id for c in cand_repo.get_by_banca(banca.id)} - time_projeto
+                for uid in escalados:
+                    notificar(
+                        db, uid,
+                        f"A banca de {banca.nome_projeto} está chegando: {quando}, em {onde}.",
+                        banca_id=banca.id,
+                        chave=f"local_avaliadores:banca={banca.id}",
+                    )
+                    avisos += 1
+        if avisos:
+            logger.info("Lembrete de local de banca: %d aviso(s)", avisos)
+    finally:
+        db.close()
+
+
 def rodar_lembrete_prazo_avaliacao() -> None:
     """§8: dois avisos por dia sobre o prazo (7 dias, `PRAZO_AVALIACAO_DIAS`)
     pra avaliar uma banca realizada — pro avaliador, a 1 dia do fim (a
@@ -426,6 +487,14 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_lote_finalizacao,
         CronTrigger(minute="*/5"),
         id="lembrete_lote_finalizacao",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_lembrete_local_banca,
+        # De 5 em 5 min: as janelas são de 2h e 1h antes da banca, dedup por
+        # chave garante um aviso por banca por janela.
+        CronTrigger(minute="*/5"),
+        id="lembrete_local_banca",
         replace_existing=True,
     )
     scheduler.add_job(

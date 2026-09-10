@@ -11,8 +11,9 @@ Três regras que estes testes prendem:
   que exigia a banca antes da reunião inicial.
 - **Fora da janela é decisão da diretoria**, com justificativa — e os dias além
   dela viram atraso sozinhos, sem ninguém conceder nada.
-- **Remarcar em cima da hora exige diretoria**, mesmo dentro da janela: os
-  avaliadores já reservaram a agenda.
+- **Toda remarcação exige diretoria** (2026-09-10), mesmo dentro da janela e com
+  folga: quem não é da diretoria pede (`remarcacao_solicitacao`) e a aprovação
+  remarca a banca. O que era "livre" virou rotina silenciosa e foi cortado.
 
 Dublês à mão, classes de repositório trocadas no módulo via `monkeypatch` —
 mesmo idioma de `test_destinatarios_notificacao.py`.
@@ -325,21 +326,33 @@ class TestPrimeiraMarcacao:
 
 
 class TestRemarcacao:
-    def test_dentro_da_janela_e_com_folga_o_coordenador_remarca(self, marcar):
-        """⭐ Era decisão da diretoria para TODA remarcação, e isso fazia da
-        exceção uma rotina. §13 soltou o caso comum."""
+    def test_dentro_da_janela_e_com_folga_o_coordenador_e_barrado(self, marcar):
+        """⭐ 2026-09-10: acabou o "livre". Mesmo dentro da janela e com folga,
+        o coordenador não remarca sozinho — pede à diretoria
+        (`remarcacao_solicitacao`), e a aprovação é que remarca."""
         executar, estado = marcar(banca_existente=banca_marcada(datetime(2026, 9, 24, 14, 0)))
 
-        executar(data_hora=DENTRO, justificativa="O cliente pediu um dia depois")
+        with pytest.raises(RegraDeNegocioError, match="decisão da diretoria"):
+            executar(data_hora=DENTRO, justificativa="O cliente pediu um dia depois")
+
+        assert estado.notificou is False
+
+    def test_dentro_da_janela_a_diretoria_remarca_direto(self, marcar):
+        """A diretoria continua remarcando pelo cronograma sem pedir a si
+        mesma — é o caminho que a aprovação do pedido também usa."""
+        executar, estado = marcar(banca_existente=banca_marcada(datetime(2026, 9, 24, 14, 0)))
+
+        executar(data_hora=DENTRO, quem=DANI, justificativa="O cliente pediu um dia depois")
 
         assert estado.notificou is True
 
     def test_remarcacao_sempre_exige_justificativa(self, marcar):
-        """§9: nunca é silenciosa. O §13 dispensa a diretoria, não o registro."""
+        """§9: nunca é silenciosa — a justificativa é cobrada antes de tudo,
+        mesmo da diretoria."""
         executar, _ = marcar(banca_existente=banca_marcada(datetime(2026, 9, 24, 14, 0)))
 
         with pytest.raises(RegraDeNegocioError, match="justificativa"):
-            executar(data_hora=DENTRO)
+            executar(data_hora=DENTRO, quem=DANI)
 
     def test_a_data_antiga_fica_registrada(self, marcar):
         """Sem isto, "de 24/09 para 25/09" existiria só na notificação — que
@@ -347,14 +360,14 @@ class TestRemarcacao:
         antiga = datetime(2026, 9, 24, 14, 0)
         executar, estado = marcar(banca_existente=banca_marcada(antiga))
 
-        executar(data_hora=DENTRO, justificativa="O cliente pediu um dia depois")
+        executar(data_hora=DENTRO, quem=DANI, justificativa="O cliente pediu um dia depois")
 
         (registro,) = estado.remarcacoes
         assert registro["data_anterior"] == antiga
         assert registro["data_nova"] == DENTRO
         assert registro["justificativa"] == "O cliente pediu um dia depois"
-        # Remarcação livre: ninguém precisou autorizar.
-        assert registro["autorizado_por"] is None
+        # Remarcou a diretoria: a autorização fica carimbada com quem foi.
+        assert registro["autorizado_por"] == DANI.id
 
     def test_remarcacao_autorizada_registra_quem_liberou(self, marcar):
         executar, estado = marcar(
@@ -366,14 +379,9 @@ class TestRemarcacao:
 
         assert estado.remarcacoes[0]["autorizado_por"] == DANI.id
 
-    def test_em_cima_da_hora_exige_diretoria_mesmo_dentro_da_janela(self, marcar):
-        """§13: os avaliadores já reservaram a agenda.
-
-        As datas são relativas a HOJE de propósito — o gate compara com o
-        relógio, e datas fixas fariam este teste vencer sozinho no dia em que
-        passassem. A aritmética de dias úteis em si está prendida em
-        `test_janela_escopo.py`, com `referencia` injetada.
-        """
+    def test_remarcacao_dentro_da_janela_barra_o_coordenador_e_a_diretoria_passa(self, marcar):
+        """§13: o coordenador é barrado com a mensagem que a tela casa para
+        revelar o botão "Pedir remarcação à diretoria"; a diretoria remarca."""
         hoje = date.today()
         proxima, daqui_a_muito = _amanha_util(hoje), _daqui_a_dias_uteis(hoje, 12)
         executar, _ = marcar(
@@ -382,7 +390,7 @@ class TestRemarcacao:
         )
 
         alvo = datetime.combine(daqui_a_muito, datetime.min.time())
-        with pytest.raises(RegraDeNegocioError, match="cima da hora"):
+        with pytest.raises(RegraDeNegocioError, match="Pedir remarcação à diretoria"):
             executar(data_hora=alvo, justificativa="O cliente pediu")
 
         assert executar(data_hora=alvo, quem=DANI, justificativa="Autorizado")

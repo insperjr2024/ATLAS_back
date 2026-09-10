@@ -15,6 +15,12 @@ from src.use_cases.configuracao import composicao_banca as composicao_mod
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 
 
+def usuario_vendas(id, posicao="coordenador"):
+    """Coordenador (ou qualquer posição) marcado como coordenador de vendas —
+    liderança SEM frente: vai à banca, mas não fecha piso de frente nenhuma."""
+    return SimpleNamespace(id=id, posicao=posicao, coordenador_vendas=True)
+
+
 def usuario(id, posicao="consultor"):
     return SimpleNamespace(id=id, posicao=posicao)
 
@@ -309,6 +315,70 @@ class TestVagaDeLiderancaReservadaNoPush:
 
         # Gerente + os 2 membros: piso fechado, nada sobra pro geral.
         assert set(resultado["usuarios_alocados"]) == {10, 11, 12}
+
+
+class TestCoordenadorDeVendasNaoCobreLideranca:
+    """⭐ O bug do ATLAS I: a banca fechou "lotada" com a liderança de Business
+    ainda faltando porque o push escalava COORDENADOR DE VENDAS pra cota de
+    liderança da frente — e a ficha / a trava de inscrição
+    (`ComposicaoBancaChecker`) não os contam. Coord. de vendas é liderança SEM
+    frente: `eh_lideranca_sem_frente`."""
+
+    def test_push_puxa_a_lideranca_real_e_nao_o_coord_de_vendas(self, monkeypatch):
+        uc, banca, candidaturas = montar(
+            monkeypatch,
+            frente_ids=[1],
+            frentes={1: frente(1, "Business", 3)},
+            # 3 consultores já dentro (piso de membros ok); falta só a
+            # liderança. Pool de líderes: 20 e 21 são de VENDAS, 22 é real.
+            por_frente={1: [10, 11, 12, 20, 21, 22]},
+            usuarios=[
+                usuario(10), usuario(11), usuario(12),
+                usuario_vendas(20), usuario_vendas(21),
+                usuario(22, "coordenador"),
+            ],
+            candidaturas_existentes=[10, 11, 12],
+            lideranca_minima=1,
+            teto=8,
+        )
+
+        resultado = uc._processar_banca(banca, teto=8, ultima_alocacao={})
+
+        escalados = set(resultado["usuarios_alocados"]) if resultado else set()
+        assert 22 in escalados, "devia puxar o coordenador de Business real"
+        assert escalados.isdisjoint({20, 21}), "não pode escalar coord. de vendas pra liderança"
+
+    def test_push_nao_reescala_lideranca_ja_alocada_na_passada_seguinte(self, monkeypatch):
+        """Bug secundário: `lideres_presentes` cortava por `excluidos` (que
+        inclui quem já está alocado), então a liderança escalada às 21:45
+        sumia na passada das 21:50 e o push escalava OUTRA — foi assim que
+        viraram dois coord. de vendas no ATLAS I."""
+        comuns = dict(
+            frente_ids=[1],
+            frentes={1: frente(1, "Business", 3)},
+            por_frente={1: [10, 11, 12, 22, 23]},
+            usuarios=[
+                usuario(10), usuario(11), usuario(12),
+                usuario(22, "coordenador"), usuario(23, "coordenador"),
+            ],
+            lideranca_minima=1,
+            teto=8,
+        )
+
+        uc1, banca1, cand1 = montar(monkeypatch, candidaturas_existentes=[10, 11, 12], **comuns)
+        r1 = uc1._processar_banca(banca1, teto=8, ultima_alocacao={})
+        escalados1 = list(r1["usuarios_alocados"]) if r1 else []
+        assert len(escalados1) == 1 and escalados1[0] in (22, 23)
+
+        # Passada seguinte: a liderança de r1 agora É candidatura.
+        uc2, banca2, cand2 = montar(
+            monkeypatch, candidaturas_existentes=[10, 11, 12, *escalados1], **comuns
+        )
+        r2 = uc2._processar_banca(banca2, teto=8, ultima_alocacao={})
+
+        assert r2 is None or not r2["usuarios_alocados"], (
+            "a liderança já alocada tem de contar — nada a escalar na 2ª passada"
+        )
 
 
 class TestRespeitaOTeto:

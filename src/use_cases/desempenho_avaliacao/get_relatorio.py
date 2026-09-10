@@ -8,23 +8,16 @@ from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRe
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 
-#: Pseudo-tipo do lote da Avaliação do Escopo (2026-09-10). Ela é
-#: auto-avaliação (avaliador == avaliado) sobre o formulário `(finalizacao,
-#: escopo)` — quem respondeu avaliou o ESCOPO, não a si mesma, então não pode
-#: entrar na média das avaliações de FINALIZAÇÃO que a pessoa recebeu dos
-#: colegas. Sai numa entrada à parte, `tipo = "escopo"`, e o front mostra numa
-#: aba própria.
-TIPO_ESCOPO = "escopo"
-
-
 class GetRelatorioDesempenhoUseCase:
     """Agrega as avaliações RECEBIDAS por `usuario_id`, por lote: média da
     nota geral, média (ou respostas de texto) por critério, e a lista de
     comentários. A cor por nota (regra 2.9, `< 3` = atenção) fica pro front —
     aqui só vão os números.
 
-    ⚠ A Avaliação do Escopo sai numa entrada com `tipo = "escopo"` — separada
-    da média de finalização (ver `TIPO_ESCOPO`)."""
+    ⚠ A Avaliação do Escopo (formulário `(finalizacao, escopo)`) NÃO entra
+    aqui (2026-09-10, a pedido): quem respondeu avaliou o ESCOPO, não a si
+    mesma, então não faz parte do relatório da PESSOA. Ela vive só no painel
+    de avaliações, na visão "Avaliação de escopo"."""
 
     def __init__(self, db: Session):
         self.avaliacao_repo = DesempenhoAvaliacaoRepository(db)
@@ -40,26 +33,22 @@ class GetRelatorioDesempenhoUseCase:
         form_escopo = self.formulario_repo.first_by(tipo="finalizacao", papel="escopo")
         escopo_form_id = form_escopo.id if form_escopo else None
 
-        def eh_escopo(a) -> bool:
-            return escopo_form_id is not None and a.formulario_id == escopo_form_id
-
-        def tipo_do(a) -> Optional[str]:
-            if eh_escopo(a):
-                return TIPO_ESCOPO
-            lote = lotes_por_id.get(a.lote_id)
-            return lote.tipo if lote else None
+        # Fora a auto-avaliação do escopo — o relatório da pessoa é só o que
+        # os COLEGAS deram.
+        avaliacoes = [a for a in avaliacoes if a.formulario_id != escopo_form_id]
 
         if lote_id is not None:
             avaliacoes = [a for a in avaliacoes if a.lote_id == lote_id]
         if tipo is not None:
-            avaliacoes = [a for a in avaliacoes if tipo_do(a) == tipo]
+            avaliacoes = [
+                a
+                for a in avaliacoes
+                if lotes_por_id.get(a.lote_id) and lotes_por_id[a.lote_id].tipo == tipo
+            ]
 
-        # Chave (lote, é-escopo): a auto-avaliação de escopo e os pares do
-        # MESMO lote viram entradas separadas.
-        agrupado_por_lote: dict[tuple, list] = {}
+        agrupado_por_lote: dict[int, list] = {}
         for avaliacao in avaliacoes:
-            chave = (avaliacao.lote_id, eh_escopo(avaliacao))
-            agrupado_por_lote.setdefault(chave, []).append(avaliacao)
+            agrupado_por_lote.setdefault(avaliacao.lote_id, []).append(avaliacao)
 
         criterios_cache: dict[int, object] = {}
 
@@ -69,7 +58,7 @@ class GetRelatorioDesempenhoUseCase:
             return criterios_cache[criterio_id]
 
         lotes_resp = []
-        for (lid, grupo_escopo), avals in agrupado_por_lote.items():
+        for lid, avals in agrupado_por_lote.items():
             lote = lotes_por_id.get(lid)
             notas_geral = [a.nota_geral for a in avals]
             comentarios = [a.comentarios for a in avals if a.comentarios]
@@ -110,7 +99,7 @@ class GetRelatorioDesempenhoUseCase:
                 {
                     "lote_id": lid,
                     "lote_nome": lote.nome if lote else None,
-                    "tipo": TIPO_ESCOPO if grupo_escopo else (lote.tipo if lote else None),
+                    "tipo": lote.tipo if lote else None,
                     "nota_geral_media": sum(notas_geral) / len(notas_geral) if notas_geral else None,
                     "quantidade_avaliadores": len(avals),
                     "criterios": criterios_resp,

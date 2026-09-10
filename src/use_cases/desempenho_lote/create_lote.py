@@ -21,6 +21,10 @@ class CreateDesempenhoLoteRequest(BaseModel):
     #: for cancelada depois de já realizada. Nunca vem da tela de Formulários
     #: (lote aberto à mão não tem banca de origem).
     banca_id: Optional[int] = None
+    #: ⭐ Finalização: a Avaliação do Escopo entra junto? (2026-09-10). Default
+    #: `True` — a automática não passa o campo e segue incluindo; quem abre à
+    #: mão marca/desmarca na tela. Periódica ignora.
+    inclui_avaliacao_de_escopo: bool = True
 
 
 class CreateDesempenhoLoteUseCase:
@@ -37,6 +41,7 @@ class CreateDesempenhoLoteUseCase:
             data_fim=request.data_fim,
             override_manual=None,
             banca_id=request.banca_id,
+            inclui_avaliacao_de_escopo=request.inclui_avaliacao_de_escopo,
         )
         if request.projeto_ids:
             self.lote_projeto_repo.bulk_create(

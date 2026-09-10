@@ -14,6 +14,9 @@ class UpdateDesempenhoLoteRequest(BaseModel):
     data_inicio: Optional[datetime] = None
     data_fim: Optional[datetime] = None
     projeto_ids: Optional[List[int]] = None
+    #: Dá pra corrigir a escolha da Avaliação do Escopo depois de aberto
+    #: (2026-09-10) — passa direto pro `lote_repo.update` via o dict abaixo.
+    inclui_avaliacao_de_escopo: Optional[bool] = None
 
 
 class UpdateDesempenhoLoteUseCase:

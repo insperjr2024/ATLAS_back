@@ -106,7 +106,15 @@ def notificar_banca_remarcada(
         inscritos_na_banca(db, banca_id),
         tipo="banca_remarcada",
         titulo=f"Banca de {projeto.nome} remarcada",
-        corpo=corpo,
+        # ⭐ Para quem se inscreveu, o aviso não é só "a data mudou": é uma
+        # convocação a agir. Ele reservou a agenda para uma data que não vale
+        # mais e talvez não possa na nova — então o corpo pede, explicitamente,
+        # que se desaloque o quanto antes se for o caso, para a banca não ficar
+        # sem avaliador em cima da hora.
+        corpo=(
+            f"{corpo} Se você não puder na nova data, desaloque-se o quanto "
+            "antes em Bancas para que outra pessoa possa assumir."
+        ),
         # ⚠ Sem `projeto_id` e apontando para /bancas: quem se inscreveu não é
         # da equipe (§8) e não pode abrir a página do projeto.
         rota=f"/bancas?banca={banca_id}",

@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -28,7 +28,16 @@ from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
+from src.use_cases.banca.local_e_entrega import (
+    EntregaLinkBancaRequest,
+    LocalBancaRequest,
+    RegistrarEntregaLinkBancaUseCase,
+    RegistrarLocalBancaUseCase,
+    RemoverEntregaBancaUseCase,
+    SubirEntregaArquivoBancaUseCase,
+)
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.repositories.banca_repository import BancaRepository
 from src.use_cases.banca.excecao_choque import (
     DecidirExcecaoChoqueRequest,
     DecidirExcecaoChoqueUseCase,
@@ -47,6 +56,13 @@ from src.use_cases.banca.marcar_banca_escopo import (
     CancelarBancaUseCase,
     MarcarBancaEscopoRequest,
     MarcarBancaEscopoUseCase,
+)
+from src.use_cases.banca.remarcacao_solicitacao import (
+    DecidirRemarcacaoRequest,
+    DecidirRemarcacaoUseCase,
+    ListarRemarcacoesPendentesUseCase,
+    SolicitarRemarcacaoRequest,
+    SolicitarRemarcacaoUseCase,
 )
 from src.use_cases.banca.registrar_descricao_coordenador import (
     RegistrarDescricaoCoordenadorRequest,
@@ -173,6 +189,77 @@ def get_banca_detalhes(
         detalhes["avaliacoes"] = []
         detalhes["nota_final"] = None
     return detalhes
+
+
+# ---------------------------------------------- local da banca e anexo da entrega
+# ⚠ Sem `_exigir_acesso_a_banca`: os use cases já cobram que a pessoa seja do
+# PROJETO avaliado (`membros_da_banca`), que é mais estrito.
+
+@router.put("/bancas/{banca_id}/local")
+def registrar_local_banca(
+    banca_id: int,
+    request: LocalBancaRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return RegistrarLocalBancaUseCase(db).execute(banca_id, request.local, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.put("/bancas/{banca_id}/entrega-link")
+def registrar_entrega_link_banca(
+    banca_id: int,
+    request: EntregaLinkBancaRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return RegistrarEntregaLinkBancaUseCase(db).execute(banca_id, request.link, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/bancas/{banca_id}/entrega-arquivo")
+def subir_entrega_arquivo_banca(
+    banca_id: int,
+    arquivo: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return SubirEntregaArquivoBancaUseCase(db).execute(banca_id, arquivo, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/bancas/{banca_id}/entrega", status_code=204)
+def remover_entrega_banca(
+    banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    try:
+        RemoverEntregaBancaUseCase(db).execute(banca_id, current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return None
+
+
+@router.get("/bancas/{banca_id}/entrega-arquivo")
+def baixar_entrega_arquivo_banca(
+    banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Qualquer pessoa logada baixa — a entrega aparece nas informações da
+    banca pra todo mundo (§ mesma régua do `local`)."""
+    banca = BancaRepository(db).get_by_id(banca_id)
+    if not banca or not getattr(banca, "entrega_arquivo_conteudo", None):
+        raise HTTPException(status_code=404, detail="Sem arquivo de entrega nesta banca")
+    nome = banca.entrega_arquivo_nome or "entrega"
+    return Response(
+        content=banca.entrega_arquivo_conteudo,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")
@@ -372,6 +459,61 @@ def decidir_fora_janela(
     """
     try:
         result = DecidirForaJanelaUseCase(db).execute(
+            pedido_id, request, respondido_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    if not result:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return result
+
+
+@router.post("/bancas/remarcacao")
+def solicitar_remarcacao(
+    request: SolicitarRemarcacaoRequest,
+    current_user=Depends(require_pode_definir_cronograma),
+    db: Session = Depends(get_db),
+):
+    """⭐ Pedir para remarcar uma banca que já tem data (§13, 2026-09-10).
+
+    Quem conduz o projeto pede — `require_pode_definir_cronograma`, o mesmo
+    cargo que a marcação exige. Quem decide é a diretoria, na rota abaixo. A
+    aprovação já remarca a banca.
+    """
+    try:
+        result = SolicitarRemarcacaoUseCase(db).execute(
+            request, solicitado_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    return result
+
+
+@router.get("/bancas/remarcacao/pendentes")
+def listar_remarcacoes_pendentes(
+    _=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)
+):
+    """A fila da aba Aprovações."""
+    return ListarRemarcacoesPendentesUseCase(db).execute()
+
+
+@router.patch("/bancas/remarcacao/{pedido_id}")
+def decidir_remarcacao(
+    pedido_id: int,
+    request: DecidirRemarcacaoRequest,
+    current_user=Depends(require_pode_aprovar_pedidos),
+    db: Session = Depends(get_db),
+):
+    """§13: remarcar banca é decisão da diretoria — aqui ela é tomada.
+
+    ⚠ `erro_de_regra`, mesmo motivo de `decidir_fora_janela`: a recusa por
+    choque de horário (§8) carrega `codigo`, e é por ele que a fila oferece o
+    "autorizar o choque também".
+    """
+    try:
+        result = DecidirRemarcacaoUseCase(db).execute(
             pedido_id, request, respondido_por=current_user.id
         )
     except RegraDeNegocioError as e:
