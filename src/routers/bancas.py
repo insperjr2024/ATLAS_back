@@ -164,6 +164,14 @@ def get_banca_detalhes(
     detalhes = GetBancaDetalhesUseCase(db).execute(banca_id)
     if not detalhes:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
+    # ⚠ As avaliações da banca (nota e feedback de CADA avaliador) e a nota
+    # final só para quem tem o Dashboard de Bancas (2026-09-10, a pedido: na
+    # aba do projeto ninguém vê avaliação de ninguém). O resto da ficha —
+    # quem está na banca, o veredito de aprovação, as tentativas — continua
+    # aberto a qualquer um da casa.
+    if not usuario_tem_permissao(current_user, db, "pode_ver_dashboard_bancas"):
+        detalhes["avaliacoes"] = []
+        detalhes["nota_final"] = None
     return detalhes
 
 

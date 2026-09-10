@@ -8,6 +8,7 @@ from src.middlewares.authorization import (
     eh_diretoria_de_projetos,
     require_pode_definir_cronograma,
     require_pode_ver_dashboard_bancas,
+    usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.avaliacao.create_avaliacao import CreateAvaliacaoUseCase, CreateAvaliacaoRequest
@@ -161,15 +162,26 @@ def get_avaliacoes_pendentes(_=Depends(require_pode_definir_cronograma), db: Ses
 
 
 @router.get("/avaliacoes")
-def list_avaliacoes(db: Session = Depends(get_db)):
-    return ListAvaliacoesUseCase(db).execute()
+def list_avaliacoes(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """⚠ Avaliação de banca de TODO MUNDO só para quem tem o Dashboard de
+    Bancas (2026-09-10, a pedido: na aba do projeto ninguém vê avaliação de
+    ninguém). Sem essa permissão, a pessoa recebe só as SUAS — a página
+    `/bancas` usa isto só pra saber quais bancas ela mesma já avaliou."""
+    todas = ListAvaliacoesUseCase(db).execute()
+    if usuario_tem_permissao(current_user, db, "pode_ver_dashboard_bancas"):
+        return todas
+    return [a for a in todas if a["avaliador_id"] == current_user.id]
 
 
 @router.get("/avaliacoes/{avaliacao_id}")
-def get_avaliacao(avaliacao_id: int, db: Session = Depends(get_db)):
+def get_avaliacao(avaliacao_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     result = GetAvaliacaoUseCase(db).execute(avaliacao_id)
     if not result:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
+    if result["avaliador_id"] != current_user.id and not usuario_tem_permissao(
+        current_user, db, "pode_ver_dashboard_bancas"
+    ):
+        raise HTTPException(status_code=403, detail="Sem acesso a esta avaliação")
     return result
 
 
@@ -276,15 +288,30 @@ def create_avaliacao_nota(request: CreateAvaliacaoNotaRequest, current_user=Depe
 
 
 @router.get("/avaliacoes-notas")
-def list_avaliacoes_notas(db: Session = Depends(get_db)):
-    return ListAvaliacoesNotasUseCase(db).execute()
+def list_avaliacoes_notas(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Mesma régua de `/avaliacoes`: sem o Dashboard de Bancas, a pessoa vê
+    só as notas das SUAS próprias avaliações."""
+    todas = ListAvaliacoesNotasUseCase(db).execute()
+    if usuario_tem_permissao(current_user, db, "pode_ver_dashboard_bancas"):
+        return todas
+    minhas = {
+        a["id"]
+        for a in ListAvaliacoesUseCase(db).execute()
+        if a["avaliador_id"] == current_user.id
+    }
+    return [n for n in todas if n["avaliacao_id"] in minhas]
 
 
 @router.get("/avaliacoes-notas/{avaliacao_nota_id}")
-def get_avaliacao_nota(avaliacao_nota_id: int, db: Session = Depends(get_db)):
+def get_avaliacao_nota(avaliacao_nota_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     result = GetAvaliacaoNotaUseCase(db).execute(avaliacao_nota_id)
     if not result:
         raise HTTPException(status_code=404, detail="Nota de avaliação não encontrada")
+    dona = GetAvaliacaoUseCase(db).execute(result["avaliacao_id"])
+    if dona and dona["avaliador_id"] != current_user.id and not usuario_tem_permissao(
+        current_user, db, "pode_ver_dashboard_bancas"
+    ):
+        raise HTTPException(status_code=403, detail="Sem acesso a esta nota")
     return result
 
 

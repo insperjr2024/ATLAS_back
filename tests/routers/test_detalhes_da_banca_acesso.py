@@ -29,7 +29,20 @@ class FakeGetBancaDetalhesUseCase:
     def execute(self, banca_id):
         if banca_id == 999:
             return None
-        return {"id": banca_id, "projeto_id": 99, "avaliadores": []}
+        return {
+            "id": banca_id,
+            "projeto_id": 99,
+            "avaliadores": [],
+            "avaliacoes": [{"id": 1, "avaliador_id": 7}],
+            "nota_final": 4.2,
+        }
+
+
+@pytest.fixture(autouse=True)
+def _sem_dashboard(monkeypatch):
+    """Por padrão o usuário do teste NÃO tem o Dashboard de Bancas — o teste
+    que quer o contrário sobrescreve."""
+    monkeypatch.setattr(bancas, "usuario_tem_permissao", lambda *a, **k: False)
 
 
 def test_qualquer_pessoa_logada_acessa_a_ficha_mesmo_sem_vinculo_nenhum(monkeypatch):
@@ -40,6 +53,27 @@ def test_qualquer_pessoa_logada_acessa_a_ficha_mesmo_sem_vinculo_nenhum(monkeypa
     detalhes = bancas.get_banca_detalhes(1, current_user=CONSULTOR_QUALQUER, db=None)
 
     assert detalhes["id"] == 1
+
+
+def test_sem_dashboard_a_ficha_vem_sem_as_avaliacoes(monkeypatch):
+    """§ 2026-09-10: na aba do projeto ninguém vê avaliação de ninguém."""
+    monkeypatch.setattr(bancas, "GetBancaDetalhesUseCase", FakeGetBancaDetalhesUseCase)
+
+    detalhes = bancas.get_banca_detalhes(1, current_user=CONSULTOR_QUALQUER, db=None)
+
+    assert detalhes["avaliacoes"] == []
+    assert detalhes["nota_final"] is None
+    assert detalhes["avaliadores"] == []  # quem ESTÁ na banca continua vindo
+
+
+def test_com_dashboard_a_ficha_traz_as_avaliacoes(monkeypatch):
+    monkeypatch.setattr(bancas, "GetBancaDetalhesUseCase", FakeGetBancaDetalhesUseCase)
+    monkeypatch.setattr(bancas, "usuario_tem_permissao", lambda *a, **k: True)
+
+    detalhes = bancas.get_banca_detalhes(1, current_user=CONSULTOR_QUALQUER, db=None)
+
+    assert detalhes["avaliacoes"] == [{"id": 1, "avaliador_id": 7}]
+    assert detalhes["nota_final"] == 4.2
 
 
 def test_banca_inexistente_leva_404(monkeypatch):
