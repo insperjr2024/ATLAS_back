@@ -57,6 +57,13 @@ from src.use_cases.banca.marcar_banca_escopo import (
     MarcarBancaEscopoRequest,
     MarcarBancaEscopoUseCase,
 )
+from src.use_cases.banca.remarcacao_solicitacao import (
+    DecidirRemarcacaoRequest,
+    DecidirRemarcacaoUseCase,
+    ListarRemarcacoesPendentesUseCase,
+    SolicitarRemarcacaoRequest,
+    SolicitarRemarcacaoUseCase,
+)
 from src.use_cases.banca.registrar_descricao_coordenador import (
     RegistrarDescricaoCoordenadorRequest,
     RegistrarDescricaoCoordenadorUseCase,
@@ -452,6 +459,61 @@ def decidir_fora_janela(
     """
     try:
         result = DecidirForaJanelaUseCase(db).execute(
+            pedido_id, request, respondido_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    if not result:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return result
+
+
+@router.post("/bancas/remarcacao")
+def solicitar_remarcacao(
+    request: SolicitarRemarcacaoRequest,
+    current_user=Depends(require_pode_definir_cronograma),
+    db: Session = Depends(get_db),
+):
+    """⭐ Pedir para remarcar uma banca que já tem data (§13, 2026-09-10).
+
+    Quem conduz o projeto pede — `require_pode_definir_cronograma`, o mesmo
+    cargo que a marcação exige. Quem decide é a diretoria, na rota abaixo. A
+    aprovação já remarca a banca.
+    """
+    try:
+        result = SolicitarRemarcacaoUseCase(db).execute(
+            request, solicitado_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Escopo não encontrado")
+    return result
+
+
+@router.get("/bancas/remarcacao/pendentes")
+def listar_remarcacoes_pendentes(
+    _=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)
+):
+    """A fila da aba Aprovações."""
+    return ListarRemarcacoesPendentesUseCase(db).execute()
+
+
+@router.patch("/bancas/remarcacao/{pedido_id}")
+def decidir_remarcacao(
+    pedido_id: int,
+    request: DecidirRemarcacaoRequest,
+    current_user=Depends(require_pode_aprovar_pedidos),
+    db: Session = Depends(get_db),
+):
+    """§13: remarcar banca é decisão da diretoria — aqui ela é tomada.
+
+    ⚠ `erro_de_regra`, mesmo motivo de `decidir_fora_janela`: a recusa por
+    choque de horário (§8) carrega `codigo`, e é por ele que a fila oferece o
+    "autorizar o choque também".
+    """
+    try:
+        result = DecidirRemarcacaoUseCase(db).execute(
             pedido_id, request, respondido_por=current_user.id
         )
     except RegraDeNegocioError as e:
