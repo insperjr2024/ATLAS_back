@@ -34,6 +34,20 @@ def _formatar(valor) -> str:
     return str(valor)
 
 
+def _formatar_instante(valor) -> str:
+    """Como `_formatar`, mas para um INSTANTE gravado em UTC — `banca.data_hora`
+    segue a convenção de `utils/fuso`. Converte pro fuso local antes de exibir:
+    sem isto o aviso de remarcação mostrava a hora de Greenwich como se fosse a
+    de Brasília ("De 23/09 às 21:45 para 14/10 às 21:45", 3h adiantado).
+
+    `date` puro (sem hora) e `None` não são instantes — passam direto pro
+    `_formatar`.
+    """
+    if isinstance(valor, datetime):
+        return _formatar(para_hora_local(valor))
+    return _formatar(valor)
+
+
 def notificar_alocacao(db: Session, projeto, usuario_id: int) -> None:
     """"Você entrou no Projeto Alfa" — só para quem entrou.
 
@@ -87,7 +101,8 @@ def notificar_banca_remarcada(
     exigência do §8 — por isso o alerta aponta para a banca, não para o projeto.
     """
     titulo = f"Banca de {projeto.nome} remarcada — {nome_escopo}"
-    corpo = f"De {_formatar(de)} para {_formatar(para)}."
+    # `de`/`para` são `banca.data_hora` (UTC) — converte pro fuso local.
+    corpo = f"De {_formatar_instante(de)} para {_formatar_instante(para)}."
 
     registrar_varios(
         db,

@@ -43,7 +43,7 @@ from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.banca.excecao_choque import liberar_choque
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.fuso import normalizar_utc
+from src.utils.fuso import normalizar_utc, para_hora_local
 from src.utils.notificar import notificar
 
 
@@ -131,10 +131,12 @@ class SolicitarRemarcacaoUseCase:
     def _avisar_diretoria(self, pedido, escopo) -> None:
         projeto = self.projeto_repository.get_by_id(escopo.projeto_id)
         nome = projeto.nome if projeto else "um projeto"
+        # As duas datas são UTC (`banca.data_hora` / `normalizar_utc`) —
+        # `para_hora_local` pro aviso não sair 3h adiantado.
         mensagem = (
             f"{nome} pediu para remarcar a banca de "
-            f"{pedido.data_hora_anterior:%d/%m/%Y às %H:%M} para "
-            f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M}."
+            f"{para_hora_local(pedido.data_hora_anterior):%d/%m/%Y às %H:%M} para "
+            f"{para_hora_local(pedido.data_hora_pretendida):%d/%m/%Y às %H:%M}."
         )
         for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
             notificar(self.db, diretor.id, mensagem, banca_id=pedido.banca_id)
@@ -265,8 +267,8 @@ class DecidirRemarcacaoUseCase:
         )
         mensagem = (
             f"Seu pedido para remarcar a banca para "
-            f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M} foi {veredito}: "
-            f"{pedido.resposta}.{complemento}"
+            f"{para_hora_local(pedido.data_hora_pretendida):%d/%m/%Y às %H:%M} foi "
+            f"{veredito}: {pedido.resposta}.{complemento}"
         )
         notificar(self.db, pedido.solicitado_por, mensagem, banca_id=pedido.banca_id)
 
