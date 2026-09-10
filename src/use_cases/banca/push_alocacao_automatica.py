@@ -36,9 +36,11 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.fuso import para_hora_local
 from src.utils.notificar import notificar
-from src.utils.composicao_banca import LIDERANCA_DA_FRENTE_POSICOES
+from src.utils.composicao_banca import (
+    LIDERANCA_DA_FRENTE_POSICOES,
+    eh_lideranca_sem_frente,
+)
 from src.utils.piso_banca import calcular_piso_banca
-from src.middlewares.authorization import DIRETORIA
 
 JANELA_PUSH_DIAS = 7
 
@@ -124,8 +126,23 @@ class PushAlocacaoAutomaticaUseCase:
         excluidos = self._excluidos(banca, candidaturas_atuais)
         ja_presentes = {c.usuario_id for c in candidaturas_atuais}
 
+        # ⚠ **CONTAR ≠ PODER ESCALAR.** `excluidos` é largo (equipe do projeto
+        # + já alocados + com aula) e serve pra escolher QUEM puxar. Mas a
+        # contagem de composição não pode tirar quem já está alocado — senão a
+        # liderança que o push escalou às 21:45 fica invisível na passada das
+        # 21:50 e ele escala OUTRA. Para contar, o único conjunto que sai é a
+        # equipe do próprio projeto (quem não avalia o próprio trabalho).
+        equipe_do_projeto = self._equipe_do_projeto(banca)
+
         ativos = self.usuario_repository.get_ativos()
         usuarios_por_id = {u.id: u for u in ativos}
+        # ⚠ Liderança SEM frente — coordenador de vendas + toda a diretoria.
+        # Pode ir à banca (conta no total), mas NÃO cobre `min_lideranca` nem
+        # `min_membros` de frente nenhuma, e o push não a escala pra rotina.
+        # `ComposicaoBancaChecker.contar` (a ficha e a trava de inscrição) já
+        # usava esta regra; o push não — foi por isso que a banca do ATLAS I
+        # fechou "lotada" com a liderança de Business ainda faltando.
+        sem_frente = {u.id for u in ativos if eh_lideranca_sem_frente(u)}
         membros_por_frente = {
             f.id: {v.usuario_id for v in self.usuario_frente_repository.get_by_frente(f.id)}
             for f in frentes
@@ -158,15 +175,18 @@ class PushAlocacaoAutomaticaUseCase:
                 break
             membros_ids = membros_por_frente[frente.id]
 
-            # ⚠ Diretoria NÃO cobre aqui (2026-09-04): ela é liderança SEM
-            # frente, como o coordenador de vendas — espelha
-            # `ComposicaoBancaChecker.contar`. Contá-la faria o push achar a
-            # liderança coberta enquanto a ficha e a inscrição ainda diriam
-            # "falta 1 liderança de Business".
+            # ⚠ Diretoria e coordenador de vendas NÃO cobrem aqui: são
+            # liderança SEM frente (`sem_frente`) — espelha
+            # `ComposicaoBancaChecker.contar`. E o corte é por
+            # `equipe_do_projeto`, NÃO por `excluidos`: quem já está alocado
+            # (inclusive uma liderança que ESTE push escalou numa passada
+            # anterior) tem de continuar contando, senão a passada seguinte
+            # acha que a liderança falta de novo e escala outra.
             lideres_presentes = {
                 uid
                 for uid in contabilizados()
-                if uid not in excluidos
+                if uid not in equipe_do_projeto
+                and uid not in sem_frente
                 and usuarios_por_id.get(uid)
                 and uid in membros_ids
                 and usuarios_por_id[uid].posicao in LIDERANCA_DA_FRENTE_POSICOES
@@ -176,13 +196,16 @@ class PushAlocacaoAutomaticaUseCase:
             falta_lideranca = max(0, lideranca_minima - len(lideres_presentes))
             if falta_lideranca > 0:
                 # Puxa GERENTE ou COORDENADOR da frente automaticamente — o
-                # push não escala diretoria pra rotina de banca.
+                # push não escala diretoria nem coordenador de vendas
+                # (`sem_frente`) pra rotina de banca: nenhum dos dois cobre a
+                # cota de liderança da frente.
                 pool_lideres = [
                     u
                     for u in ativos
                     if u.id in membros_ids
                     and u.id not in excluidos
                     and u.id not in contabilizados()
+                    and u.id not in sem_frente
                     and u.posicao in LIDERANCA_DA_FRENTE_POSICOES
                 ]
                 fila_lideres = self._ordenar_por_rodizio(pool_lideres, ultima_alocacao)
@@ -199,14 +222,20 @@ class PushAlocacaoAutomaticaUseCase:
             # mais desde 2026-09-01, e descontá-la aqui devolveria o
             # comportamento antigo por uma porta lateral.
             min_membros = regra.min_membros if regra else frente.piso_banca
-            ja_da_frente = len(contabilizados() & membros_ids)
+            # `sem_frente` sai da conta de membros também: um coordenador de
+            # vendas ligado à frente não fecha o `min_membros` dela (espelha
+            # `ComposicaoBancaChecker.contar`).
+            ja_da_frente = len((contabilizados() & membros_ids) - sem_frente)
             lideres_da_frente = len(lideres_presentes & membros_ids)
             falta_piso = max(0, min_membros - max(0, ja_da_frente - lideres_da_frente))
             if falta_piso > 0:
                 pool_frente = [
                     u
                     for u in ativos
-                    if u.id in membros_ids and u.id not in excluidos and u.id not in contabilizados()
+                    if u.id in membros_ids
+                    and u.id not in excluidos
+                    and u.id not in contabilizados()
+                    and u.id not in sem_frente
                 ]
                 fila_frente = self._ordenar_por_rodizio(pool_frente, ultima_alocacao)
                 selecionados.extend(fila_frente[: min(falta_piso, vagas_restantes())])
@@ -221,18 +250,19 @@ class PushAlocacaoAutomaticaUseCase:
         # nome da fila geral.
         deficit_restante = max(0, deficit_restante - lideranca_nao_coberta)
         if deficit_restante > 0:
-            # ⚠ **Diretoria fica de fora daqui também** (2026-09-01). A regra
-            # já valia para a cota de liderança logo acima — "o push não escala
-            # diretoria pra rotina de banca" — mas este preenchimento final
-            # ignorava a posição e alcançava um diretor sempre que o piso não
-            # fechasse. Só não aparecia porque o piso era pequeno; com a
-            # liderança virando vaga a mais, o caso passou a ser rotina.
+            # ⚠ **Liderança SEM frente fica de fora daqui também.** A regra já
+            # valia para a cota de liderança logo acima — "o push não escala
+            # diretoria pra rotina de banca" — e vale igual pro coordenador de
+            # vendas, que é a mesma categoria (`sem_frente`). Este
+            # preenchimento final ignorava isso e alcançava um diretor (ou um
+            # coord. de vendas) sempre que o piso não fechasse. Quem é dessa
+            # categoria e quer ir continua podendo se inscrever sozinho.
             pool_geral = [
                 u
                 for u in ativos
                 if u.id not in excluidos
                 and u.id not in contabilizados()
-                and u.posicao not in DIRETORIA
+                and u.id not in sem_frente
             ]
             fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
             # Este bloco enche a banca ACIMA do piso — daqui em diante tanto

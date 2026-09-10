@@ -93,6 +93,27 @@ def eh_lideranca(posicao: str) -> bool:
     return posicao in LIDERANCA_POSICOES
 
 
+def eh_lideranca_sem_frente(usuario) -> bool:
+    """Coordenador de vendas e TODA a diretoria: podem ir à banca e contam no
+    TOTAL, mas NÃO cobrem o `min_lideranca` nem entram no `min_membros` de
+    frente nenhuma — somem da contagem por frente inteira, como a equipe do
+    projeto. Ver o docstring do módulo (LIDERANCA_SEM_FRENTE).
+
+    ⭐ Fonte única: `ComposicaoBancaChecker.contar` E o push automático
+    (`push_alocacao_automatica`) perguntam por aqui. Foi por os dois NÃO
+    concordarem que a banca do ATLAS I fechou "lotada" com a liderança de
+    Business ainda faltando — o push escalava coordenador de vendas para a
+    cota de liderança, e a ficha (que já usava esta regra) não os contava.
+
+    `getattr` porque alguns fakes de teste não trazem `coordenador_vendas`.
+    """
+    if usuario is None:
+        return False
+    return bool(getattr(usuario, "coordenador_vendas", False)) or (
+        getattr(usuario, "posicao", None) in LIDERANCA_SEM_FRENTE_POSICOES
+    )
+
+
 @dataclass
 class ContagemFrente:
     """Quanta gente de uma frente a banca TEM, ao lado do que ela exige.
@@ -182,19 +203,15 @@ class ComposicaoBancaChecker:
         usuarios_por_id = self._usuarios_por_id()
         elegiveis = {uid for uid in candidato_ids if uid not in excluidos}
         # Liderança SEM frente (2026-09-04): coordenador de vendas e TODA a
-        # diretoria — os três cargos, sem distinção. Pode ir à banca, mas não
-        # cobre o `min_lideranca` de nenhuma frente nem entra no `min_membros`.
-        # Sai da contagem por frente inteira — como a equipe do projeto —, e
-        # só conta no TOTAL da banca. `getattr` porque os fakes dos testes de
-        # `contar` nem sempre trazem `coordenador_vendas`.
+        # diretoria. Pode ir à banca, mas não cobre o `min_lideranca` de
+        # nenhuma frente nem entra no `min_membros` — sai da contagem por
+        # frente inteira, como a equipe do projeto, e só conta no TOTAL.
+        # `eh_lideranca_sem_frente` é a fonte única (o push pergunta por lá
+        # também — ver o docstring dele).
         lideranca_sem_frente = {
             uid
             for uid in elegiveis
-            if usuarios_por_id.get(uid)
-            and (
-                getattr(usuarios_por_id[uid], "coordenador_vendas", False)
-                or usuarios_por_id[uid].posicao in LIDERANCA_SEM_FRENTE_POSICOES
-            )
+            if eh_lideranca_sem_frente(usuarios_por_id.get(uid))
         }
 
         contagens: List[ContagemFrente] = []
