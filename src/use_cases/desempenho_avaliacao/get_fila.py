@@ -62,6 +62,7 @@ class GetFilaUsuarioUseCase:
                 form_escopo = (
                     self.formulario_repo.first_by(tipo="finalizacao", papel=FORM_TYPE_ESCOPO)
                     if lote.tipo == "finalizacao"
+                    and getattr(lote, "inclui_avaliacao_de_escopo", True)
                     else None
                 )
                 # Só entra na fila se o formulário já tem conteúdo — enquanto

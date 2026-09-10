@@ -59,6 +59,7 @@ class CreateDesempenhoAvaliacaoUseCase:
         eh_escopo = (
             avaliador_id == request.avaliado_id
             and lote.tipo == "finalizacao"
+            and getattr(lote, "inclui_avaliacao_de_escopo", True)
             and avaliador_id in {m.usuario_id for m in membros}
             and self.formulario_repo.first_by(tipo="finalizacao", papel=FORM_TYPE_ESCOPO)
             is not None

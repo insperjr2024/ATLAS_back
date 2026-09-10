@@ -17,6 +17,7 @@ def serializar_lote(lote, projeto_ids: list[int]) -> dict:
         "override_manual": lote.override_manual,
         "projeto_ids": projeto_ids,
         "aberto": esta_aberto(lote.override_manual, lote.data_inicio, lote.data_fim),
+        "inclui_avaliacao_de_escopo": getattr(lote, "inclui_avaliacao_de_escopo", True),
     }
 
 

@@ -1,5 +1,5 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String
-from sqlalchemy.sql import func
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy.sql import func, true
 from src.database.database import Base
 
 
@@ -27,3 +27,7 @@ class DesempenhoLoteModel(Base):
     #: quando alguém cancela a banca DEPOIS dela já ter sido marcada
     #: realizada (imprevisto de última hora).
     banca_id = Column(Integer, ForeignKey("banca.id", ondelete="SET NULL"), nullable=True)
+    #: ⭐ Só na finalização (2026-09-10): a Avaliação do Escopo entra junto?
+    #: `True` por padrão — a automática e os lotes antigos incluem; quem abre
+    #: à mão escolhe na tela. Periódica ignora.
+    inclui_avaliacao_de_escopo = Column(Boolean, nullable=False, server_default=true())
