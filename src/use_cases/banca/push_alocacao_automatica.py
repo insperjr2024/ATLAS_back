@@ -40,6 +40,7 @@ from src.utils.composicao_banca import (
     LIDERANCA_DA_FRENTE_POSICOES,
     eh_lideranca_sem_frente,
 )
+from src.middlewares.authorization import DIRETORIA
 from src.utils.piso_banca import calcular_piso_banca
 
 JANELA_PUSH_DIAS = 7
@@ -250,19 +251,20 @@ class PushAlocacaoAutomaticaUseCase:
         # nome da fila geral.
         deficit_restante = max(0, deficit_restante - lideranca_nao_coberta)
         if deficit_restante > 0:
-            # ⚠ **Liderança SEM frente fica de fora daqui também.** A regra já
-            # valia para a cota de liderança logo acima — "o push não escala
-            # diretoria pra rotina de banca" — e vale igual pro coordenador de
-            # vendas, que é a mesma categoria (`sem_frente`). Este
-            # preenchimento final ignorava isso e alcançava um diretor (ou um
-            # coord. de vendas) sempre que o piso não fechasse. Quem é dessa
-            # categoria e quer ir continua podendo se inscrever sozinho.
+            # ⚠ **Só a diretoria fica de fora daqui** — "o push não escala
+            # diretoria pra rotina de banca". O coordenador de vendas PODE
+            # entrar: cumpridos os pisos por frente, o resto da banca é
+            # "qualquer cargo, qualquer frente" (é o que
+            # `ComposicaoBancaChecker` também faz — vendas não fecha piso de
+            # frente, mas conta no TOTAL). O que ele NÃO pode é cobrir a cota
+            # de liderança/piso de uma frente, e isso já é barrado lá em cima
+            # (`sem_frente` em `pool_lideres`/`pool_frente`).
             pool_geral = [
                 u
                 for u in ativos
                 if u.id not in excluidos
                 and u.id not in contabilizados()
-                and u.id not in sem_frente
+                and u.posicao not in DIRETORIA
             ]
             fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
             # Este bloco enche a banca ACIMA do piso — daqui em diante tanto
