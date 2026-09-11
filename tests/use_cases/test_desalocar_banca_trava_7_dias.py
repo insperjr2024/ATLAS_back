@@ -1,8 +1,12 @@
 """§8, 2026-09-09 — a menos de 7 dias da banca, com a composição já completa,
 ninguém sai sozinho.
 
-`DeleteCandidaturaUseCase._perto_e_completa`: banca daqui a <= 7 dias E
-`alocados >= piso`. A diretoria (`eh_gestao=True`) passa por cima.
+Este arquivo prende o caso TOTAL (banca legada, sem `banca_frente`) de
+`DeleteCandidaturaUseCase._saida_quebraria_composicao`: daqui a <= 7 dias E
+`alocados >= piso` E `alocados - 1 < piso` — que pra número inteiro é
+`alocados == piso`. A diretoria (`eh_gestao=True`) passa por cima. O caso POR
+FRENTE (quem especificamente pode sair) está em
+`test_desalocar_por_pessoa.py`.
 
 Usa `piso_minimo_override` para não depender da matriz de composição.
 """

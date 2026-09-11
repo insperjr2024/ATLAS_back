@@ -183,6 +183,10 @@ class GetBancaDetalhesUseCase:
             linhas.append(
                 {
                     "usuario_id": c.usuario_id,
+                    # ⭐ A candidatura, não o usuário — é o que a diretoria
+                    # precisa pra desalocar esta pessoa desta banca
+                    # (`DELETE /candidaturas/{id}`) direto da ficha.
+                    "candidatura_id": c.id,
                     "nome": self._nome(c.usuario_id),
                     # Marcado ao registrar a realização: quem de fato esteve lá.
                     "presente": bool(c.confirmado),
