@@ -1,8 +1,10 @@
 """Local da banca e anexo da entrega (2026-09-10, a pedido).
 
-Quem mexe: só quem é do PROJETO que a banca avalia — `membros_da_banca`
-(coordenador da banca + equipe atual dos projetos dos escopos cobertos). Os
-avaliadores escalados NÃO entram: eles julgam, não organizam.
+Quem mexe: quem é do PROJETO que a banca avalia — `membros_da_banca`
+(coordenador da banca + equipe atual dos projetos dos escopos cobertos) — e a
+DIRETORIA DE PROJETOS, que pode agir sobre qualquer banca (mesma régua da
+trava de desalocação, do pedido de remarcação, etc.). Os avaliadores
+escalados NÃO entram: eles julgam, não organizam.
 
 - **Local**: texto livre, editável até 1h antes da banca. Depois tranca.
 - **Entrega**: link OU arquivo, a qualquer momento (antes ou depois).
@@ -15,6 +17,7 @@ from fastapi import UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.middlewares.authorization import eh_diretoria_de_projetos
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
@@ -80,10 +83,15 @@ def _banca_ou_erro(db: Session, banca_id: int):
     return banca
 
 
-def _exigir_do_projeto(db: Session, banca, usuario_id: int) -> None:
-    if usuario_id not in pessoas_do_projeto_da_banca(db, banca):
+def _exigir_pode_mexer(db: Session, banca, current_user) -> None:
+    """Time do projeto avaliado OU diretoria de projetos. Ninguém mais."""
+    if eh_diretoria_de_projetos(current_user):
+        return
+    uid = getattr(current_user, "id", current_user)
+    if uid not in pessoas_do_projeto_da_banca(db, banca):
         raise RegraDeNegocioError(
-            "Só quem é do projeto avaliado por esta banca pode registrar isto."
+            "Só quem é do projeto avaliado por esta banca (ou a diretoria de "
+            "projetos) pode registrar isto."
         )
 
 
@@ -92,9 +100,9 @@ class RegistrarLocalBancaUseCase:
         self.db = db
         self.repository = BancaRepository(db)
 
-    def execute(self, banca_id: int, local: str, usuario_id: int) -> dict:
+    def execute(self, banca_id: int, local: str, current_user) -> dict:
         banca = _banca_ou_erro(self.db, banca_id)
-        _exigir_do_projeto(self.db, banca, usuario_id)
+        _exigir_pode_mexer(self.db, banca, current_user)
 
         if getattr(banca, "cancelada_em", None):
             raise RegraDeNegocioError("Esta banca foi cancelada.")
@@ -122,9 +130,9 @@ class RegistrarEntregaLinkBancaUseCase:
         self.db = db
         self.repository = BancaRepository(db)
 
-    def execute(self, banca_id: int, link: str, usuario_id: int) -> dict:
+    def execute(self, banca_id: int, link: str, current_user) -> dict:
         banca = _banca_ou_erro(self.db, banca_id)
-        _exigir_do_projeto(self.db, banca, usuario_id)
+        _exigir_pode_mexer(self.db, banca, current_user)
 
         url = (link or "").strip()
         if not url:
@@ -149,9 +157,9 @@ class SubirEntregaArquivoBancaUseCase:
         self.db = db
         self.repository = BancaRepository(db)
 
-    def execute(self, banca_id: int, arquivo: UploadFile, usuario_id: int) -> dict:
+    def execute(self, banca_id: int, arquivo: UploadFile, current_user) -> dict:
         banca = _banca_ou_erro(self.db, banca_id)
-        _exigir_do_projeto(self.db, banca, usuario_id)
+        _exigir_pode_mexer(self.db, banca, current_user)
 
         conteudo = arquivo.file.read()
         if not conteudo:
@@ -174,9 +182,9 @@ class RemoverEntregaBancaUseCase:
         self.db = db
         self.repository = BancaRepository(db)
 
-    def execute(self, banca_id: int, usuario_id: int) -> None:
+    def execute(self, banca_id: int, current_user) -> None:
         banca = _banca_ou_erro(self.db, banca_id)
-        _exigir_do_projeto(self.db, banca, usuario_id)
+        _exigir_pode_mexer(self.db, banca, current_user)
         self.repository.update(
             banca_id,
             entrega_link=None,
