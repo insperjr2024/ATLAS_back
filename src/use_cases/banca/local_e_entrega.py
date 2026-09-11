@@ -51,6 +51,28 @@ def pessoas_do_projeto_da_banca(db: Session, banca) -> Set[int]:
     )
 
 
+def coordenadores_do_projeto_da_banca(db: Session, banca) -> Set[int]:
+    """Só os COORDENADORES do(s) projeto(s) que a banca avalia, mais o
+    coordenador da banca.
+
+    É o primeiro alvo do lembrete de local (~1 dia antes) — a escalada abre
+    pra equipe inteira conforme a banca chega.
+    """
+    ids: Set[int] = set()
+    if getattr(banca, "coordenador_id", None):
+        ids.add(banca.coordenador_id)
+    escopo_repo = ProjetoEscopoRepository(db)
+    membro_repo = ProjetoMembroRepository(db)
+    for escopo_id in BancaEscopoRepository(db).get_escopo_ids(banca.id):
+        escopo = escopo_repo.get_by_id(escopo_id)
+        if not escopo:
+            continue
+        for m in membro_repo.get_by_projeto(escopo.projeto_id, apenas_atuais=True):
+            if getattr(m, "papel", None) == "coordenador":
+                ids.add(m.usuario_id)
+    return ids
+
+
 def _banca_ou_erro(db: Session, banca_id: int):
     banca = BancaRepository(db).get_by_id(banca_id)
     if not banca:
