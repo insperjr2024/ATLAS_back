@@ -203,7 +203,7 @@ def registrar_local_banca(
     db: Session = Depends(get_db),
 ):
     try:
-        return RegistrarLocalBancaUseCase(db).execute(banca_id, request.local, current_user.id)
+        return RegistrarLocalBancaUseCase(db).execute(banca_id, request.local, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -216,7 +216,7 @@ def registrar_entrega_link_banca(
     db: Session = Depends(get_db),
 ):
     try:
-        return RegistrarEntregaLinkBancaUseCase(db).execute(banca_id, request.link, current_user.id)
+        return RegistrarEntregaLinkBancaUseCase(db).execute(banca_id, request.link, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -229,7 +229,7 @@ def subir_entrega_arquivo_banca(
     db: Session = Depends(get_db),
 ):
     try:
-        return SubirEntregaArquivoBancaUseCase(db).execute(banca_id, arquivo, current_user.id)
+        return SubirEntregaArquivoBancaUseCase(db).execute(banca_id, arquivo, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -239,7 +239,7 @@ def remover_entrega_banca(
     banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
 ):
     try:
-        RemoverEntregaBancaUseCase(db).execute(banca_id, current_user.id)
+        RemoverEntregaBancaUseCase(db).execute(banca_id, current_user)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return None
