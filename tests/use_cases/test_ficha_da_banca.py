@@ -102,7 +102,8 @@ def mundo(monkeypatch):
                 # `confirmado` = esteve presente na banca; a ficha o expõe
                 # para a aba distinguir escalado de compareceu.
                 return [
-                    SimpleNamespace(usuario_id=u, confirmado=False) for u in candidaturas
+                    SimpleNamespace(id=i, usuario_id=u, confirmado=False)
+                    for i, u in enumerate(candidaturas, start=1)
                 ]
 
         class EquipeProjetoFake:
