@@ -50,6 +50,7 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.banca.excecao_choque import liberar_choque
 from src.utils.contagem_dias import derivar_janelas_pausa
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.fuso import para_hora_local
 from src.utils.janela_escopo import calcular_janela, dentro_da_janela
 from src.utils.notificar import notificar
 from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
@@ -153,7 +154,7 @@ class SolicitarForaJanelaUseCase:
         nome = projeto.nome if projeto else "um projeto"
         mensagem = (
             f"{nome} pediu autorização para marcar banca fora da janela, em "
-            f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M}."
+            f"{para_hora_local(pedido.data_hora_pretendida):%d/%m/%Y às %H:%M}."
         )
         for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
             notificar(self.db, diretor.id, mensagem, banca_id=pedido.banca_id)
@@ -311,7 +312,7 @@ class DecidirForaJanelaUseCase:
         )
         mensagem = (
             f"Seu pedido para marcar banca fora da janela em "
-            f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M} foi {veredito}: "
+            f"{para_hora_local(pedido.data_hora_pretendida):%d/%m/%Y às %H:%M} foi {veredito}: "
             f"{pedido.resposta}.{complemento}"
         )
         notificar(self.db, pedido.solicitado_por, mensagem, banca_id=pedido.banca_id)
