@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.solicitacao_troca_repository import SolicitacaoTrocaRepository
 from src.use_cases.notificacao.eventos import notificar_escalacao_banca
 from src.utils.banca_status import calcular_status_banca
 from src.utils.composicao_banca import ComposicaoBancaChecker
@@ -71,6 +72,7 @@ class DeleteCandidaturaUseCase:
         self.repository = CandidaturaRepository(db)
         self.banca_repository = BancaRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
+        self.solicitacao_troca_repository = SolicitacaoTrocaRepository(db)
 
     def execute(self, candidatura_id: int, eh_gestao: bool = False) -> bool:
         candidatura = self.repository.get_by_id(candidatura_id)
@@ -95,6 +97,18 @@ class DeleteCandidaturaUseCase:
                 f"{PRAZO_TRAVA_DESALOCACAO_DIAS} dias e sua saída deixaria a composição "
                 "mínima descoberta. Fale com a diretoria de projetos."
             )
+
+        # ⚠ ANTES de apagar (2026-09-15): a FK de `candidatura_id` em
+        # `solicitacao_troca` é SET NULL, não CASCADE — apagar a candidatura
+        # aqui embaixo já ia zerar essa referência sozinho, mas o pedido
+        # continuava "pendente" pra sempre, órfão. Uma troca aberta pra
+        # alguém que nem é mais candidato da banca comparava "com ela" e
+        # "sem ela" e via a MESMA composição dos dois lados — concluía que a
+        # vaga nunca foi de frente nenhuma e liberava confirmar pra QUALQUER
+        # pessoa ativa da empresa, não só quem cobriria a frente de verdade.
+        for solicitacao in self.solicitacao_troca_repository.get_by_candidatura(candidatura_id):
+            if solicitacao.status == "pendente":
+                self.solicitacao_troca_repository.update(solicitacao.id, status="cancelada")
 
         return self.repository.delete(candidatura_id)
 

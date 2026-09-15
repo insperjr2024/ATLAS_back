@@ -21,6 +21,7 @@ from src.database.database import Base
 from src.models.banca_frente_model import BancaFrenteModel
 from src.models.banca_model import BancaModel
 from src.models.candidatura_model import CandidaturaModel
+from src.models.solicitacao_troca_model import SolicitacaoTrocaModel
 from src.models.usuario_model import UsuarioModel
 from src.use_cases.candidatura.update_candidatura import DeleteCandidaturaUseCase
 from src.utils.exceptions import RegraDeNegocioError
@@ -30,6 +31,7 @@ TABELAS = [
     BancaModel.__table__,
     CandidaturaModel.__table__,
     BancaFrenteModel.__table__,
+    SolicitacaoTrocaModel.__table__,
 ]
 
 # `data_hora` da banca é UTC sem tzinfo; o use case compara com agora_utc().
