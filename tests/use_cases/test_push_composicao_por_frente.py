@@ -205,7 +205,7 @@ class TestPuxaPorFrenteEspecifica:
             lideranca_minima=0,
         )
 
-        resultado = uc._processar_banca(banca, teto=5, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=5, contagem_bancas={})
 
         selecionados = set(resultado["usuarios_alocados"])
         assert len(selecionados & {10, 11, 12, 13}) == 3
@@ -228,7 +228,7 @@ class TestFallbackQualquerFrente:
             teto=6,
         )
 
-        resultado = uc._processar_banca(banca, teto=6, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=6, contagem_bancas={})
 
         selecionados = set(resultado["usuarios_alocados"])
         # As 4 óbvias (piso de cada frente) + a pessoa 30 (de fora) cobrindo
@@ -250,7 +250,7 @@ class TestLiderancaNoPush:
             teto=5,
         )
 
-        resultado = uc._processar_banca(banca, teto=5, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=5, contagem_bancas={})
 
         assert 10 in resultado["usuarios_alocados"]
 
@@ -267,9 +267,61 @@ class TestLiderancaNoPush:
             teto=5,
         )
 
-        resultado = uc._processar_banca(banca, teto=5, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=5, contagem_bancas={})
 
         assert 99 not in resultado["usuarios_alocados"]
+
+
+class TestLiderancaExcedenteNoPush:
+    """2026-09-15: com 2 gerentes/coordenadores da frente presentes e
+    `min_lideranca=1`, só o primeiro é vaga extra de liderança — o segundo
+    deve contar como membro comum pro piso, espelhando
+    `ComposicaoBancaChecker.contar` (2026-09-07). Antes deste fix o push
+    descontava os DOIS do piso e puxava um consultor à toa (caso real: banca
+    da frente Business com 2 líderes escalou um 3º consultor desnecessário)."""
+
+    def test_segundo_lider_conta_como_membro_e_nao_puxa_ninguem_a_mais(self, monkeypatch):
+        uc, banca, candidaturas = montar(
+            monkeypatch,
+            frente_ids=[1],
+            frentes={1: frente(1, "Business", 3)},
+            por_frente={1: [10, 11, 12, 13, 14]},
+            usuarios=[
+                usuario(10, "gerente"), usuario(11, "coordenador"),
+                usuario(12), usuario(13), usuario(14),
+            ],
+            # 2 líderes + 2 consultores já cobrem lideranca(1) + membros(3):
+            # o 2º líder (11) é quem fecha a 3ª vaga de membro.
+            candidaturas_existentes=[10, 11, 12, 13],
+            lideranca_minima=1,
+            teto=6,
+        )
+
+        resultado = uc._processar_banca(banca, teto=6, contagem_bancas={})
+
+        assert resultado is None
+
+    def test_lider_excedente_cobre_so_o_que_falta_de_piso(self, monkeypatch):
+        """2 líderes presentes, mas só 1 consultor — o piso de 3 membros
+        ainda falta em 1 mesmo com o líder excedente contando (2 + 1 = 3 só
+        se o consultor que falta for puxado)."""
+        uc, banca, candidaturas = montar(
+            monkeypatch,
+            frente_ids=[1],
+            frentes={1: frente(1, "Business", 3)},
+            por_frente={1: [10, 11, 12, 20]},
+            usuarios=[
+                usuario(10, "gerente"), usuario(11, "coordenador"),
+                usuario(12), usuario(20),
+            ],
+            candidaturas_existentes=[10, 11, 12],
+            lideranca_minima=1,
+            teto=6,
+        )
+
+        resultado = uc._processar_banca(banca, teto=6, contagem_bancas={})
+
+        assert resultado["usuarios_alocados"] == [20]
 
 
 class TestVagaDeLiderancaReservadaNoPush:
@@ -290,7 +342,7 @@ class TestVagaDeLiderancaReservadaNoPush:
             teto=6,
         )
 
-        resultado = uc._processar_banca(banca, teto=6, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=6, contagem_bancas={})
 
         selecionados = set(resultado["usuarios_alocados"])
         # Os 3 membros de Business entram; a vaga de liderança fica vazia —
@@ -311,7 +363,7 @@ class TestVagaDeLiderancaReservadaNoPush:
             teto=5,
         )
 
-        resultado = uc._processar_banca(banca, teto=5, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=5, contagem_bancas={})
 
         # Gerente + os 2 membros: piso fechado, nada sobra pro geral.
         assert set(resultado["usuarios_alocados"]) == {10, 11, 12}
@@ -342,7 +394,7 @@ class TestCoordenadorDeVendasNaoCobreLideranca:
             teto=8,
         )
 
-        resultado = uc._processar_banca(banca, teto=8, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=8, contagem_bancas={})
 
         escalados = set(resultado["usuarios_alocados"]) if resultado else set()
         assert 22 in escalados, "devia puxar o coordenador de Business real"
@@ -366,7 +418,7 @@ class TestCoordenadorDeVendasNaoCobreLideranca:
         )
 
         uc1, banca1, cand1 = montar(monkeypatch, candidaturas_existentes=[10, 11, 12], **comuns)
-        r1 = uc1._processar_banca(banca1, teto=8, ultima_alocacao={})
+        r1 = uc1._processar_banca(banca1, teto=8, contagem_bancas={})
         escalados1 = list(r1["usuarios_alocados"]) if r1 else []
         assert len(escalados1) == 1 and escalados1[0] in (22, 23)
 
@@ -374,7 +426,7 @@ class TestCoordenadorDeVendasNaoCobreLideranca:
         uc2, banca2, cand2 = montar(
             monkeypatch, candidaturas_existentes=[10, 11, 12, *escalados1], **comuns
         )
-        r2 = uc2._processar_banca(banca2, teto=8, ultima_alocacao={})
+        r2 = uc2._processar_banca(banca2, teto=8, contagem_bancas={})
 
         assert r2 is None or not r2["usuarios_alocados"], (
             "a liderança já alocada tem de contar — nada a escalar na 2ª passada"
@@ -393,6 +445,6 @@ class TestRespeitaOTeto:
             teto=3,
         )
 
-        resultado = uc._processar_banca(banca, teto=3, ultima_alocacao={})
+        resultado = uc._processar_banca(banca, teto=3, contagem_bancas={})
 
         assert len(resultado["usuarios_alocados"]) == 3

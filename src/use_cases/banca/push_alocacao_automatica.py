@@ -2,8 +2,9 @@
 
 Uma semana antes da banca, se ainda não bateu o piso mínimo de gente, o
 sistema escala consultores automaticamente — primeiro da mesma frente,
-depois de qualquer frente se precisar — dando prioridade a quem foi alocado
-há mais tempo (rodízio justo: quem acabou de ir para o final da fila).
+depois de qualquer frente se precisar — dando prioridade a quem tem MENOS
+bancas futuras no momento (rodízio justo: quem está mais livre entra
+primeiro; empate é sorteado).
 
 Roda pelo agendador (`src/app.py`: de 5 em 5 minutos, e também na subida do
 app) e sob demanda (`POST /bancas/push-alocacao`, diretoria).
@@ -13,6 +14,7 @@ frequência sem medo: ela preenche até o piso e para, quem já está inscrito
 entra em `_excluidos`, e a notificação carrega chave de deduplicação.
 """
 
+import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 
@@ -76,20 +78,26 @@ class PushAlocacaoAutomaticaUseCase:
         configuracao = self.configuracao_repository.get()
         teto = configuracao.vagas_por_banca if configuracao else 5
 
-        ultima_alocacao = self._ultima_alocacao_por_usuario()
+        # ⚠ Ranking por CARGA TOTAL (já realizada + futura), não por recência
+        # (2026-09-15). O critério antigo (`ultima_alocacao_por_usuario`) só
+        # olhava há quanto tempo a pessoa tinha sido alocada pela ÚLTIMA vez —
+        # alguém com várias bancas de inscrição MANUAL, mas nunca escalado
+        # pelo push, entrava primeiro na fila mesmo já carregado. E contar só
+        # a agenda FUTURA também falhava: quem já tinha acabado de realizar
+        # uma banca parecia "livre" de novo, quando já tinha carregado a
+        # parte dele. Mutável de propósito: quem é escalado numa banca desta
+        # MESMA passada já entra mais carregado pro ranking da banca seguinte.
+        contagem_bancas = self.candidatura_repository.contagem_bancas_por_usuario()
 
         resumo = []
         for banca in bancas:
-            resultado = self._processar_banca(banca, teto, ultima_alocacao)
+            resultado = self._processar_banca(banca, teto, contagem_bancas)
             if resultado:
                 resumo.append(resultado)
         return resumo
 
-    def _ultima_alocacao_por_usuario(self) -> Dict[int, datetime]:
-        return self.candidatura_repository.ultima_alocacao_por_usuario()
-
     def _processar_banca(
-        self, banca: BancaModel, teto: int, ultima_alocacao: Dict[int, datetime]
+        self, banca: BancaModel, teto: int, contagem_bancas: Dict[int, int]
     ) -> Optional[dict]:
         vinculos_frente = self.banca_frente_repository.get_by_banca(banca.id)
         frentes = [f for f in (self.frente_repository.get_by_id(v.frente_id) for v in vinculos_frente) if f]
@@ -209,7 +217,7 @@ class PushAlocacaoAutomaticaUseCase:
                     and u.id not in sem_frente
                     and u.posicao in LIDERANCA_DA_FRENTE_POSICOES
                 ]
-                fila_lideres = self._ordenar_por_rodizio(pool_lideres, ultima_alocacao)
+                fila_lideres = self._ordenar_por_rodizio(pool_lideres, contagem_bancas)
                 escalados_lideranca = fila_lideres[: min(falta_lideranca, vagas_restantes())]
                 selecionados.extend(escalados_lideranca)
                 # Sorteia SÓ entre quem cobre a cota (`pool_lideres`, acima).
@@ -219,16 +227,26 @@ class PushAlocacaoAutomaticaUseCase:
 
             if vagas_restantes() <= 0:
                 continue
-            # ⚠ A liderança já puxada acima NÃO abate o piso: ela é vaga a
-            # mais desde 2026-09-01, e descontá-la aqui devolveria o
-            # comportamento antigo por uma porta lateral.
+            # ⚠ A liderança MÍNIMA exigida não abate o piso — ela é vaga a
+            # mais desde 2026-09-01, e descontar todo mundo que lidera aqui
+            # devolveria o comportamento antigo por uma porta lateral. Mas
+            # liderança EXCEDENTE (além do `min_lideranca`) volta a contar
+            # como membro comum, até o tanto que ainda falta de piso
+            # (2026-09-07 em `ComposicaoBancaChecker.contar` — o push nunca
+            # tinha ganhado essa parte, e ficou puxando gente que a banca não
+            # precisava: 2 líderes presentes com `min_lideranca=1` descontava
+            # os DOIS do piso, quando só o primeiro é vaga extra de verdade).
             min_membros = regra.min_membros if regra else frente.piso_banca
             # `sem_frente` sai da conta de membros também: um coordenador de
             # vendas ligado à frente não fecha o `min_membros` dela (espelha
             # `ComposicaoBancaChecker.contar`).
             ja_da_frente = len((contabilizados() & membros_ids) - sem_frente)
             lideres_da_frente = len(lideres_presentes & membros_ids)
-            falta_piso = max(0, min_membros - max(0, ja_da_frente - lideres_da_frente))
+            nao_lideres_da_frente = ja_da_frente - lideres_da_frente
+            lideres_excedentes = max(0, lideres_da_frente - lideranca_minima)
+            buraco_de_membro = max(0, min_membros - nao_lideres_da_frente)
+            membros_contados = nao_lideres_da_frente + min(lideres_excedentes, buraco_de_membro)
+            falta_piso = max(0, min_membros - membros_contados)
             if falta_piso > 0:
                 pool_frente = [
                     u
@@ -238,7 +256,7 @@ class PushAlocacaoAutomaticaUseCase:
                     and u.id not in contabilizados()
                     and u.id not in sem_frente
                 ]
-                fila_frente = self._ordenar_por_rodizio(pool_frente, ultima_alocacao)
+                fila_frente = self._ordenar_por_rodizio(pool_frente, contagem_bancas)
                 selecionados.extend(fila_frente[: min(falta_piso, vagas_restantes())])
 
         # O que sobrar — frente que não tinha gente suficiente pro próprio
@@ -266,7 +284,7 @@ class PushAlocacaoAutomaticaUseCase:
                 and u.id not in contabilizados()
                 and u.posicao not in DIRETORIA
             ]
-            fila_geral = self._ordenar_por_rodizio(pool_geral, ultima_alocacao)
+            fila_geral = self._ordenar_por_rodizio(pool_geral, contagem_bancas)
             # Este bloco enche a banca ACIMA do piso — daqui em diante tanto
             # faz a frente (2026-09-03: o teto por frente saiu). O único limite
             # é `vaga_disponivel`, o total da banca, já respeitado no `break`.
@@ -278,6 +296,12 @@ class PushAlocacaoAutomaticaUseCase:
 
         if not selecionados:
             return None
+
+        # Conta pra próxima banca desta mesma passada — senão a mesma pessoa
+        # pode ser escalada em duas bancas seguidas achando, em ambas, que
+        # está "menos carregada" que o resto.
+        for usuario in selecionados:
+            contagem_bancas[usuario.id] = contagem_bancas.get(usuario.id, 0) + 1
 
         agora = datetime.now()
         # ⚠ Horário LOCAL: `banca.data_hora` é UTC. Sem converter, o e-mail
@@ -400,9 +424,12 @@ class PushAlocacaoAutomaticaUseCase:
         }
 
     def _ordenar_por_rodizio(
-        self, usuarios: List[UsuarioModel], ultima_alocacao: Dict[int, datetime]
+        self, usuarios: List[UsuarioModel], contagem_bancas: Dict[int, int]
     ) -> List[UsuarioModel]:
-        # Quem nunca foi alocado (sem entrada no dict) entra primeiro; entre
-        # os já alocados, quem foi há mais tempo vem antes de quem foi há
-        # pouco — rodízio justo (§8).
-        return sorted(usuarios, key=lambda u: ultima_alocacao.get(u.id, datetime.min))
+        # Quem tem MENOS bancas futuras entra primeiro — rodízio justo (§8).
+        # Empate é sorteio: embaralha antes de ordenar, e como `sorted` é
+        # estável, a ordem embaralhada sobrevive entre quem tem a mesma
+        # contagem.
+        embaralhados = list(usuarios)
+        random.shuffle(embaralhados)
+        return sorted(embaralhados, key=lambda u: contagem_bancas.get(u.id, 0))

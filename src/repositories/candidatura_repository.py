@@ -1,6 +1,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from src.models.banca_model import BancaModel
 from src.models.candidatura_model import CandidaturaModel
 from src.utils.exceptions import ResourceInUseError
 from typing import Dict, List, Optional
@@ -48,24 +49,34 @@ class CandidaturaRepository:
             .all()
         )
 
-    def ultima_alocacao_por_usuario(self) -> Dict[int, datetime]:
-        """Quando cada pessoa foi alocada pela última vez — a fila do rodízio (§8).
+    def contagem_bancas_por_usuario(self) -> Dict[int, int]:
+        """Quantas bancas cada pessoa carrega, JÁ REALIZADAS + FUTURAS — ranking
+        do push (2026-09-15).
 
-        Um `GROUP BY` no banco em vez de trazer a tabela inteira e reduzir em
-        Python. O push varre de 5 em 5 minutos e `candidatura` só cresce: a
-        versão anterior carregava todo o histórico de alocações a cada passada
-        para calcular um máximo por pessoa, e o custo subia junto com o
-        semestre. Aqui volta uma linha por usuário, sempre.
+        ⚠ Substitui `ultima_alocacao_por_usuario` como critério do rodízio: o
+        rodízio antigo olhava só "há quanto tempo foi a última alocação", não
+        quantas bancas a pessoa já carrega — alguém com várias inscrições
+        manuais e nenhuma escalação automática recente entrava primeiro na
+        fila mesmo já carregado.
+
+        ⚠ Conta o HISTÓRICO inteiro, não só o que ainda vai acontecer
+        (2026-09-15, a pedido — versão anterior filtrava só bancas futuras).
+        Quem já realizou banca este semestre já carregou a parte dele: contar
+        só a agenda futura fazia essa pessoa parecer "livre" de novo assim que
+        a última banca dela acontecia, e o rodízio empilhava mais em cima. Só
+        cancelada não conta — ela não aconteceu de propósito.
         """
         linhas = (
             self.db.query(
                 CandidaturaModel.usuario_id,
-                func.max(CandidaturaModel.criado_em),
+                func.count(CandidaturaModel.id),
             )
+            .join(BancaModel, BancaModel.id == CandidaturaModel.banca_id)
+            .filter(BancaModel.cancelada_em.is_(None))
             .group_by(CandidaturaModel.usuario_id)
             .all()
         )
-        return {usuario_id: ultima for usuario_id, ultima in linhas}
+        return {usuario_id: qtd for usuario_id, qtd in linhas}
 
     def get_by_usuario(self, usuario_id: int) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).filter(CandidaturaModel.usuario_id == usuario_id).all()
