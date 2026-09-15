@@ -38,6 +38,7 @@ def registrar(
     corpo: Optional[str] = None,
     rota: Optional[str] = None,
     payload: Optional[dict] = None,
+    enviar_email: bool = True,
 ) -> None:
     """Grava o evento para UMA pessoa. Silenciosamente no-op se já existir."""
     dados = dict(payload or {})
@@ -59,7 +60,12 @@ def registrar(
         # `None` = a dedup descartou, o aviso já existe no sino. Não mandar
         # e-mail aqui é o que impede que salvar a mesma equipe duas vezes
         # mande dois e-mails idênticos.
-        if linha is not None:
+        #
+        # `enviar_email=False` é o outro jeito de chegar no mesmo "não manda
+        # de novo" (2026-09-15): o evento É novo (a linha do sino é criada,
+        # dedup não entra), só quem chamou já sabe que o e-mail em massa
+        # daquele evento já saiu antes e não quer repeti-lo.
+        if linha is not None and enviar_email:
             enfileirar(
                 notificacao_id=linha.id,
                 usuario_id=usuario_id,
