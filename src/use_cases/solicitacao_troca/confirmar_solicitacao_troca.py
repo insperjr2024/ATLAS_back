@@ -9,8 +9,9 @@ from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.solicitacao_troca_repository import SolicitacaoTrocaRepository
-from src.use_cases.solicitacao_troca.get_solicitacao_troca import serializar_solicitacao_troca
+from src.use_cases.solicitacao_troca.get_solicitacao_troca import serializar_solicitacao_troca_completa
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
+from src.utils.contexto_troca import calcular_contexto_troca
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar import notificar
@@ -69,10 +70,38 @@ class ConfirmarSolicitacaoTrocaUseCase:
         if ja_candidato:
             raise RegraDeNegocioError("Você já é candidato desta banca")
 
-        # Sem checagem de composição aqui: a troca é uma substituição, o
-        # número de pessoas não muda. O piso por frente é só mostrado, e o
-        # teto por frente deixou de existir (2026-09-03) — o único teto é o
-        # total da banca, que uma troca nunca estoura.
+        # ⚠ Restrito por FRENTE quando a vaga é precisada (2026-09-15, a
+        # pedido): confirmar é uma SUBSTITUIÇÃO, o número de pessoas não
+        # muda — mas se quem sai cobria o piso/liderança da própria frente,
+        # só alguém da mesma frente (líder dela, se for liderança que falta)
+        # pode assumir, senão o número da banca fecha e o motivo de terem
+        # pedido aquela pessoa continua descoberto. Convite direto pra uma
+        # pessoa específica já é resolvido acima (linha 41) e não passa por
+        # aqui de novo.
+        if solicitacao.usuario_convidado_id is None:
+            excluidos = {c.usuario_id for c in candidaturas}
+            excluidos.update(
+                membros_da_banca(
+                    banca,
+                    self.banca_escopo_repository,
+                    self.escopo_repository,
+                    self.membro_repository,
+                    self.equipe_projeto_repository,
+                )
+            )
+            contexto = calcular_contexto_troca(
+                self.db, banca, solicitacao.usuario_original_id, excluidos
+            )
+            if contexto.vaga_precisada and usuario_id not in contexto.elegiveis_ids:
+                cargo = "liderança de" if contexto.precisa_lideranca else "alguém de"
+                raise RegraDeNegocioError(
+                    f"Esta vaga é de {contexto.frente_nome} — só {cargo} "
+                    f"{contexto.frente_nome} pode confirmar esta troca."
+                )
+
+        # Fora isso, sem checagem de composição: o teto por frente deixou de
+        # existir (2026-09-03) — o único teto é o total da banca, que uma
+        # troca nunca estoura.
 
         agora = datetime.now()
         # Ordem de propósito: marcar a solicitação `confirmada` primeiro
@@ -91,4 +120,4 @@ class ConfirmarSolicitacaoTrocaUseCase:
             tipo="troca_banca",
         )
 
-        return serializar_solicitacao_troca(self.repository.get_by_id(solicitacao.id))
+        return serializar_solicitacao_troca_completa(self.db, self.repository.get_by_id(solicitacao.id))

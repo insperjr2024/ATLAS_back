@@ -34,8 +34,15 @@ def notificar(
     banca_id: Optional[int] = None,
     tipo: str = TIPO_PADRAO,
     chave: Optional[str] = None,
+    enviar_email: bool = True,
 ) -> None:
-    """Cria a linha da notificação. A listagem é de quem lê (`GET /notificacoes`)."""
+    """Cria a linha da notificação. A listagem é de quem lê (`GET /notificacoes`).
+
+    ⚠ `enviar_email=False` (2026-09-15): pra broadcasts repetidos do mesmo
+    evento — ex.: uma segunda troca aberta pra uma banca que já tinha outra
+    pendente. O sino continua avisando todo mundo elegível, só o e-mail em
+    massa não se repete a cada pedido novo.
+    """
     registrar(
         db,
         usuario_id=usuario_id,
@@ -47,4 +54,5 @@ def notificar(
         payload={"banca_id": banca_id} if banca_id else None,
         rota=f"/bancas?banca={banca_id}" if banca_id else None,
         chave_dedup=chave or f"{tipo}:{uuid4()}",
+        enviar_email=enviar_email,
     )

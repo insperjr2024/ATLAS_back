@@ -12,8 +12,9 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.solicitacao_troca_repository import SolicitacaoTrocaRepository
 from src.repositories.usuario_repository import UsuarioRepository
-from src.use_cases.solicitacao_troca.get_solicitacao_troca import serializar_solicitacao_troca
+from src.use_cases.solicitacao_troca.get_solicitacao_troca import serializar_solicitacao_troca_completa
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
+from src.utils.contexto_troca import calcular_contexto_troca
 from src.utils.equipe_banca import membros_da_banca
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar import notificar
@@ -72,8 +73,8 @@ class CreateSolicitacaoTrocaUseCase:
         if convidado_id is not None:
             self._notificar_convidado(banca, convidado_id)
         else:
-            self._notificar_elegiveis(banca)
-        return serializar_solicitacao_troca(solicitacao)
+            self._notificar_elegiveis(banca, usuario_id)
+        return serializar_solicitacao_troca_completa(self.db, solicitacao)
 
     def _excluidos(self, banca) -> set:
         """Quem NÃO pode confirmar esta troca (§8): já candidato desta banca,
@@ -120,12 +121,40 @@ class CreateSolicitacaoTrocaUseCase:
             tipo="troca_banca",
         )
 
-    def _notificar_elegiveis(self, banca) -> None:
+    def _notificar_elegiveis(self, banca, usuario_saindo_id: int) -> None:
         """Pedido aberto para qualquer elegível (§8) — avisa quem PODERIA
         confirmar, mesma regra de exclusão de `confirmar_solicitacao_troca`
-        (fora do grupo do projeto, ainda não candidato desta banca)."""
+        (fora do grupo do projeto, ainda não candidato desta banca).
+
+        ⚠ Restrito por FRENTE quando a vaga é precisada (2026-09-15, a
+        pedido): se a saída desta pessoa quebra o piso/liderança da frente
+        dela, só quem é da mesma frente (e, faltando liderança, só quem
+        lidera a frente) pode assumir — avisar o pool inteiro deixava
+        qualquer um confirmar uma vaga que não cobria o motivo de terem
+        pedido aquela pessoa. Vaga excedente (composição já fecha sem ela)
+        continua avisando todo mundo elegível, como sempre.
+
+        ⚠ Só sino, nunca e-mail (2026-09-15, a pedido): é broadcast pra TODO
+        o pool elegível, e mandar e-mail em massa pra cada pedido aberto —
+        toda vez que alguém pede troca — lotava a caixa de entrada de gente
+        que não tem nada a ver com aquela banca."""
         excluidos = self._excluidos(banca)
-        mensagem = f"Há uma solicitação de troca aberta para a banca de {banca.nome_projeto}."
-        for usuario in self.usuario_repository.get_ativos():
-            if usuario.id not in excluidos:
-                notificar(self.db, usuario.id, mensagem, banca_id=banca.id, tipo="troca_banca")
+        contexto = calcular_contexto_troca(self.db, banca, usuario_saindo_id, excluidos)
+        if contexto.vaga_precisada:
+            mensagem = (
+                f"Há uma solicitação de troca aberta para a banca de {banca.nome_projeto} "
+                f"— vaga de {contexto.frente_nome}"
+                + (" (liderança)" if contexto.precisa_lideranca else "")
+                + "."
+            )
+        else:
+            mensagem = f"Há uma solicitação de troca aberta para a banca de {banca.nome_projeto}."
+        for usuario_id in contexto.elegiveis_ids:
+            notificar(
+                self.db,
+                usuario_id,
+                mensagem,
+                banca_id=banca.id,
+                tipo="troca_banca",
+                enviar_email=False,
+            )
