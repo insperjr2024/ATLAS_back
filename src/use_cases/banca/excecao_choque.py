@@ -23,6 +23,7 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import CODIGO_CHOQUE_DE_HORARIO, RegraDeNegocioError
+from src.utils.fuso import para_hora_local
 from src.utils.notificar import notificar
 from src.middlewares.authorization import DIRETORIA, DIRETORIA_DE_PESSOAS, DIRETORIA_DE_PROJETOS
 
@@ -106,7 +107,7 @@ class SolicitarExcecaoChoqueUseCase:
         nome = projeto.nome if projeto else "um projeto"
         mensagem = (
             f"{nome} pediu exceção para marcar banca em "
-            f"{pedido.data_hora_pretendida:%d/%m/%Y às %H:%M}, que já tem a banca de "
+            f"{para_hora_local(pedido.data_hora_pretendida):%d/%m/%Y às %H:%M}, que já tem a banca de "
             f"{conflitante.nome_projeto}."
         )
         for diretor in self.usuario_repository.get_por_posicoes(*DIRETORIA_DE_PROJETOS):
@@ -167,7 +168,7 @@ class DecidirExcecaoChoqueUseCase:
             else ""
         )
         mensagem = (
-            f"Sua exceção de choque para {pedido.data_hora_pretendida:%d/%m/%Y às %H:%M} "
+            f"Sua exceção de choque para {para_hora_local(pedido.data_hora_pretendida):%d/%m/%Y às %H:%M} "
             f"foi {veredito}: {pedido.resposta}.{complemento}"
         )
         notificar(self.db, pedido.solicitado_por, mensagem, banca_id=pedido.banca_id)

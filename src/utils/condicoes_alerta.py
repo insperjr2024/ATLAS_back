@@ -26,6 +26,7 @@ from typing import Dict, Iterable, List, Optional, Set
 from src.utils.ambientacao import fim_da_ambientacao
 from src.utils.banca_status import NAO_MARCADA, calcular_status_banca
 from src.utils.dias_uteis import normalizar
+from src.utils.fuso import para_hora_local
 from src.utils.tarefa_status import eh_vencida, janela_semana
 
 # Os 5 tipos 🔄 do §6.6, mais "banca hoje" e o prazo do §5.3.
@@ -335,13 +336,18 @@ def _do_projeto(
             )
             continue
 
-        if banca and banca.data_hora and banca.data_hora.date() == hoje and not banca.realizado_em:
+        # ⚠ `data_hora` é UTC (convenção de `utils/fuso`); `hoje` e o texto são
+        # de parede local. Sem converter, o e-mail da FRUTAS I dizia "hoje às
+        # 17:00" para uma banca às 14:00 (2026-09-15) — e uma banca depois das
+        # 21:00 lembrava no dia seguinte, já que em UTC ela cai no outro dia.
+        local = para_hora_local(banca.data_hora) if banca and banca.data_hora else None
+        if local and local.date() == hoje and not banca.realizado_em:
             # Uma banca que cobre três escopos aparece em três chaves do mapa —
             # sem isto o consultor receberia o mesmo lembrete três vezes.
             if banca.id in bancas_hoje_vistas:
                 continue
             bancas_hoje_vistas.add(banca.id)
-            hora = banca.data_hora.strftime("%H:%M")
+            hora = local.strftime("%H:%M")
             condicoes.append(
                 Condicao(
                     tipo=BANCA_HOJE,

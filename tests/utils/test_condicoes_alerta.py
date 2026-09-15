@@ -234,13 +234,35 @@ class TestBanca:
         condicoes = detectar([projeto()], escopos={1: [escopo(status="entregue")]}, com_reuniao=[1])
         assert BANCA_NAO_MARCADA not in tipos(condicoes)
 
-    def test_banca_hoje_gera_lembrete(self):
-        marcada = banca(data_hora=datetime(2026, 8, 5, 14, 0))
+    def test_banca_hoje_gera_lembrete_na_hora_local(self):
+        """`data_hora` é UTC: 17:00 UTC é 14:00 em São Paulo. O e-mail da
+        FRUTAS I (2026-09-15) saiu com "hoje às 17:00" para uma banca às 14:00."""
+        marcada = banca(data_hora=datetime(2026, 8, 5, 17, 0))
         condicoes = detectar(
             [projeto()], escopos={1: [escopo()]}, bancas={10: marcada}, com_reuniao=[1]
         )
         lembrete = next(c for c in condicoes if c.tipo == BANCA_HOJE)
-        assert "14:00" in lembrete.titulo
+        assert "hoje às 14:00" in lembrete.titulo
+        assert "17:00" not in lembrete.titulo
+
+    def test_banca_da_noite_lembra_no_proprio_dia(self):
+        """21:30 de quarta em São Paulo é 00:30 de QUINTA em UTC. Comparando a
+        data crua, o lembrete sumia na quarta e aparecia na quinta."""
+        noite = banca(data_hora=datetime(2026, 8, 6, 0, 30))
+        na_quarta = detectar(
+            [projeto()], escopos={1: [escopo()]}, bancas={10: noite}, com_reuniao=[1]
+        )
+        lembrete = next(c for c in na_quarta if c.tipo == BANCA_HOJE)
+        assert "hoje às 21:30" in lembrete.titulo
+
+        na_quinta = detectar(
+            [projeto()],
+            escopos={1: [escopo()]},
+            bancas={10: noite},
+            com_reuniao=[1],
+            hoje=date(2026, 8, 6),
+        )
+        assert BANCA_HOJE not in tipos(na_quinta)
 
     def test_banca_ja_realizada_nao_lembra(self):
         realizada = banca(
