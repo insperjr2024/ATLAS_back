@@ -57,15 +57,13 @@ class CreateAvaliacaoUseCase:
             raise RegraDeNegocioError("Esta banca foi cancelada — não há o que avaliar")
 
         if banca and banca.realizado_em:
-            # ⚠ A referência é a mais tarde das duas (2026-09-15, a pedido):
-            # quem foi escalado no dia da banca conta a partir da realização,
-            # como sempre — mas quem a diretoria ADICIONOU depois (corrigindo
-            # a ficha de uma banca já realizada) só passou a existir como
-            # candidato naquele momento. Contar só `realizado_em` faria essa
-            # pessoa nascer já fora do prazo, sem nunca ter tido a chance de
-            # abrir o formulário.
-            referencia = max(banca.realizado_em, candidatura.criado_em)
-            prazo = referencia + timedelta(days=PRAZO_AVALIACAO_DIAS)
+            # ⚠ Sempre a partir da REALIZAÇÃO, mesmo pra quem foi adicionado
+            # depois (2026-09-15, revisto a pedido): o prazo é da banca, não
+            # da pessoa — e é exatamente por isso que a gestão só consegue
+            # ADICIONAR alguém a uma banca já realizada enquanto este mesmo
+            # prazo ainda não venceu (`create_candidatura.py`). Depois que as
+            # avaliações fecham, adicionar não faz mais sentido nenhum.
+            prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
             if datetime.now() > prazo:
                 raise RegraDeNegocioError(
                     f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"

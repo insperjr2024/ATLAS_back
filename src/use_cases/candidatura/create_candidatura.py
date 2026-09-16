@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
@@ -12,6 +12,7 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.frente_repository import FrenteRepository
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
 from src.utils.teto_banca import calcular_vagas_banca
 from src.utils.composicao_banca import ComposicaoBancaChecker
@@ -73,6 +74,22 @@ class CreateCandidaturaUseCase:
             if status == "cancelada":
                 raise RegraDeNegocioError("Não é possível se candidatar: esta banca foi cancelada")
             raise RegraDeNegocioError("Não é possível se candidatar: esta banca ainda não tem data marcada")
+
+        # ⚠ Mesmo pra gestão, adicionar só faz sentido enquanto a pessoa ainda
+        # teria como avaliar (2026-09-15, a pedido): passado o prazo de
+        # `PRAZO_AVALIACAO_DIAS` da realização, ninguém mais submete avaliação
+        # nenhuma (`submeter_avaliacao.py` usa a MESMA régua, sempre a partir
+        # de `realizado_em`) — adicionar depois disso seria só um registro
+        # morto. Remover não tem essa trava — ver `DeleteCandidaturaUseCase`,
+        # que continua liberado pra gestão não importa há quanto tempo a
+        # banca aconteceu.
+        if eh_gestao and status == "realizada" and banca.realizado_em:
+            prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+            if datetime.now() > prazo:
+                raise RegraDeNegocioError(
+                    f"Não é possível adicionar: o prazo de {PRAZO_AVALIACAO_DIAS} dias para "
+                    "avaliar esta banca já passou, então não há mais o que essa pessoa fazer aqui."
+                )
 
         # Ninguém avalia o próprio grupo: nem quem coordena, nem quem está na
         # equipe do projeto desta banca.

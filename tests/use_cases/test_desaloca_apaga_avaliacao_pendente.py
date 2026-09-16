@@ -63,12 +63,12 @@ def db():
         s.close()
 
 
-def _banca_realizada(db, *, piso=1):
+def _banca_realizada(db, *, piso=1, dias_atras=1):
     b = BancaModel(
         nome_projeto="Alfa",
         coordenador_id=1,
-        data_hora=AGORA_UTC - timedelta(days=1),
-        realizado_em=AGORA_UTC - timedelta(days=1),
+        data_hora=AGORA_UTC - timedelta(days=dias_atras),
+        realizado_em=AGORA_UTC - timedelta(days=dias_atras),
         piso_minimo_override=piso,
     )
     db.add(b)
@@ -119,6 +119,15 @@ class TestRemoverDeBancaRealizada:
 
         assert DeleteCandidaturaUseCase(db).execute(candidatura.id, eh_gestao=True) is True
 
+    def test_com_gestao_remove_mesmo_muito_depois_do_prazo_de_avaliacao(self, db):
+        """2026-09-15, revisto a pedido: remover NUNCA tranca por prazo —
+        só adicionar. A banca aconteceu há 30 dias (bem além dos 7 de
+        avaliação) e a gestão ainda consegue tirar alguém de lá."""
+        banca = _banca_realizada(db, dias_atras=30)
+        candidatura = _candidatura(db, banca, usuario_id=7)
+
+        assert DeleteCandidaturaUseCase(db).execute(candidatura.id, eh_gestao=True) is True
+
 
 class TestAdicionarEmBancaRealizada:
     def test_sem_gestao_continua_barrado(self, db):
@@ -147,3 +156,21 @@ class TestAdicionarEmBancaRealizada:
 
         with pytest.raises(RegraDeNegocioError, match="cancelada"):
             CreateCandidaturaUseCase(db).execute(request, usuario_id=7, eh_gestao=True)
+
+    def test_gestao_nao_adiciona_depois_do_prazo_de_avaliacao(self, db):
+        """2026-09-15, revisto a pedido: passado o prazo de avaliação
+        (7 dias da realização), adicionar não faz mais sentido nem pra
+        gestão — a pessoa nunca teria como submeter nada."""
+        banca = _banca_realizada(db, piso=0, dias_atras=10)
+        request = CreateCandidaturaRequest(banca_id=banca.id)
+
+        with pytest.raises(RegraDeNegocioError, match="prazo de 7 dias"):
+            CreateCandidaturaUseCase(db).execute(request, usuario_id=7, eh_gestao=True)
+
+    def test_gestao_consegue_adicionar_no_ultimo_dia_do_prazo(self, db):
+        banca = _banca_realizada(db, piso=0, dias_atras=6)
+        request = CreateCandidaturaRequest(banca_id=banca.id)
+
+        resultado = CreateCandidaturaUseCase(db).execute(request, usuario_id=7, eh_gestao=True)
+
+        assert resultado["usuario_id"] == 7

@@ -81,11 +81,10 @@ class SubmeterAvaliacaoUseCase:
             raise RegraDeNegocioError(
                 "Esta banca ainda não foi registrada como realizada"
             )
-        # Mesma referência de `create_avaliacao` (2026-09-15): quem foi
-        # ADICIONADO depois da realização (diretoria corrigindo a ficha) conta
-        # o prazo a partir de quando virou candidato, não da banca em si.
-        referencia = max(banca.realizado_em, candidatura.criado_em)
-        if datetime.now() > referencia + timedelta(days=PRAZO_AVALIACAO_DIAS):
+        # Sempre a partir da REALIZAÇÃO (2026-09-15, revisto a pedido): ver o
+        # comentário em `create_avaliacao.py` — o prazo é da banca, não de
+        # quando a pessoa virou candidata.
+        if datetime.now() > banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS):
             raise RegraDeNegocioError(
                 f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"
             )
