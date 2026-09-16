@@ -8,7 +8,7 @@ from src.database.database import Base
 class DocumentoContratualModel(Base):
     """Um documento jurídico em andamento dentro de um PROJETO do ATLAS —
     Contrato de Prestação de Serviços, TEP, NDA, Termo de Uso de Imagem ou
-    Termo Aditivo (ver `entities/documento_contratual.py`).
+    Termo Aditivo (ver `utils/status_documento_contratual.py`).
 
     ⭐ 2026-09-16 — nasce da integração com a antiga plataforma Contratos
     (`contratos-backend`), separada até aqui. Lá isto era `ContratoModel`,
@@ -35,7 +35,7 @@ class DocumentoContratualModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     projeto_id = Column(Integer, ForeignKey("projeto.id"), nullable=False, index=True)
     #: contrato | tep | nda | uso_imagem | aditivo | outro — ver
-    #: `entities/documento_contratual.py`.
+    #: `utils/status_documento_contratual.py`.
     tipo = Column(String(20), nullable=False)
     status = Column(String(40), nullable=False, default="aguardando_preenchimento")
     #: Blob JSON com os dados do formulário. O shape depende do `tipo` — ver o

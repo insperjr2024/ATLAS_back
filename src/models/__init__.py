@@ -73,3 +73,15 @@ from src.models.token_recuperacao_model import TokenRecuperacaoModel
 
 # Os estados de carga da aba de Alocação, configuráveis pela diretoria.
 from src.models.situacao_carga_model import SituacaoCargaModel
+
+# Documentos jurídicos (§ Contratos) — Contrato de Prestação, TEP, NDA, Termo
+# de Uso de Imagem, Termo Aditivo. `DocumentoContratualModel` referencia os
+# três seguintes por `relationship(..., "NomeDaClasse")` (string): sem os
+# três estarem importados em algum lugar antes da primeira query em
+# QUALQUER model, o SQLAlchemy não acha o nome e a mapper configuration
+# quebra — foi o que aconteceu com este módulo antes de entrar aqui.
+from src.models.documento_contratual_model import DocumentoContratualModel
+from src.models.documento_contratual_versao_model import DocumentoContratualVersaoModel
+from src.models.token_aprovacao_contratual_model import TokenAprovacaoContratualModel
+from src.models.solicitacao_alteracao_contratual_model import SolicitacaoAlteracaoContratualModel
+from src.models.identidade_institucional_model import IdentidadeInstitucionalModel
