@@ -37,6 +37,7 @@ from src.use_cases.banca.finalizacao_automatica import FinalizacaoAutomaticaBanc
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
 from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
+from src.use_cases.notificacao.reenviar_pendentes import reenviar_emails_pendentes
 from src.use_cases.notificacao.eventos import (
     notificar_lote_desempenho_lembrete,
     notificar_pdi_prazo_proximo,
@@ -53,6 +54,21 @@ from src.utils.tarefa_status import janela_semana
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
+
+
+def rodar_reenvio_de_emails_pendentes() -> None:
+    """2026-09-16, incidente real (ver `reenviar_pendentes.py`): e-mail de
+    notificação sai numa thread em background dentro do próprio processo, e
+    um deploy no meio de um lote derruba quem ainda estava na fila — sem
+    exceção, sem log, sem nova tentativa. De 5 em 5 min, reenfileira quem
+    ficou pendente nas últimas 2 horas (`JANELA_PADRAO`)."""
+    db = SessionLocal()
+    try:
+        total = reenviar_emails_pendentes(db)
+        if total:
+            logger.info("Repescagem de e-mails: %d notificação(ões) reenfileirada(s)", total)
+    finally:
+        db.close()
 
 
 def rodar_push_alocacao_automatica() -> None:
@@ -452,6 +468,15 @@ async def lifespan(app: FastAPI):
         # chave garante um aviso por banca por janela.
         CronTrigger(minute="*/5"),
         id="lembrete_local_banca",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_reenvio_de_emails_pendentes,
+        # Mesma frequência dos outros jobs de 5 em 5 — a lacuna que este
+        # cobre (deploy no meio de um lote de e-mails) pode acontecer a
+        # qualquer momento, não só em horário fixo.
+        CronTrigger(minute="*/5"),
+        id="reenvio_emails_pendentes",
         replace_existing=True,
     )
     scheduler.add_job(

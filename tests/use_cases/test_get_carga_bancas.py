@@ -61,6 +61,21 @@ def test_diretoria_e_diretor_de_pessoas_ficam_de_fora():
     assert {r["usuario_id"] for r in resultado} == {1, 2, 3}
 
 
+def test_coordenador_de_vendas_entra_na_lista():
+    """⚠ Regressão real (2026-09-16): a migration `bb255f970798` moveu quem
+    era "coordenador" com a flag de vendas pra `posicao='vendas'` — sem
+    "vendas" no filtro, essa pessoa sumia da conta de carga mesmo
+    continuando a ser escalada pelo push (cobre o total da banca)."""
+    uc = _uc(
+        ativos=[usuario(1, "Marcella", "vendas")],
+        contagem={1: 3},
+    )
+
+    resultado = uc.execute()
+
+    assert {r["usuario_id"] for r in resultado} == {1}
+
+
 def test_empate_desempata_por_nome():
     uc = _uc(
         ativos=[usuario(1, "Zeca"), usuario(2, "Ana")],

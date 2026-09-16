@@ -1,10 +1,18 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
 from src.models.notificacao_model import NotificacaoModel
 from src.repositories.base_repository import BaseRepository
+
+#: 🔄 Só estes dois tipos de CONDIÇÃO chegam a tentar e-mail
+#: (`rodar_lembrete_condicoes`, em `app.py`) — os demais (`kickoff_pendente`,
+#: `banca_nao_marcada`, `projeto_sem_reuniao`) só nascem quando a PESSOA
+#: dispensa (`marcar_condicao_lida`), sem `enfileirar` nenhum: `email_enviado_
+#: em` nulo neles é o estado normal para sempre, não uma falha a repescar.
+_TIPOS_DE_CONDICAO_COM_EMAIL = ("tarefa_vencida", "banca_hoje")
 
 
 class NotificacaoRepository(BaseRepository[NotificacaoModel]):
@@ -67,6 +75,43 @@ class NotificacaoRepository(BaseRepository[NotificacaoModel]):
                 NotificacaoModel.chave_dedup == chave_dedup,
             )
             .first()
+        )
+
+    def get_pendentes_de_email(self, desde: datetime) -> List[NotificacaoModel]:
+        """Eventos recentes cujo e-mail nunca saiu — nem tentativa registrada
+        no Resend, nem carimbo aqui (ver `reenviar_pendentes.py`).
+
+        ⚠ **`email_enviado_em` nulo não é sempre falha.** Duas situações
+        legítimas se parecem exatamente com uma falha e por isso ficam de
+        fora daqui:
+
+        1. **`tipo="troca_banca"` do broadcast pro pool elegível**
+           (`create_solicitacao_troca._notificar_elegiveis`) passa
+           `enviar_email=False` de propósito — é aviso de massa, mandar
+           e-mail a cada pedido de troca lotaria a caixa de quem não tem nada
+           a ver com aquela banca. Só ESTE tipo tem chamada com a flag
+           desligada hoje, mas outras chamadas do MESMO tipo (convite direto
+           de troca) querem e-mail — sem uma coluna própria pra guardar a
+           intenção, a única distinção segura é excluir o tipo inteiro:
+           perde-se a repescagem de um convite direto que falhe de verdade,
+           channel que já é opcional (`TIPOS_NOTIFICACAO_OPCIONAIS`).
+        2. **Linha de `origem="condicao"`** nasce ao a PESSOA dispensar um
+           alerta (`marcar_condicao_lida`) — não é notificação, é marcação de
+           leitura, e nunca tenta e-mail. Só `tarefa_vencida`/`banca_hoje`
+           fogem disso: `rodar_lembrete_condicoes` os cria com e-mail junto.
+        """
+        return (
+            self.db.query(NotificacaoModel)
+            .filter(
+                NotificacaoModel.email_enviado_em.is_(None),
+                NotificacaoModel.criado_em >= desde,
+                NotificacaoModel.tipo != "troca_banca",
+                or_(
+                    NotificacaoModel.origem == "evento",
+                    NotificacaoModel.tipo.in_(_TIPOS_DE_CONDICAO_COM_EMAIL),
+                ),
+            )
+            .all()
         )
 
     def criar_se_nao_existe(self, **kwargs) -> Optional[NotificacaoModel]:

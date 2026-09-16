@@ -28,7 +28,12 @@ class GetCargaBancasUseCase:
                 "quantidade_bancas": contagem.get(u.id, 0),
             }
             for u in self.usuario_repository.get_ativos()
-            if u.posicao in ("consultor", "coordenador", "gerente")
+            # ⚠ 2026-09-16, corrigido: "vendas" (o antigo `coordenador_vendas`,
+            # virou cargo de verdade na migration `bb255f970798`) some daqui
+            # sem isto — continua sendo escalado pelo push (cobre o TOTAL da
+            # banca, só não fecha piso de frente) e a diretoria perde o
+            # rastro da carga dele, como se tivesse se desalocado sozinho.
+            if u.posicao in ("consultor", "coordenador", "gerente", "vendas")
         ]
         linhas.sort(key=lambda linha: (-linha["quantidade_bancas"], linha["nome"]))
         return linhas
