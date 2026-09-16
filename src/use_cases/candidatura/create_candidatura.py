@@ -135,7 +135,13 @@ class CreateCandidaturaUseCase:
         # tornaria a composição impossível — recusa. Quem REDUZ o déficit
         # (a liderança de Business que faltava) passa, porque aí `falta_depois`
         # cai junto.
-        if vinculos_frente:
+        #
+        # ⚠ Não vale para a gestão (2026-09-16, a pedido): "a diretoria pode
+        # TUDO, mesmo que não cubra o piso mínimo" — essa reserva existe pra
+        # proteger a AUTO-inscrição de alguém tomar uma vaga que não é dela;
+        # quando é a diretoria quem está alocando (`eh_gestao`), a decisão já
+        # é dela, a composição é problema que ela mesma está resolvendo.
+        if vinculos_frente and not eh_gestao:
             from src.use_cases.configuracao.composicao_banca import (
                 ResolverComposicaoUseCase,
             )

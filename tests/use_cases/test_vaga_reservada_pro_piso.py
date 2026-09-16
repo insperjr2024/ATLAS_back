@@ -87,8 +87,8 @@ def deficit(lideranca=0, membros=0):
     )
 
 
-def alocar(uc, uid):
-    return uc.execute(CreateCandidaturaRequest(banca_id=1), usuario_id=uid)
+def alocar(uc, uid, eh_gestao=False):
+    return uc.execute(CreateCandidaturaRequest(banca_id=1), usuario_id=uid, eh_gestao=eh_gestao)
 
 
 class TestVagaReservada:
@@ -151,4 +151,20 @@ class TestVagaReservada:
         )
         uc.banca_frente_repository = SimpleNamespace(get_by_banca=lambda _: [])
         alocar(uc, 50)
+        assert repo.criadas == [50]
+
+
+class TestGestaoIgnoraAReserva:
+    """2026-09-16, a pedido: "a diretoria pode TUDO, mesmo que não cubra o
+    piso mínimo". A reserva protege a AUTO-inscrição; quem a diretoria
+    aloca à mão (`eh_gestao`) não passa por ela — a decisão já é dela."""
+
+    def test_diretoria_aloca_quem_nao_cobre_a_cota_na_ultima_vaga(self, monkeypatch):
+        uc, repo = montar(
+            monkeypatch,
+            alocados=range(10, 17),
+            vagas=8,
+            deficit_por_ids=lambda ids: [deficit(lideranca=1)],
+        )
+        alocar(uc, 50, eh_gestao=True)
         assert repo.criadas == [50]
