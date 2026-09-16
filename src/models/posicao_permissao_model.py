@@ -134,3 +134,26 @@ class PosicaoPermissaoModel(Base):
     #: cadastrado — o antigo `eh_lideranca_sem_frente(usuario.coordenador_
     #: vendas)`, agora por permissão em vez de nome de posição fixo.
     pode_coordenar_vendas = Column(Boolean, default=False, nullable=False)
+
+    #: ⭐ 2026-09-16 — as seis caixas da integração com a Contratos
+    #: (`documento_contratual`). "Criar documento"/"enviar ao cliente" não
+    #: viram caixa nova: reaproveitam `pode_criar_projeto` e `pode_
+    #: responsavel_por_vendas`, que já existem e significam a mesma coisa.
+    #:
+    #: Gerar o rascunho (.docx → PDF) e exportar o link de aprovação.
+    pode_gerar_documento_juridico = Column(Boolean, default=False, nullable=False)
+    #: Editar o texto do rascunho e regerar depois de confirmado — a partir
+    #: daqui a palavra sobre o documento passa a ser de quem tem esta caixa,
+    #: não mais de quem preencheu.
+    pode_editar_documento_juridico = Column(Boolean, default=False, nullable=False)
+    #: Fechar o ciclo: marcar como assinado (fora da plataforma) e arquivar.
+    pode_marcar_documento_assinado = Column(Boolean, default=False, nullable=False)
+    #: Ver o Repositório — todo documento final assinado, de todo projeto,
+    #: organizado por gestão.
+    pode_ver_repositorio_contratos = Column(Boolean, default=False, nullable=False)
+    #: Cadastrar documento já assinado fora do fluxo normal (gestão anterior,
+    #: por exemplo) — só guarda o arquivo e arquiva direto na gestão informada.
+    pode_importar_documento_antigo = Column(Boolean, default=False, nullable=False)
+    #: Abrir o TEP dentro de um projeto que já tem Contrato de Prestação —
+    #: quem acompanha a ENTREGA, não a venda.
+    pode_solicitar_tep = Column(Boolean, default=False, nullable=False)

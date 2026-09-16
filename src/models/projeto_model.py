@@ -38,6 +38,13 @@ class ProjetoModel(Base):
     anexo_proposta_nome = Column(String(255), nullable=True)
     status = Column(
         Enum(
+            # ⭐ 2026-09-16 — integração com a Contratos: o projeto nasce
+            # aqui assim que alguém abre o Contrato de Prestação de Serviços
+            # na aba Contratos, ANTES de existir venda de verdade. Vira
+            # "vendido" sozinho quando esse documento é assinado (ver
+            # `use_cases/documento_contratual/marcar_assinado.py`) — é a
+            # única transição automática de/para este status.
+            "contrato_em_elaboracao",
             "vendido",
             "ambientacao",
             "em_andamento",

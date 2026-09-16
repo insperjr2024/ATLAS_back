@@ -110,7 +110,9 @@ class TestKickoffComoPreRequisito:
 
     def test_vendido_so_vai_para_ambientacao(self):
         """Mesmo com kickoff, Vendido não pula direto pro meio do projeto."""
-        for destino in STATUS_ORDEM[2:]:
+        for destino in STATUS_ORDEM:
+            if destino in ("contrato_em_elaboracao", "vendido", "ambientacao"):
+                continue
             assert not transicao_manual_valida("vendido", destino, tem_kickoff=True)
 
     def test_destinos_de_vendido_dependem_do_kickoff(self):
@@ -188,3 +190,30 @@ class TestPausarERetomar:
     def test_retomar_sem_status_guardado_levanta_erro(self):
         with pytest.raises(RegraDeNegocioError):
             retomar(None)
+
+
+class TestContratoEmElaboracao:
+    """⭐ 2026-09-16 — integração com a Contratos: o projeto nasce aqui ao
+    abrir o Contrato de Prestação de Serviços, e só vira Vendido sozinho,
+    quando ele é assinado. Nenhuma transição manual sai daqui — nem pro
+    próprio Vendido, nem pra mais nada — porque não é decisão de quem olha
+    o seletor, é fato que só a assinatura do documento estabelece."""
+
+    def test_nao_tem_destino_manual_nenhum(self):
+        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=True) == []
+        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=False) == []
+
+    def test_nenhuma_transicao_manual_e_valida(self):
+        for destino in STATUS_ORDEM:
+            if destino == "contrato_em_elaboracao":
+                continue
+            assert not transicao_manual_valida(
+                "contrato_em_elaboracao", destino, tem_kickoff=True
+            )
+
+    def test_nao_e_pausavel(self):
+        assert not pode_pausar("contrato_em_elaboracao")
+
+    def test_e_o_primeiro_da_ordem(self):
+        assert STATUS_ORDEM[0] == "contrato_em_elaboracao"
+        assert STATUS_ORDEM[1] == "vendido"
