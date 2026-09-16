@@ -27,6 +27,7 @@ from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequ
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
+from src.use_cases.banca.get_carga_bancas import GetCargaBancasUseCase
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
 from src.use_cases.banca.local_e_entrega import (
     EntregaLinkBancaRequest,
@@ -149,6 +150,14 @@ def listar_bancas_esperando_aprovacao(current_user=Depends(require_gestao), db: 
     """A fila "Esperando aprovação" da aba Bancas — diretoria vê tudo, gerente
     só as bancas com frente dele (§3)."""
     return ListarBancasEsperandoAprovacaoUseCase(db).execute(current_user)
+
+
+@router.get("/bancas/carga-por-usuario")
+def get_carga_bancas(_=Depends(require_pode_ver_dashboard_bancas), db: Session = Depends(get_db)):
+    """Quantas bancas cada consultor/coordenador/gerente já carrega — o
+    mesmo dado que o push automático usa pra rodízio, exposto pra diretoria
+    e gerência conferirem quem está sobrecarregado."""
+    return GetCargaBancasUseCase(db).execute()
 
 
 @router.get("/bancas/{banca_id}")
