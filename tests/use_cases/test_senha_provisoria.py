@@ -80,6 +80,14 @@ class CargoRepositoryFake:
         return CargoFake(cargo_id)
 
 
+class PosicaoRepositoryFake:
+    """Qualquer posição existe — estes testes cobrem senha provisória, não
+    validação de cargo (ver `RegistrarUseCase.execute`, migration `a9cae5c30c6d`)."""
+
+    def get_by_posicao(self, posicao):
+        return object()
+
+
 class ConfiguracaoRepositoryFake:
     def get(self):
         return type("Configuracao", (), {"cargo_padrao_id": 3})()
@@ -106,6 +114,7 @@ class EmailSenderFake:
 def montar_registro(*usuarios, falha_email=False):
     uc = RegistrarUseCase.__new__(RegistrarUseCase)
     uc.usuario_repository = UsuarioRepositoryFake(*usuarios)
+    uc.posicao_repository = PosicaoRepositoryFake()
     uc.configuracao_repository = ConfiguracaoRepositoryFake()
     uc.cargo_repository = CargoRepositoryFake()
     uc.email_sender = EmailSenderFake(falha=falha_email)

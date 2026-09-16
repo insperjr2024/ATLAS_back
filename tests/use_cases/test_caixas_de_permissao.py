@@ -28,12 +28,21 @@ from src.use_cases.posicao_permissao.update_posicao_permissao import (
 )
 
 
+#: Colunas booleanas de `posicao_permissao` que NÃO são caixa de permissão —
+#: `e_padrao` é metadado do catálogo (migration `a9cae5c30c6d`: marca os 6
+#: cargos que a tela de Configurações não deixa apagar), não liga nem desliga
+#: nada na plataforma, e por isso fica de fora de `UpdatePosicaoPermissaoRequest`
+#: de propósito. Sem esta exclusão o "todo booleano é caixa" pegaria ela junto.
+NAO_SAO_CAIXA = {"e_padrao"}
+
+
 def caixas_do_modelo():
-    """Toda coluna booleana de `posicao_permissao` — isto é "uma caixa"."""
+    """Toda coluna booleana de `posicao_permissao`, exceto metadado — isto é
+    "uma caixa"."""
     return sorted(
         coluna.name
         for coluna in PosicaoPermissaoModel.__table__.columns
-        if isinstance(coluna.type, Boolean)
+        if isinstance(coluna.type, Boolean) and coluna.name not in NAO_SAO_CAIXA
     )
 
 
@@ -41,7 +50,7 @@ def registro_falso(**ligadas):
     """Uma linha da tabela, com todas as caixas desligadas menos as pedidas."""
     valores = {caixa: False for caixa in caixas_do_modelo()}
     valores.update(ligadas)
-    return SimpleNamespace(posicao="coordenador", **valores)
+    return SimpleNamespace(posicao="coordenador", nome="Coordenador(a)", e_padrao=True, **valores)
 
 
 class TestSerializacao:
@@ -56,7 +65,7 @@ class TestSerializacao:
         """O outro lado: campo no serializer sem coluna no banco explodiria
         em runtime, não na suíte."""
         saida = serializar_posicao_permissao(registro_falso())
-        sobrando = set(saida) - set(caixas_do_modelo()) - {"posicao"}
+        sobrando = set(saida) - set(caixas_do_modelo()) - {"posicao", "nome", "e_padrao"}
         assert sobrando == set(), f"campos sem coluna: {sorted(sobrando)}"
 
     def test_update_aceita_todas_as_caixas(self):
