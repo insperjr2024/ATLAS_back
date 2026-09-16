@@ -165,11 +165,22 @@ class CreateCandidaturaUseCase:
                     "essa cota pode se inscrever agora."
                 )
 
+        # ⚠ 2026-09-16, a pedido: quem a gestão adiciona numa banca JÁ
+        # REALIZADA nasce como presente, não como "faltou". Desde que o
+        # botão manual de registrar realização saiu (2026-09-04), não existe
+        # mais humano pra marcar presença depois do fato — sem isto, a
+        # pessoa ficava com `confirmado=False` pra sempre (a finalização
+        # automática, que já presume presente todo mundo que era candidato
+        # na hora, já passou por essa banca e não roda de novo) e aparecia
+        # com "· faltou" na ficha, contando errado nas estatísticas de
+        # presença, mesmo continuando livre pra preencher a avaliação (isso
+        # nunca foi bloqueado por `confirmado`).
+        confirmado = True if (eh_gestao and status == "realizada") else request.confirmado
         candidatura = self.repository.create(
             banca_id=request.banca_id,
             usuario_id=usuario_id,
             criado_em=datetime.now(),
-            confirmado=request.confirmado
+            confirmado=confirmado
         )
         return {
             "id": candidatura.id,
