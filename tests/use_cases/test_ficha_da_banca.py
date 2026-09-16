@@ -38,6 +38,7 @@ USUARIOS = {
     90: SimpleNamespace(id=90, nome="Coordenador Tech", posicao="coordenador"),
     91: SimpleNamespace(id=91, nome="Mateus Loureiro", posicao="consultor"),
     92: SimpleNamespace(id=92, nome="Bia Martins", posicao="consultor"),
+    93: SimpleNamespace(id=93, nome="Luiza Segunda Coordenadora", posicao="coordenador"),
 }
 
 
@@ -56,6 +57,10 @@ def mundo(monkeypatch):
         frentes=("Tech",),
         equipe_legada=(),
         membros_projeto=(91,),
+        # ⚠ Quais de `membros_projeto` têm papel "coordenador" — o projeto
+        # pode ter mais de um (2026-08-20), e só o `banca.coordenador_id`
+        # nunca é o bastante pra achar os demais.
+        membros_coordenadores=(),
         candidaturas=(),
     ):
         class BancaFake:
@@ -114,7 +119,13 @@ def mundo(monkeypatch):
         class ProjetoMembroFake:
             def __init__(self, db): pass
             def get_by_projeto(self, projeto_id, apenas_atuais=False):
-                return [SimpleNamespace(usuario_id=u) for u in membros_projeto]
+                return [
+                    SimpleNamespace(
+                        usuario_id=u,
+                        papel="coordenador" if u in membros_coordenadores else "consultor",
+                    )
+                    for u in membros_projeto
+                ]
 
         class UsuarioFake:
             def __init__(self, db): pass
@@ -259,6 +270,20 @@ def test_o_coordenador_nao_se_repete_em_membros(mundo):
     ficha = mundo(membros_projeto=(90, 91)).execute(35)
 
     assert ficha["coordenador"] == "Coordenador Tech"
+    assert ficha["membros"] == ["Mateus Loureiro"]
+
+
+def test_segundo_coordenador_nao_cai_em_membros(mundo):
+    """⭐ 2026-09-16, corrigido: projeto com DOIS coordenadores (2026-08-20) —
+    antes só quem era `banca.coordenador_id` saía de "membros"; o segundo,
+    tão coordenador quanto o primeiro, caía junto dos consultores."""
+    ficha = mundo(
+        membros_projeto=(90, 91, 93),
+        membros_coordenadores=(90, 93),
+    ).execute(35)
+
+    assert ficha["coordenador"] == "Coordenador Tech e Luiza Segunda Coordenadora"
+    assert set(ficha["coordenador_ids"]) == {90, 93}
     assert ficha["membros"] == ["Mateus Loureiro"]
 
 

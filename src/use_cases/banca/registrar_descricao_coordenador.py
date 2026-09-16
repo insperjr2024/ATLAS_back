@@ -12,7 +12,11 @@ from datetime import datetime
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.utils.equipe_banca import coordenadores_da_banca
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -24,6 +28,9 @@ class RegistrarDescricaoCoordenadorUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.repository = BancaRepository(db)
+        self.banca_escopo_repository = BancaEscopoRepository(db)
+        self.escopo_repository = ProjetoEscopoRepository(db)
+        self.membro_repository = ProjetoMembroRepository(db)
 
     def execute(self, banca_id: int, request: RegistrarDescricaoCoordenadorRequest, usuario_id: int):
         banca = self.repository.get_by_id(banca_id)
@@ -34,7 +41,14 @@ class RegistrarDescricaoCoordenadorUseCase:
             raise RegraDeNegocioError(
                 "A banca ainda não foi realizada — a descrição só pode ser registrada depois"
             )
-        if usuario_id != banca.coordenador_id:
+        # ⚠ 2026-09-16, corrigido: projeto pode ter mais de um coordenador —
+        # antes só quem era `banca.coordenador_id` (o primeiro) conseguia
+        # registrar o relato; um segundo coordenador de verdade tomava
+        # "só o coordenador do projeto pode..." do próprio projeto dele.
+        coordenadores_ids = coordenadores_da_banca(
+            banca, self.banca_escopo_repository, self.escopo_repository, self.membro_repository
+        )
+        if usuario_id not in coordenadores_ids:
             raise RegraDeNegocioError(
                 "Só o coordenador do projeto pode registrar esta descrição"
             )

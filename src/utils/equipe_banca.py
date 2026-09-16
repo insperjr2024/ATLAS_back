@@ -20,6 +20,44 @@ Função pura de composição: recebe repositórios já construídos e devolve i
 from typing import Iterable, Set
 
 
+def coordenadores_da_banca(
+    banca,
+    banca_escopo_repository,
+    escopo_repository,
+    membro_repository,
+) -> Set[int]:
+    """Todos os coordenadores do projeto desta banca — não só `banca.
+    coordenador_id`.
+
+    ⭐ 2026-09-16, corrigido: um projeto pode ter mais de um coordenador
+    (2026-08-20), mas `banca.coordenador_id` é uma coluna só, o PRIMEIRO.
+    Ficha da banca e relato do coordenador usavam só essa coluna — um
+    segundo coordenador de verdade caía em "membros" na ficha, e não
+    conseguia registrar o próprio relato depois da banca.
+
+    Banca legada (sem escopo vinculado, sem projeto para consultar) cai só
+    em `banca.coordenador_id` — é o único dado que ela tem.
+    """
+    ids = {banca.coordenador_id} if getattr(banca, "coordenador_id", None) else set()
+
+    escopo_ids = banca_escopo_repository.get_escopo_ids(banca.id)
+    if not escopo_ids:
+        return ids
+
+    escopo = next(
+        (e for e in (escopo_repository.get_by_id(i) for i in escopo_ids) if e), None
+    )
+    if not escopo:
+        return ids
+
+    ids |= {
+        m.usuario_id
+        for m in membro_repository.get_by_projeto(escopo.projeto_id, apenas_atuais=True)
+        if m.papel == "coordenador"
+    }
+    return ids
+
+
 def membros_da_banca(
     banca,
     banca_escopo_repository,
