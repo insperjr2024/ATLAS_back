@@ -108,6 +108,16 @@ class CreateCandidaturaUseCase:
             raise RegraDeNegocioError("Você não pode se candidatar à banca do seu próprio grupo")
 
         candidaturas_existentes = self.repository.get_by_banca(request.banca_id)
+
+        # ⚠ Nada impedia a MESMA pessoa virar candidata duas vezes da mesma
+        # banca (2026-09-16) — um duplo-clique em "Alocar-se", ou a gestão
+        # adicionando quem já estava lá, criava outra linha igual sem erro
+        # nenhum. Foi assim que uma consultora apareceu 4x na ficha do
+        # GELATTO. Vale pra gestão também: não existe motivo legítimo para
+        # duas candidaturas da mesma pessoa na mesma banca.
+        if any(c.usuario_id == usuario_id for c in candidaturas_existentes):
+            raise RegraDeNegocioError("Esta pessoa já é candidata desta banca.")
+
         # ⭐ O único teto é o TOTAL da banca, da COMBINAÇÃO de frentes dela
         # (2026-09-02): a de Direito sozinha e a de Business + Tech + Processos
         # cabiam o mesmo tanto de gente. Quem não configurou cai no global.
