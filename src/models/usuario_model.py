@@ -46,20 +46,24 @@ class UsuarioModel(Base):
         server_default="ativo",
     )
     ativo = Column(Boolean, default=True, nullable=False)
-    #: Coordenador de vendas (comercial): posição `coordenador` e o mesmo
-    #: acesso dos demais, mas não conduz a execução de projeto. Serve só para
-    #: TIRÁ-LO da contagem de capacidade de coordenadores no Monitoramento,
-    #: onde ele aparecia como "0 projetos, disponível" e inflava a folga do
-    #: núcleo com uma vaga que ninguém vai ocupar. Sem efeito em quem não é
-    #: coordenador.
-    coordenador_vendas = Column(
-        Boolean, nullable=False, default=False, server_default="0"
-    )
-    #: BDR: consultor que também prospecta e fecha projeto. Não muda acesso
-    #: nem posição, só habilita a pessoa a aparecer na lista "quem vendeu o
-    #: projeto" do cadastro, ao lado dos coordenadores de vendas. Nasce
-    #: `False` para todo mundo.
-    bdr = Column(Boolean, nullable=False, default=False, server_default="0")
+    #: ⭐ 2026-09-16, a pedido — substitui os booleanos soltos `coordenador_
+    #: vendas` e `bdr`. "Coordenador de vendas" virou posição de verdade
+    #: (cargo "vendas", com `pode_coordenar_vendas`/`pode_responsavel_por_
+    #: vendas` ligadas) — não precisa mais de campo nenhum aqui, é só a
+    #: `posicao` normal da pessoa.
+    #:
+    #: O que sobra é o BDR: a ÚNICA situação da plataforma em que a pessoa
+    #: tem DUAS posições ao mesmo tempo — a principal (`posicao`, sempre
+    #: "consultor" na prática) e esta, opcional. As permissões efetivas são a
+    #: UNIÃO das duas linhas de `PosicaoPermissaoModel` (ver
+    #: `usuario_tem_permissao`). Vazio pra quase todo mundo.
+    #:
+    #: ⚠ Validado no use case, não em CHECK: hoje só aceita "bdr", e só
+    #: quando `posicao == "consultor"` — a regra de negócio é estreita de
+    #: propósito ("o único cargo que dá pra ter mais de um é consultor e
+    #: bdr"), não um sistema de multi-cargo genérico. Generalizar isso é
+    #: decisão futura, não abrir a porta agora pra qualquer combinação.
+    cargo_extra = Column(String(50), ForeignKey("posicao_permissao.posicao"), nullable=True)
     # 1º a 8º semestre da graduação — nullable porque diretoria/gerência não
     # necessariamente são alunos de graduação em curso.
     semestre_graduacao = Column(Integer, nullable=True)

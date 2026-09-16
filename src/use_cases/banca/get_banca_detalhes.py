@@ -33,6 +33,7 @@ from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.frente_repository import FrenteRepository
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
@@ -42,8 +43,8 @@ from src.utils.banca_nota import calcular_nota_final
 from src.utils.banca_status import calcular_status_banca
 from src.utils.composicao_banca import (
     ComposicaoBancaChecker,
-    LIDERANCA_SEM_FRENTE_POSICOES,
     eh_lideranca,
+    eh_lideranca_sem_frente,
 )
 from src.utils.equipe_banca import membros_da_banca
 
@@ -68,6 +69,8 @@ class GetBancaDetalhesUseCase:
         self.avaliacao_repository = AvaliacaoRepository(db)
         self.nota_repository = AvaliacaoNotaRepository(db)
         self.pergunta_repository = PerguntaRepository(db)
+        self.posicao_permissao_repository = PosicaoPermissaoRepository(db)
+        self._cache_posicoes_vendas = None
 
     def execute(self, banca_id: int):
         banca = self.repository.get_by_id(banca_id)
@@ -164,6 +167,7 @@ class GetBancaDetalhesUseCase:
         tentativa.
         """
         numero = sessao_corrente(self.db, banca_id)
+        posicoes_coordenam_vendas = self._posicoes_coordenam_vendas()
 
         # Rascunho entra aqui de propósito, ao contrário de `_avaliacoes`: a
         # tela precisa reaproveitar o rascunho da própria pessoa em vez de
@@ -200,21 +204,26 @@ class GetBancaDetalhesUseCase:
                     # Coordenador de vendas puro — só para o "· vendas" no
                     # nome. Quem decide o BLOCO ("outras frentes") é o campo
                     # de baixo, mais largo.
+                    #
+                    # ⭐ 2026-09-16: era o booleano solto `usuario.
+                    # coordenador_vendas`; agora é a permissão `pode_
+                    # coordenar_vendas` do cargo (posição base ou `cargo_
+                    # extra`) — ver `posicoes_coordenam_vendas` acima.
                     "coordenador_vendas": bool(
-                        usuario and getattr(usuario, "coordenador_vendas", False)
-                    ),
-                    # ⭐ Liderança SEM frente (2026-09-04): coordenador de
-                    # vendas OU diretoria (qualquer uma — projetos, pessoas,
-                    # geral). Nenhum dos dois fecha o piso de liderança de
-                    # frente nenhuma (ver `composicao_banca`); a ficha os joga
-                    # no bloco "outras frentes" mesmo vinculados a uma frente
-                    # da banca.
-                    "lideranca_sem_frente": bool(
                         usuario
                         and (
-                            getattr(usuario, "coordenador_vendas", False)
-                            or posicao in LIDERANCA_SEM_FRENTE_POSICOES
+                            posicao in posicoes_coordenam_vendas
+                            or getattr(usuario, "cargo_extra", None) in posicoes_coordenam_vendas
                         )
+                    ),
+                    # ⭐ Liderança SEM frente (2026-09-04): coordena vendas OU
+                    # diretoria (qualquer uma — projetos, pessoas, geral).
+                    # Nenhum dos dois fecha o piso de liderança de frente
+                    # nenhuma (ver `composicao_banca`); a ficha os joga no
+                    # bloco "outras frentes" mesmo vinculados a uma frente da
+                    # banca.
+                    "lideranca_sem_frente": bool(
+                        usuario and eh_lideranca_sem_frente(usuario, posicoes_coordenam_vendas)
                     ),
                     "frente_ids": self._frentes_do_usuario(c.usuario_id),
                     "avaliacao_id": minha.id if minha else None,
@@ -331,6 +340,14 @@ class GetBancaDetalhesUseCase:
             cache = {u.id: u for u in self.usuario_repository.get_all()}
             self._cache_usuarios = cache
         return cache
+
+    def _posicoes_coordenam_vendas(self) -> set:
+        """Uma vez por ficha, mesmo motivo do cache de `_usuarios_por_id`."""
+        if self._cache_posicoes_vendas is None:
+            self._cache_posicoes_vendas = self.posicao_permissao_repository.get_posicoes_com_permissao(
+                "pode_coordenar_vendas"
+            )
+        return self._cache_posicoes_vendas
 
     def _frentes_por_usuario(self) -> dict:
         """usuario_id → [frente_id, ...], a tabela de vínculos inteira numa

@@ -66,6 +66,7 @@ from typing import Dict, List, Set
 from sqlalchemy.orm import Session
 
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.middlewares.authorization import DIRETORIA
@@ -75,9 +76,10 @@ from src.middlewares.authorization import DIRETORIA
 #: vendas — ver `LIDERANCA_SEM_FRENTE_POSICOES`.
 LIDERANCA_DA_FRENTE_POSICOES = ("gerente", "coordenador")
 LIDERANCA_POSICOES = (*LIDERANCA_DA_FRENTE_POSICOES, *DIRETORIA)
-#: Quem é liderança mas não cobre o piso de frente nenhuma — só o coordenador
-#: de vendas é identificado pela FLAG (`coordenador_vendas`, cruza com
-#: qualquer posição); a diretoria é identificada pela POSIÇÃO.
+#: Quem é liderança mas não cobre o piso de frente nenhuma — a diretoria é
+#: identificada pela POSIÇÃO; quem coordena vendas (2026-09-16, cargo
+#: "vendas" ou `cargo_extra`) é identificado pela PERMISSÃO
+#: `pode_coordenar_vendas`, ver `eh_lideranca_sem_frente`.
 LIDERANCA_SEM_FRENTE_POSICOES = DIRETORIA
 
 
@@ -93,8 +95,8 @@ def eh_lideranca(posicao: str) -> bool:
     return posicao in LIDERANCA_POSICOES
 
 
-def eh_lideranca_sem_frente(usuario) -> bool:
-    """Coordenador de vendas e TODA a diretoria: podem ir à banca e contam no
+def eh_lideranca_sem_frente(usuario, posicoes_coordenam_vendas: Set[str]) -> bool:
+    """Quem coordena vendas e TODA a diretoria: podem ir à banca e contam no
     TOTAL, mas NÃO cobrem o `min_lideranca` nem entram no `min_membros` de
     frente nenhuma — somem da contagem por frente inteira, como a equipe do
     projeto. Ver o docstring do módulo (LIDERANCA_SEM_FRENTE).
@@ -105,12 +107,23 @@ def eh_lideranca_sem_frente(usuario) -> bool:
     Business ainda faltando — o push escalava coordenador de vendas para a
     cota de liderança, e a ficha (que já usava esta regra) não os contava.
 
-    `getattr` porque alguns fakes de teste não trazem `coordenador_vendas`.
+    ⭐ 2026-09-16: `coordenador_vendas` era um booleano solto na pessoa;
+    virou a permissão `pode_coordenar_vendas`, por CARGO. `posicoes_
+    coordenam_vendas` é o conjunto de slugs de `posicao` com essa caixa
+    ligada (ver `PosicaoPermissaoRepository.get_posicoes_com_permissao`) —
+    passado de fora pra não virar uma query por pessoa dentro do laço do
+    push. Cobre tanto a posição principal quanto o `cargo_extra` (BDR nunca
+    entra aqui — só tem `pode_responsavel_por_vendas` — mas a checagem é
+    genérica pro dia em que outro cargo extra precisar).
     """
     if usuario is None:
         return False
-    return bool(getattr(usuario, "coordenador_vendas", False)) or (
-        getattr(usuario, "posicao", None) in LIDERANCA_SEM_FRENTE_POSICOES
+    posicao = getattr(usuario, "posicao", None)
+    cargo_extra = getattr(usuario, "cargo_extra", None)
+    return (
+        posicao in LIDERANCA_SEM_FRENTE_POSICOES
+        or posicao in posicoes_coordenam_vendas
+        or cargo_extra in posicoes_coordenam_vendas
     )
 
 
@@ -164,6 +177,7 @@ class ComposicaoBancaChecker:
         self.usuario_frente_repository = UsuarioFrenteRepository(db)
         self.usuario_repository = UsuarioRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
+        self.posicao_permissao_repository = PosicaoPermissaoRepository(db)
 
     @classmethod
     def com_dados(
@@ -172,6 +186,7 @@ class ComposicaoBancaChecker:
         usuarios_por_id: Dict[int, object],
         membros_por_frente: Dict[int, Set[int]],
         equipe_do_projeto: Dict[int, Set[int]],
+        posicoes_coordenam_vendas: Set[str],
     ) -> "ComposicaoBancaChecker":
         """Um checker que já vem com tudo lido — não consulta banco nenhum.
 
@@ -190,6 +205,7 @@ class ComposicaoBancaChecker:
         checker._cache_usuarios = usuarios_por_id
         checker._cache_frentes = dict(membros_por_frente)
         checker._cache_excluidos = dict(equipe_do_projeto)
+        checker._cache_posicoes_vendas = set(posicoes_coordenam_vendas)
         return checker
 
     def contar(self, banca, regras, candidato_ids: Set[int]) -> List[ContagemFrente]:
@@ -208,10 +224,11 @@ class ComposicaoBancaChecker:
         # frente inteira, como a equipe do projeto, e só conta no TOTAL.
         # `eh_lideranca_sem_frente` é a fonte única (o push pergunta por lá
         # também — ver o docstring dele).
+        posicoes_coordenam_vendas = self._posicoes_coordenam_vendas()
         lideranca_sem_frente = {
             uid
             for uid in elegiveis
-            if eh_lideranca_sem_frente(usuarios_por_id.get(uid))
+            if eh_lideranca_sem_frente(usuarios_por_id.get(uid), posicoes_coordenam_vendas)
         }
 
         contagens: List[ContagemFrente] = []
@@ -299,6 +316,16 @@ class ComposicaoBancaChecker:
         if cache is None:
             cache = {u.id: u for u in self.usuario_repository.get_all()}
             self._cache_usuarios = cache
+        return cache
+
+    def _posicoes_coordenam_vendas(self) -> Set[str]:
+        """Uma vez por checker — mesmo motivo do cache de usuários."""
+        cache = getattr(self, "_cache_posicoes_vendas", None)
+        if cache is None:
+            cache = self.posicao_permissao_repository.get_posicoes_com_permissao(
+                "pode_coordenar_vendas"
+            )
+            self._cache_posicoes_vendas = cache
         return cache
 
     def _da_frente(self, frente_id: int) -> Set[int]:

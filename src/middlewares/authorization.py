@@ -71,8 +71,20 @@ def eh_diretoria_de_projetos(current_user) -> bool:
 # -------------------------------------------------- permissão (as 14 caixas, por posição)
 
 def usuario_tem_permissao(current_user, db: Session, campo: str) -> bool:
-    registro = PosicaoPermissaoRepository(db).get_by_posicao(current_user.posicao)
-    return bool(registro and getattr(registro, campo, False))
+    """A posição base OU o `cargo_extra` (2026-09-16) — o único cargo extra
+    hoje é BDR, e a permissão dele soma às da posição principal, não
+    substitui: ver `usuario_model.py`.
+    """
+    repository = PosicaoPermissaoRepository(db)
+    registro = repository.get_by_posicao(current_user.posicao)
+    if registro and getattr(registro, campo, False):
+        return True
+    cargo_extra = getattr(current_user, "cargo_extra", None)
+    if cargo_extra:
+        registro_extra = repository.get_by_posicao(cargo_extra)
+        if registro_extra and getattr(registro_extra, campo, False):
+            return True
+    return False
 
 
 def _exigir_permissao(current_user, db: Session, campo: str, mensagem: str):

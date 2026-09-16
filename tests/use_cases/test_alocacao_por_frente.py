@@ -140,14 +140,18 @@ class TestPopulacaoDoGerente:
 
 
 class TestCoordenadorDeVendas:
-    """O coordenador comercial não entra na tabela de capacidade: tem a
-    posição, mas não conduz execução, e listá-lo daria ao núcleo uma vaga de
-    coordenação que ninguém vai ocupar."""
+    """O coordenador comercial não entra na tabela de capacidade: tem
+    liderança, mas não conduz execução, e listá-lo daria ao núcleo uma vaga de
+    coordenação que ninguém vai ocupar.
+
+    2026-09-16: "coordenador de vendas" é cargo próprio (`posicao="vendas"`),
+    não mais `coordenador` com um booleano solto — por isso já não bate no
+    filtro `u.posicao in ("coordenador", "gerente")` de
+    `monitoramento.py`."""
 
     def _uc_com_vendas(self, uc):
         vendas = SimpleNamespace(
-            id=8, nome="Coord Vendas", posicao="coordenador", status="ativo",
-            coordenador_vendas=True,
+            id=8, nome="Coord Vendas", posicao="vendas", status="ativo",
         )
         uc.usuario_repository = FakeRepo([*USUARIOS, vendas])
         uc.usuario_frente_repository = FakeRepo(

@@ -21,10 +21,8 @@ from types import SimpleNamespace
 from src.utils.composicao_banca import ComposicaoBancaChecker
 
 
-def usuario(id, posicao="consultor", coordenador_vendas=False):
-    return SimpleNamespace(
-        id=id, posicao=posicao, coordenador_vendas=coordenador_vendas
-    )
+def usuario(id, posicao="consultor", cargo_extra=None):
+    return SimpleNamespace(id=id, posicao=posicao, cargo_extra=cargo_extra)
 
 
 def regra(frente_id, nome, min_membros=1, min_lideranca=1):
@@ -60,11 +58,20 @@ class FakeEquipeProjetoRepo:
         return [SimpleNamespace(usuario_id=uid) for uid in self._ids]
 
 
-def montar(por_frente, usuarios, equipe_projeto_ids=(), coordenador_id=None):
+class FakePosicaoPermissaoRepo:
+    def __init__(self, posicoes_vendas=("vendas",)):
+        self._posicoes_vendas = set(posicoes_vendas)
+
+    def get_posicoes_com_permissao(self, campo):
+        return set(self._posicoes_vendas)
+
+
+def montar(por_frente, usuarios, equipe_projeto_ids=(), coordenador_id=None, posicoes_coordenam_vendas=("vendas",)):
     checker = ComposicaoBancaChecker.__new__(ComposicaoBancaChecker)
     checker.usuario_frente_repository = FakeUsuarioFrenteRepo(por_frente)
     checker.usuario_repository = FakeUsuarioRepo(usuarios)
     checker.equipe_projeto_repository = FakeEquipeProjetoRepo(equipe_projeto_ids)
+    checker.posicao_permissao_repository = FakePosicaoPermissaoRepo(posicoes_coordenam_vendas)
     banca = SimpleNamespace(id=1, coordenador_id=coordenador_id)
     return checker, banca
 
@@ -197,15 +204,15 @@ class TestOCoordenador:
 
 
 class TestOCoordenadorDeVendas:
-    """2026-09-03: coordenador de vendas é liderança SEM frente — pode ir à
+    """2026-09-16: "coordenador de vendas" é cargo de verdade (`posicao`
+    "vendas", com `pode_coordenar_vendas` ligada), não mais o booleano solto
+    `usuario.coordenador_vendas`. Continua liderança SEM frente — pode ir à
     banca, mas não fecha o `min_lideranca` de frente nenhuma nem entra no
     `min_membros`. Some da contagem por frente como a equipe do projeto."""
 
     def test_nao_cobre_a_lideranca_da_frente_a_que_esta_vinculado(self):
         por_frente = {BUSINESS: [10, 11, 12, 13]}
-        usuarios = [usuario(10, "coordenador", coordenador_vendas=True)] + [
-            usuario(i) for i in (11, 12, 13)
-        ]
+        usuarios = [usuario(10, "vendas")] + [usuario(i) for i in (11, 12, 13)]
         checker, banca = montar(por_frente, usuarios)
 
         (business,) = checker.contar(
@@ -219,9 +226,7 @@ class TestOCoordenadorDeVendas:
 
     def test_a_frente_com_so_o_coordenador_de_vendas_acusa_lideranca_faltando(self):
         por_frente = {BUSINESS: [10, 11, 12]}
-        usuarios = [usuario(10, "coordenador", coordenador_vendas=True)] + [
-            usuario(i) for i in (11, 12)
-        ]
+        usuarios = [usuario(10, "vendas")] + [usuario(i) for i in (11, 12)]
         checker, banca = montar(por_frente, usuarios)
 
         status = checker.verificar(
@@ -235,8 +240,8 @@ class TestOCoordenadorDeVendas:
         assert status.deficits[0].piso_faltando == 0
 
     def test_coordenador_normal_ainda_cobre__so_o_de_vendas_e_que_nao(self):
-        """A distinção é o `coordenador_vendas`, não a posição: coordenador
-        comum de Business segue cobrindo a liderança dela."""
+        """A distinção é a PERMISSÃO do cargo, não o nome "coordenador":
+        coordenador comum de Business segue cobrindo a liderança dela."""
         por_frente = {BUSINESS: [10, 11, 12, 13]}
         usuarios = [usuario(10, "coordenador")] + [usuario(i) for i in (11, 12, 13)]
         checker, banca = montar(por_frente, usuarios)
@@ -248,6 +253,24 @@ class TestOCoordenadorDeVendas:
         )
 
         assert (business.membros, business.liderancas) == (3, 1)
+
+    def test_bdr_como_cargo_extra_tambem_e_lideranca_sem_frente(self):
+        """`cargo_extra` conta igual à posição principal — o dia em que outro
+        cargo extra além de BDR ganhar `pode_coordenar_vendas`, isto já
+        funciona sem mudança nenhuma aqui."""
+        por_frente = {BUSINESS: [10, 11, 12, 13]}
+        usuarios = [usuario(10, "consultor", cargo_extra="vendas")] + [
+            usuario(i) for i in (11, 12, 13)
+        ]
+        checker, banca = montar(por_frente, usuarios)
+
+        (business,) = checker.contar(
+            banca,
+            [regra(BUSINESS, "Business", min_membros=3, min_lideranca=1)],
+            {10, 11, 12, 13},
+        )
+
+        assert (business.membros, business.liderancas) == (3, 0)
 
 
 class TestAEquipeSaiAntesDeContar:

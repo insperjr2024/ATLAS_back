@@ -41,6 +41,7 @@ from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.grade_horaria_repository import GradeHorariaRepository
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
@@ -75,6 +76,7 @@ class PushAlocacaoAutomaticaUseCase:
         self.grade_horaria_repository = GradeHorariaRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.usuario_repository = UsuarioRepository(db)
+        self.posicao_permissao_repository = PosicaoPermissaoRepository(db)
 
     def execute(self) -> List[dict]:
         agora = datetime.now()
@@ -168,7 +170,17 @@ class PushAlocacaoAutomaticaUseCase:
         # `ComposicaoBancaChecker.contar` (a ficha e a trava de inscrição) já
         # usava esta regra; o push não — foi por isso que a banca do ATLAS I
         # fechou "lotada" com a liderança de Business ainda faltando.
-        sem_frente = {u.id for u in ativos if eh_lideranca_sem_frente(u)}
+        #
+        # ⭐ 2026-09-16: "coordenador de vendas" virou permissão por cargo
+        # (`pode_coordenar_vendas`), não mais o booleano solto `usuario.
+        # coordenador_vendas` — `posicoes_coordenam_vendas` é o conjunto de
+        # slugs de `posicao` com essa caixa ligada.
+        posicoes_coordenam_vendas = self.posicao_permissao_repository.get_posicoes_com_permissao(
+            "pode_coordenar_vendas"
+        )
+        sem_frente = {
+            u.id for u in ativos if eh_lideranca_sem_frente(u, posicoes_coordenam_vendas)
+        }
         membros_por_frente = {
             f.id: {v.usuario_id for v in self.usuario_frente_repository.get_by_frente(f.id)}
             for f in frentes

@@ -1,7 +1,8 @@
 """Fila de quem avalia quem dentro do escopo de um lote (regra 2.3):
-coordenador avalia os consultores do projeto; consultor avalia o coordenador
-e os outros consultores. Pares repetidos em 2+ projetos do mesmo lote
-colapsam numa entrada só (regra 2.7 precisa ver todos os projetos)."""
+coordenador avalia os consultores do projeto (e outro coordenador, se houver
+mais de um); consultor avalia o(s) coordenador(es) e os outros consultores.
+Pares repetidos em 2+ projetos do mesmo lote colapsam numa entrada só (regra
+2.7 precisa ver todos os projetos)."""
 
 from types import SimpleNamespace
 
@@ -35,10 +36,16 @@ class TestCalcularParesLote:
         avaliados = {p.avaliado_id: p.form_type for p in de_consultor_20}
         assert avaliados == {10: "coordenador", 30: "consultor"}
 
-    def test_coordenador_nao_avalia_outro_coordenador(self):
+    def test_dois_coordenadores_simultaneos_se_avaliam_mutuamente(self):
+        """2026-09-16, a pedido: projeto grande pode ter 2 coordenadores
+        (`validacao_equipe.py`), e agora os dois entram na fila um do
+        outro — deixou de ser tratado como "o mesmo papel"."""
         time = [membro(1, 10, "coordenador"), membro(1, 11, "coordenador")]
         pares = calcular_pares_lote(time)
-        assert pares == []
+        assert {(p.avaliador_id, p.avaliado_id, p.form_type) for p in pares} == {
+            (10, 11, "coordenador"),
+            (11, 10, "coordenador"),
+        }
 
     def test_ninguem_avalia_a_si_mesmo(self):
         time = [membro(1, 10, "coordenador"), membro(1, 20, "consultor")]

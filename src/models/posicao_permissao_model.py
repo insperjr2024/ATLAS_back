@@ -119,3 +119,18 @@ class PosicaoPermissaoModel(Base):
 
     # A única que muda QUAIS projetos aparecem (ver docstring da classe).
     pode_ver_todos_projetos = Column(Boolean, default=False, nullable=False)
+
+    #: ⭐ 2026-09-16, a pedido — substitui `usuario.coordenador_vendas` e
+    #: `usuario.bdr`, que eram dois booleanos soltos, hardcoded a "posição é
+    #: literalmente coordenador" e "literalmente consultor", sem nenhuma
+    #: ligação com o resto do sistema de permissões: criar um cargo novo não
+    #: tinha como herdar esse comportamento nem exibir que o tinha.
+    #:
+    #: Quem TEM esta caixa (na posição base ou no `cargo_extra`, ver
+    #: `usuario_model.py`) aparece na lista "quem vendeu o projeto".
+    pode_responsavel_por_vendas = Column(Boolean, default=False, nullable=False)
+    #: Continua contando como liderança (vai à banca, soma no total), mas
+    #: NÃO cobre `min_lideranca`/`min_membros` da FRENTE em que está
+    #: cadastrado — o antigo `eh_lideranca_sem_frente(usuario.coordenador_
+    #: vendas)`, agora por permissão em vez de nome de posição fixo.
+    pode_coordenar_vendas = Column(Boolean, default=False, nullable=False)

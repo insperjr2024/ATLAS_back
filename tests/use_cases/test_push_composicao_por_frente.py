@@ -15,14 +15,14 @@ from src.use_cases.configuracao import composicao_banca as composicao_mod
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 
 
-def usuario_vendas(id, posicao="coordenador"):
-    """Coordenador (ou qualquer posição) marcado como coordenador de vendas —
-    liderança SEM frente: vai à banca, mas não fecha piso de frente nenhuma."""
-    return SimpleNamespace(id=id, posicao=posicao, coordenador_vendas=True)
+def usuario_vendas(id):
+    """Cargo "vendas" (`pode_coordenar_vendas` ligada, ver `FakePosicaoPermissaoRepo`)
+    — liderança SEM frente: vai à banca, mas não fecha piso de frente nenhuma."""
+    return SimpleNamespace(id=id, posicao="vendas", cargo_extra=None)
 
 
 def usuario(id, posicao="consultor"):
-    return SimpleNamespace(id=id, posicao=posicao)
+    return SimpleNamespace(id=id, posicao=posicao, cargo_extra=None)
 
 
 class FakeBancaFrenteRepo:
@@ -128,6 +128,14 @@ class FakeGradeHorariaRepo:
         return []
 
 
+class FakePosicaoPermissaoRepo:
+    def __init__(self, posicoes_vendas=("vendas",)):
+        self._posicoes_vendas = set(posicoes_vendas)
+
+    def get_posicoes_com_permissao(self, campo):
+        return set(self._posicoes_vendas)
+
+
 def frente(id, nome, piso_banca):
     return SimpleNamespace(id=id, nome=nome, piso_banca=piso_banca)
 
@@ -181,6 +189,7 @@ def montar(
     uc.usuario_repository = FakeUsuarioRepo(usuarios)
     uc.semestre_repository = FakeSemestreRepo()
     uc.grade_horaria_repository = FakeGradeHorariaRepo()
+    uc.posicao_permissao_repository = FakePosicaoPermissaoRepo()
     banca = SimpleNamespace(
         id=1,
         nome_projeto="Projeto X",

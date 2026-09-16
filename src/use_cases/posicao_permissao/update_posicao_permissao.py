@@ -31,6 +31,8 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_aprovar_pedidos: Optional[bool] = None
     pode_administrar_permissoes: Optional[bool] = None
     pode_gerir_calendarios_base: Optional[bool] = None
+    pode_responsavel_por_vendas: Optional[bool] = None
+    pode_coordenar_vendas: Optional[bool] = None
 
 
 class UpdatePosicaoPermissaoUseCase:

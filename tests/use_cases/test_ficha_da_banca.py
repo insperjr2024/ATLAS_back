@@ -151,6 +151,10 @@ def mundo(monkeypatch):
             def __init__(self, db): pass
             def get_all(self): return []
 
+        class PosicaoPermissaoFake:
+            def __init__(self, db): pass
+            def get_posicoes_com_permissao(self, campo): return set()
+
         for nome, dublê in (
             ("BancaRepository", BancaFake),
             ("BancaEscopoRepository", BancaEscopoFake),
@@ -167,6 +171,7 @@ def mundo(monkeypatch):
             ("AvaliacaoRepository", AvaliacaoFake),
             ("AvaliacaoNotaRepository", NotaFake),
             ("PerguntaRepository", PerguntaFake),
+            ("PosicaoPermissaoRepository", PosicaoPermissaoFake),
         ):
             monkeypatch.setattr(get_banca_detalhes, nome, dublê)
 

@@ -13,9 +13,17 @@ class ParDesempenho(NamedTuple):
 def calcular_pares_lote(membros: List[ProjetoMembroModel]) -> List[ParDesempenho]:
     """`membros` = `projeto_membro` ativos (saiu_em IS NULL) dos projetos
     cobertos por um lote. Regra 2.3: dentro do mesmo projeto, todo mundo
-    avalia todo mundo, exceto a si mesmo e exceto coordenador avaliando
-    coordenador. `form_type` é o papel de quem está sendo avaliado, porque é
-    isso que decide qual formulário (consultor/coordenador) abrir."""
+    avalia todo mundo, exceto a si mesmo. `form_type` é o papel de quem está
+    sendo avaliado, porque é isso que decide qual formulário
+    (consultor/coordenador) abrir.
+
+    ⭐ 2026-09-16, a pedido: coordenador AVALIA outro coordenador quando o
+    projeto tem mais de um simultâneo (`validacao_equipe.py` permite dois
+    coordenadores num projeto grande desde 2026-08-20). Antes o par
+    coordenador↔coordenador era descartado incondicionalmente — tratava dois
+    coordenadores como "o mesmo papel" e nenhum dos dois entrava na fila do
+    outro. A única exclusão que sobra é autoavaliação (`avaliado.usuario_id
+    == avaliador.usuario_id`)."""
     por_projeto: Dict[int, List[ProjetoMembroModel]] = {}
     for membro in membros:
         por_projeto.setdefault(membro.projeto_id, []).append(membro)
@@ -25,8 +33,6 @@ def calcular_pares_lote(membros: List[ProjetoMembroModel]) -> List[ParDesempenho
         for avaliador in time:
             for avaliado in time:
                 if avaliado.usuario_id == avaliador.usuario_id:
-                    continue
-                if avaliador.papel == "coordenador" and avaliado.papel == "coordenador":
                     continue
                 pares.append(
                     ParDesempenho(

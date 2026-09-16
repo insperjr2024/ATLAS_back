@@ -20,8 +20,7 @@ class UsuarioFake:
         self.ativo = status == "ativo"
         self.email_insper = f"{nome.split()[0].lower()}@al.insper.edu.br"
         self.cargo_id = 4
-        self.coordenador_vendas = False
-        self.bdr = False
+        self.cargo_extra = None
         self.semestre_graduacao = None
         # Diretor em exercício já fez o primeiro acesso — `serializar_usuario`
         # devolve este campo desde que a senha provisória passou a existir.
@@ -60,6 +59,9 @@ class PosicaoRepositoryFake:
 
     def get_by_posicao(self, posicao):
         return object()
+
+    def get_posicoes_com_permissao(self, campo):
+        return set()
 
 
 class DbFake:
@@ -240,26 +242,47 @@ class TestTravaDoUltimoDiretor:
 
 
 class TestMarcaBdr:
-    """BDR: consultor que também vende. A marca não muda acesso, só grava o
-    booleano — quem filtra a lista de vendedores é o front."""
+    """BDR: consultor que também vende. 2026-09-16: virou `cargo_extra`
+    ("bdr"), não mais o booleano solto — a ÚNICA situação em que a pessoa
+    acumula duas posições, e só em cima de "consultor" (ver
+    `usuario_model.py`)."""
 
     def test_grava_a_marca_no_consultor(self):
         edu = UsuarioFake(1, "Edu Prado", "consultor")
         uc = montar_update(edu)
-        resultado = uc.execute(1, UpdateUsuarioRequest(bdr=True))
-        assert edu.bdr is True
-        assert resultado["bdr"] is True
+        resultado = uc.execute(1, UpdateUsuarioRequest(cargo_extra="bdr"))
+        assert edu.cargo_extra == "bdr"
+        assert resultado["cargo_extra"] == "bdr"
 
-    def test_desmarca_quando_vem_false(self):
+    def test_desmarca_quando_vem_none(self):
         edu = UsuarioFake(1, "Edu Prado", "consultor")
-        edu.bdr = True
+        edu.cargo_extra = "bdr"
         uc = montar_update(edu)
-        uc.execute(1, UpdateUsuarioRequest(bdr=False))
-        assert edu.bdr is False
+        uc.execute(1, UpdateUsuarioRequest(cargo_extra=None))
+        assert edu.cargo_extra is None
 
     def test_nao_mexe_na_marca_quando_o_campo_nao_vem(self):
         edu = UsuarioFake(1, "Edu Prado", "consultor")
-        edu.bdr = True
+        edu.cargo_extra = "bdr"
         uc = montar_update(edu)
         uc.execute(1, UpdateUsuarioRequest(nome="Eduardo Prado"))
-        assert edu.bdr is True
+        assert edu.cargo_extra == "bdr"
+
+    def test_recusa_cargo_extra_diferente_de_bdr(self):
+        edu = UsuarioFake(1, "Edu Prado", "consultor")
+        uc = montar_update(edu)
+        with pytest.raises(RegraDeNegocioError, match="bdr"):
+            uc.execute(1, UpdateUsuarioRequest(cargo_extra="vendas"))
+
+    def test_recusa_bdr_em_quem_nao_e_consultor(self):
+        ana = UsuarioFake(1, "Ana Souza", "coordenador")
+        uc = montar_update(ana)
+        with pytest.raises(RegraDeNegocioError, match="consultor"):
+            uc.execute(1, UpdateUsuarioRequest(cargo_extra="bdr"))
+
+    def test_virar_outra_posicao_limpa_o_cargo_extra(self):
+        edu = UsuarioFake(1, "Edu Prado", "consultor")
+        edu.cargo_extra = "bdr"
+        uc = montar_update(edu)
+        uc.execute(1, UpdateUsuarioRequest(posicao="gerente"))
+        assert edu.cargo_extra is None

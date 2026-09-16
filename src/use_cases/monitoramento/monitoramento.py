@@ -1404,16 +1404,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # 2026-08-31): os três cargos não pegam projeto, então listá-los só
         # inflava a capacidade com vagas que ninguém vai ocupar — eram eles
         # que sustentavam quase toda a linha "Sem frente" do card.
-        # O coordenador comercial (de vendas) fica de fora: tem a posição, mas
-        # não conduz execução de projeto. Contá-lo aqui o mostrava como
-        # "0 projetos, disponível" e dava ao núcleo uma vaga de coordenação que
-        # ninguém vai ocupar. O gerente não tem essa marca.
+        # O coordenador comercial (de vendas) fica de fora por já não ter
+        # `posicao` "coordenador" (2026-09-16: virou cargo próprio, "vendas")
+        # — tem liderança, mas não conduz execução de projeto. Contá-lo aqui o
+        # mostrava como "0 projetos, disponível" e dava ao núcleo uma vaga de
+        # coordenação que ninguém vai ocupar.
         coordenadores = [
             linha(u, "coordenador")
             for u in usuarios.values()
-            if entra(u, "coordenador")
-            and u.posicao in ("coordenador", "gerente")
-            and not getattr(u, "coordenador_vendas", False)
+            if entra(u, "coordenador") and u.posicao in ("coordenador", "gerente")
         ]
         consultores = [
             linha(u, "consultor")

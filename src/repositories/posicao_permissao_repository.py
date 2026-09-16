@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,6 +13,17 @@ class PosicaoPermissaoRepository:
 
     def get_by_posicao(self, posicao: str) -> Optional[PosicaoPermissaoModel]:
         return self.db.query(PosicaoPermissaoModel).filter(PosicaoPermissaoModel.posicao == posicao).first()
+
+    def get_posicoes_com_permissao(self, campo: str) -> Set[str]:
+        """Os slugs de `posicao` cuja linha tem `campo` ligado.
+
+        ⭐ Para quem precisa checar a permissão de MUITA gente de uma vez (o
+        push automático, `ComposicaoBancaChecker`) sem uma query por pessoa —
+        o catálogo de cargos é pequeno, cabe inteiro numa varredura só.
+        """
+        coluna = getattr(PosicaoPermissaoModel, campo)
+        linhas = self.db.query(PosicaoPermissaoModel.posicao).filter(coluna.is_(True)).all()
+        return {posicao for (posicao,) in linhas}
 
     def get_all(self) -> List[PosicaoPermissaoModel]:
         # Ordem fixa da hierarquia, não a de inserção — a tela sempre lista

@@ -31,6 +31,8 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_aprovar_pedidos": registro.pode_aprovar_pedidos,
         "pode_administrar_permissoes": registro.pode_administrar_permissoes,
         "pode_gerir_calendarios_base": registro.pode_gerir_calendarios_base,
+        "pode_responsavel_por_vendas": registro.pode_responsavel_por_vendas,
+        "pode_coordenar_vendas": registro.pode_coordenar_vendas,
     }
 
 

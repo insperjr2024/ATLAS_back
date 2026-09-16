@@ -22,13 +22,14 @@ class UpdateUsuarioRequest(BaseModel):
     posicao: Optional[str] = None
     status: Optional[StatusUsuario] = None
     ativo: Optional[bool] = None
-    #: Coordenador comercial. Não muda acesso nenhum, só tira a pessoa da
-    #: contagem de capacidade de coordenadores (`monitoramento.py`).
-    coordenador_vendas: Optional[bool] = None
-    #: Consultor que também prospecta. Não muda acesso, só habilita a pessoa
-    #: na lista "quem vendeu o projeto" do cadastro. A tela de Membros só
-    #: oferece a marca para consultor e já manda `False` fora disso.
-    bdr: Optional[bool] = None
+    #: ⭐ 2026-09-16 — substitui os booleanos soltos `coordenador_vendas` e
+    #: `bdr`. "Coordenador de vendas" virou cargo de verdade, escolhido em
+    #: `posicao` como qualquer outro; o que sobra aqui é só o BDR, a ÚNICA
+    #: situação em que a pessoa acumula duas posições — a principal
+    #: (`posicao`, sempre "consultor" na prática) e esta, opcional. Validado
+    #: em `execute`: só aceita "bdr", e só quando a posição efetiva é
+    #: "consultor" — ver `usuario_model.py`.
+    cargo_extra: Optional[str] = None
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 
@@ -96,6 +97,24 @@ class UpdateUsuarioUseCase:
             if ja_existe and ja_existe.id != usuario_id:
                 raise RegraDeNegocioError("Já existe uma conta com este email")
 
+        # ⚠ BDR é o único cargo extra hoje, e só faz sentido em cima de
+        # "consultor" — a regra é estreita de propósito (ver `usuario_model.py`),
+        # não abre porta pra qualquer combinação.
+        if data.get("cargo_extra"):
+            if data["cargo_extra"] != "bdr":
+                raise RegraDeNegocioError('O único cargo extra hoje é "bdr"')
+            posicao_efetiva = data.get("posicao", anterior.posicao)
+            if posicao_efetiva != "consultor":
+                raise RegraDeNegocioError("BDR só pode ser adicionado a quem é consultor")
+
+        # Virar outra posição limpa o cargo extra pendurado — BDR não
+        # sobrevive a deixar de ser consultor.
+        posicao_pedida = data.get("posicao")
+        if posicao_pedida and posicao_pedida != "consultor":
+            cargo_extra_atual = data.get("cargo_extra", anterior.cargo_extra)
+            if cargo_extra_atual:
+                data["cargo_extra"] = None
+
         # `ativo` é espelho de `status`: mexer num mantém o outro coerente, senão
         # o login (que lê `ativo`) e a tela de Membros (que lê `status`) divergem.
         if "status" in data:
@@ -125,7 +144,10 @@ class UpdateUsuarioUseCase:
             self.db.commit()
 
         alocados = self.membro_repository.contar_ativos_por_usuario()
-        return serializar_usuario(usuario, alocados.get(usuario.id, 0))
+        posicoes_vendas = self.posicao_repository.get_posicoes_com_permissao(
+            "pode_responsavel_por_vendas"
+        )
+        return serializar_usuario(usuario, alocados.get(usuario.id, 0), posicoes_vendas)
 
 
 class DeleteUsuarioUseCase:
