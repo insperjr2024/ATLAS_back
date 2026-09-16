@@ -12,6 +12,13 @@ from src.utils.exceptions import RegraDeNegocioError
 
 
 class PerguntaNovaVersao(BaseModel):
+    #: Presente quando esta linha é a MESMA pergunta de antes, só com algum
+    #: campo editado (2026-09-16, a pedido — "tem que editar sim, sem ficar
+    #: duplicado"): atualiza o registro existente em vez de criar outro, e
+    #: quem já respondeu sob este id — inclusive a "Médias por critério" de
+    #: bancas já realizadas — passa a ver o texto corrigido. Ausente (ou um
+    #: id que não existe mais) = pergunta nova, ganha id próprio.
+    id: Optional[int] = None
     texto: str
     ordem: int
     tipo_resposta: str = "nota"
@@ -74,14 +81,36 @@ class CreateNovaVersaoFormularioUseCase:
 
             perguntas_criadas = []
             for p in perguntas:
-                pergunta = PerguntaModel(
-                    formulario_id=novo_formulario.id,
-                    texto=p.texto.strip(),
-                    ordem=p.ordem,
-                    tipo_resposta=p.tipo_resposta,
-                    escopo_id=p.escopo_id,
+                # ⚠ Reaproveita o MESMO registro quando o front manda o id de
+                # uma pergunta que já existia (2026-09-16, a pedido): sem
+                # isto, toda edição — mesmo um simples texto corrigido —
+                # recriava a pergunta com id novo, e quem já tinha respondido
+                # sob o id antigo (as "Médias por critério" de uma banca já
+                # realizada) continuava vendo o texto de antes pra sempre.
+                # Mover pra este formulário (não criar outra) é o que faz uma
+                # correção de texto valer pro que já foi respondido também —
+                # `get_notas_por_pergunta` busca a pergunta pelo id, não pelo
+                # formulário dela.
+                pergunta = (
+                    self.db.query(PerguntaModel).filter(PerguntaModel.id == p.id).first()
+                    if p.id is not None
+                    else None
                 )
-                self.db.add(pergunta)
+                if pergunta:
+                    pergunta.formulario_id = novo_formulario.id
+                    pergunta.texto = p.texto.strip()
+                    pergunta.ordem = p.ordem
+                    pergunta.tipo_resposta = p.tipo_resposta
+                    pergunta.escopo_id = p.escopo_id
+                else:
+                    pergunta = PerguntaModel(
+                        formulario_id=novo_formulario.id,
+                        texto=p.texto.strip(),
+                        ordem=p.ordem,
+                        tipo_resposta=p.tipo_resposta,
+                        escopo_id=p.escopo_id,
+                    )
+                    self.db.add(pergunta)
                 perguntas_criadas.append(pergunta)
 
             self.db.flush()
