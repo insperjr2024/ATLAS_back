@@ -34,6 +34,10 @@ class RegistrarRequest(BaseModel):
     nome: str
     email_insper: str
     posicao: str = "consultor"
+    #: ⭐ 2026-09-16 — o cargo extra opcional. Só aceita "bdr", e só quando
+    #: `posicao` é "consultor" (ver a mesma regra em `update_usuario.py`) —
+    #: é a única situação em que a pessoa acumula duas posições.
+    cargo_extra: Optional[str] = None
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 
@@ -54,6 +58,12 @@ class RegistrarUseCase:
         if not self.posicao_repository.get_by_posicao(request.posicao):
             raise RegraDeNegocioError("Posição inválida")
 
+        if request.cargo_extra:
+            if request.cargo_extra != "bdr":
+                raise RegraDeNegocioError('O único cargo extra hoje é "bdr"')
+            if request.posicao != "consultor":
+                raise RegraDeNegocioError("BDR só pode ser adicionado a quem é consultor")
+
         # A senha real é sorteada logo abaixo, por `emitir_senha_provisoria`.
         # O placeholder existe porque `senha_hash` é NOT NULL e a emissão
         # precisa do usuário já criado (ela grava por id).
@@ -62,6 +72,7 @@ class RegistrarUseCase:
             email_insper=request.email_insper,
             senha_hash=hash_senha(secrets.token_urlsafe(32)),
             posicao=request.posicao,
+            cargo_extra=request.cargo_extra,
             status="ativo",
             ativo=True,
             semestre_graduacao=request.semestre_graduacao,

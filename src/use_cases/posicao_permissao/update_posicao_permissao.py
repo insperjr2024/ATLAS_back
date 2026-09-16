@@ -10,6 +10,10 @@ from src.utils.exceptions import CODIGO_ULTIMO_ADMINISTRADOR, RegraDeNegocioErro
 
 
 class UpdatePosicaoPermissaoRequest(BaseModel):
+    #: ⭐ 2026-09-16, a pedido — só cargo criado pela tela (`e_padrao=False`)
+    #: pode ser renomeado. O SLUG (`posicao`, a chave que `usuario.posicao` e
+    #: `usuario.cargo_extra` referenciam) nunca muda aqui, só o rótulo.
+    nome: Optional[str] = None
     pode_criar_projeto: Optional[bool] = None
     pode_editar_equipe: Optional[bool] = None
     pode_gerir_membros: Optional[bool] = None
@@ -76,6 +80,20 @@ class UpdatePosicaoPermissaoUseCase:
 
     def execute(self, posicao: str, request: UpdatePosicaoPermissaoRequest):
         data = request.model_dump(exclude_unset=True)
+
+        if "nome" in data:
+            registro_atual = self.repository.get_by_posicao(posicao)
+            if not registro_atual:
+                return None
+            if registro_atual.e_padrao:
+                raise RegraDeNegocioError(
+                    "Os 6 cargos padrão da plataforma não podem ser renomeados."
+                )
+            nome = data["nome"].strip()
+            if not nome:
+                raise RegraDeNegocioError("Informe um nome para o cargo")
+            data["nome"] = nome
+
         self._garantir_administrador_remanescente(posicao, data)
         registro = self.repository.update(posicao, **data)
         if not registro:
