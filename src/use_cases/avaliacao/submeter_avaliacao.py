@@ -56,7 +56,8 @@ class SubmeterAvaliacaoUseCase:
         # é ESTE o ato que fecha a avaliação. Alguém desescalado depois de
         # abrir o formulário não avalia a banca de que já não faz parte.
         candidaturas = self.candidatura_repository.get_by_banca(avaliacao.banca_id)
-        if not any(c.usuario_id == usuario_id for c in candidaturas):
+        candidatura = next((c for c in candidaturas if c.usuario_id == usuario_id), None)
+        if not candidatura:
             raise RegraDeNegocioError(
                 "Você não foi escalado para esta banca e não pode avaliá-la"
             )
@@ -80,7 +81,11 @@ class SubmeterAvaliacaoUseCase:
             raise RegraDeNegocioError(
                 "Esta banca ainda não foi registrada como realizada"
             )
-        if datetime.now() > banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS):
+        # Mesma referência de `create_avaliacao` (2026-09-15): quem foi
+        # ADICIONADO depois da realização (diretoria corrigindo a ficha) conta
+        # o prazo a partir de quando virou candidato, não da banca em si.
+        referencia = max(banca.realizado_em, candidatura.criado_em)
+        if datetime.now() > referencia + timedelta(days=PRAZO_AVALIACAO_DIAS):
             raise RegraDeNegocioError(
                 f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"
             )

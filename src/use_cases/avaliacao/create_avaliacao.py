@@ -41,7 +41,8 @@ class CreateAvaliacaoUseCase:
         # numa banca de outro time, e a pessoa avaliada não teria como saber
         # que aquela opinião não vinha de quem esteve lá.
         candidaturas = self.candidatura_repository.get_by_banca(request.banca_id)
-        if not any(c.usuario_id == avaliador_id for c in candidaturas):
+        candidatura = next((c for c in candidaturas if c.usuario_id == avaliador_id), None)
+        if not candidatura:
             raise RegraDeNegocioError(
                 "Você não foi escalado para esta banca e não pode avaliá-la"
             )
@@ -56,7 +57,15 @@ class CreateAvaliacaoUseCase:
             raise RegraDeNegocioError("Esta banca foi cancelada — não há o que avaliar")
 
         if banca and banca.realizado_em:
-            prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+            # ⚠ A referência é a mais tarde das duas (2026-09-15, a pedido):
+            # quem foi escalado no dia da banca conta a partir da realização,
+            # como sempre — mas quem a diretoria ADICIONOU depois (corrigindo
+            # a ficha de uma banca já realizada) só passou a existir como
+            # candidato naquele momento. Contar só `realizado_em` faria essa
+            # pessoa nascer já fora do prazo, sem nunca ter tido a chance de
+            # abrir o formulário.
+            referencia = max(banca.realizado_em, candidatura.criado_em)
+            prazo = referencia + timedelta(days=PRAZO_AVALIACAO_DIAS)
             if datetime.now() > prazo:
                 raise RegraDeNegocioError(
                     f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"
