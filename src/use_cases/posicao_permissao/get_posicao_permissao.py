@@ -8,6 +8,8 @@ def serializar_posicao_permissao(registro) -> dict:
     permissão nova nasce faltando em metade das telas."""
     return {
         "posicao": registro.posicao,
+        "nome": registro.nome,
+        "e_padrao": registro.e_padrao,
         "pode_criar_projeto": registro.pode_criar_projeto,
         "pode_editar_equipe": registro.pode_editar_equipe,
         "pode_gerir_membros": registro.pode_gerir_membros,

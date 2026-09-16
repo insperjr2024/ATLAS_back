@@ -53,6 +53,15 @@ class SemestreRepositoryFake:
         return None
 
 
+class PosicaoRepositoryFake:
+    """Qualquer posição existe — estes testes cobrem a trava do último
+    diretor, não validação de cargo (ver `UpdateUsuarioUseCase.execute`,
+    migration `a9cae5c30c6d`)."""
+
+    def get_by_posicao(self, posicao):
+        return object()
+
+
 class DbFake:
     def __init__(self):
         self.adicionados = []
@@ -77,6 +86,7 @@ def montar_update(*usuarios):
     uc = UpdateUsuarioUseCase.__new__(UpdateUsuarioUseCase)
     uc.db = DbFake()
     uc.repository = UsuarioRepositoryFake(*usuarios)
+    uc.posicao_repository = PosicaoRepositoryFake()
     uc.semestre_repository = SemestreRepositoryFake()
     uc.membro_repository = type("R", (), {"contar_ativos_por_usuario": lambda self: {}})()
     return uc

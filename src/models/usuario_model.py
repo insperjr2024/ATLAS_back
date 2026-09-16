@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Column, Enum, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from src.database.database import Base
 
@@ -29,16 +29,12 @@ class UsuarioModel(Base):
     #: Nasce `False` para todo mundo que já estava cadastrado — quem já tem
     #: senha própria não é empurrado para tela nenhuma.
     senha_provisoria = Column(Boolean, nullable=False, default=False, server_default="0")
+    #: Referencia `posicao_permissao.posicao` — desde 2026-09-16 não é mais um
+    #: ENUM fechado, é um catálogo (ver `PosicaoPermissaoModel`). A FK é o que
+    #: impede apagar um cargo que ainda tem gente nele.
     posicao = Column(
-        Enum(
-            "diretor_projetos",
-            "diretor_pessoas",
-            "diretor",
-            "gerente",
-            "coordenador",
-            "consultor",
-            name="posicao_usuario",
-        ),
+        String(50),
+        ForeignKey("posicao_permissao.posicao"),
         nullable=False,
         default="consultor",
         server_default="consultor",

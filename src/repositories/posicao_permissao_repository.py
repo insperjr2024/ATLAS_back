@@ -1,8 +1,10 @@
 from typing import List, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.models.posicao_permissao_model import PosicaoPermissaoModel
+from src.utils.exceptions import ResourceInUseError
 
 
 class PosicaoPermissaoRepository:
@@ -36,3 +38,30 @@ class PosicaoPermissaoRepository:
         self.db.commit()
         self.db.refresh(registro)
         return registro
+
+    def create(self, **kwargs) -> PosicaoPermissaoModel:
+        registro = PosicaoPermissaoModel(**kwargs)
+        self.db.add(registro)
+        self.db.commit()
+        self.db.refresh(registro)
+        return registro
+
+    def delete(self, posicao: str) -> bool:
+        """Chave por `posicao` (o slug), não por `id` — mesma chave que
+        `get_by_posicao`/`update` já usam, e que a rota recebe na URL.
+
+        A FK `usuario.posicao -> posicao_permissao.posicao` (migration
+        `a9cae5c30c6d`) é quem recusa apagar um cargo com gente nele; aqui só
+        traduz o `IntegrityError` pro mesmo contrato que `BaseRepository.delete`
+        já usa para frente/escopo.
+        """
+        registro = self.get_by_posicao(posicao)
+        if not registro:
+            return False
+        try:
+            self.db.delete(registro)
+            self.db.commit()
+            return True
+        except IntegrityError:
+            self.db.rollback()
+            raise ResourceInUseError()

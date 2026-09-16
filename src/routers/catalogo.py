@@ -48,6 +48,11 @@ from src.use_cases.posicao_permissao.update_posicao_permissao import (
     UpdatePosicaoPermissaoUseCase,
     UpdatePosicaoPermissaoRequest,
 )
+from src.use_cases.posicao_permissao.create_posicao_permissao import (
+    CreatePosicaoPermissaoUseCase,
+    CreatePosicaoPermissaoRequest,
+)
+from src.use_cases.posicao_permissao.delete_posicao_permissao import DeletePosicaoPermissaoUseCase
 from src.use_cases.configuracao.get_configuracao import GetConfiguracaoUseCase
 from src.use_cases.configuracao.update_configuracao import UpdateConfiguracaoUseCase, UpdateConfiguracaoRequest
 from src.use_cases.situacao_carga.gerenciar_situacoes import (
@@ -73,6 +78,37 @@ router = APIRouter(tags=["catálogo"], dependencies=[Depends(get_current_user)])
 @router.get("/posicoes-permissoes")
 def list_posicoes_permissoes(db: Session = Depends(get_db)):
     return ListPosicaoPermissoesUseCase(db).execute()
+
+
+@router.post("/posicoes-permissoes")
+def create_posicao_permissao(
+    request: CreatePosicaoPermissaoRequest,
+    _=Depends(require_pode_administrar_permissoes),
+    db: Session = Depends(get_db),
+):
+    try:
+        return CreatePosicaoPermissaoUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.delete("/posicoes-permissoes/{posicao}", status_code=204)
+def delete_posicao_permissao(
+    posicao: str,
+    _=Depends(require_pode_administrar_permissoes),
+    db: Session = Depends(get_db),
+):
+    try:
+        deleted = DeletePosicaoPermissaoUseCase(db).execute(posicao)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    except ResourceInUseError:
+        raise HTTPException(
+            status_code=409, detail="Não é possível excluir: existem pessoas com este cargo"
+        )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Posição não encontrada")
+    return None
 
 
 @router.patch("/posicoes-permissoes/{posicao}")

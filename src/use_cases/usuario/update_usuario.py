@@ -4,27 +4,22 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.models.usuario_posicao_historico_model import UsuarioPosicaoHistoricoModel
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.usuario.get_usuario import serializar_usuario
 from src.utils.exceptions import RegraDeNegocioError
 
-Posicao = Literal[
-    "diretor_projetos",
-    "diretor_pessoas",
-    "diretor",
-    "gerente",
-    "coordenador",
-    "consultor",
-]
+# ⚠ Não é mais `Literal` fechado nos 6 cargos padrão desde 2026-09-16 — ver o
+# mesmo comentário em `RegistrarRequest`. Quem valida é `UpdateUsuarioUseCase`.
 StatusUsuario = Literal["ativo", "ex_membro", "desligado"]
 
 
 class UpdateUsuarioRequest(BaseModel):
     nome: Optional[str] = None
     email_insper: Optional[str] = None
-    posicao: Optional[Posicao] = None
+    posicao: Optional[str] = None
     status: Optional[StatusUsuario] = None
     ativo: Optional[bool] = None
     #: Coordenador comercial. Não muda acesso nenhum, só tira a pessoa da
@@ -41,6 +36,7 @@ class UpdateUsuarioUseCase:
     def __init__(self, db: Session):
         self.db = db
         self.repository = UsuarioRepository(db)
+        self.posicao_repository = PosicaoPermissaoRepository(db)
         self.semestre_repository = SemestreRepository(db)
         self.membro_repository = ProjetoMembroRepository(db)
 
@@ -80,6 +76,9 @@ class UpdateUsuarioUseCase:
 
     def execute(self, usuario_id: int, request: UpdateUsuarioRequest, alterado_por: Optional[int] = None):
         data = request.model_dump(exclude_unset=True)
+
+        if "posicao" in data and not self.posicao_repository.get_by_posicao(data["posicao"]):
+            raise RegraDeNegocioError("Posição inválida")
 
         anterior = self.repository.get_by_id(usuario_id)
         if not anterior:

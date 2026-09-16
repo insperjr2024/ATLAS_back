@@ -1,8 +1,9 @@
 import secrets
-from typing import Literal, Optional
+from typing import Optional
 
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.auth.senha_provisoria import emitir_senha_provisoria
 from src.use_cases.usuario.get_usuario import serializar_usuario
@@ -16,8 +17,14 @@ class RegistrarRequest(BaseModel):
 
     `posicao` entra aqui porque é o que define o que a pessoa enxerga E pode
     fazer assim que faz o primeiro login — desde 2026-08-07 não há mais
-    `cargo` separado para escolher; as 13 caixas de permissão vêm inteiras
-    da posição (`GET /posicoes-permissoes`).
+    `cargo` separado para escolher; as caixas de permissão vêm inteiras da
+    posição (`GET /posicoes-permissoes`).
+
+    ⚠ Desde 2026-09-16 não é mais um `Literal` fechado nos 6 cargos padrão —
+    `posicao_permissao` é um catálogo que a diretoria pode estender (ver
+    `create_posicao_permissao.py`), e o `Literal` recusaria qualquer cargo
+    novo no boundary da API antes mesmo de chegar ao use case. Quem valida
+    agora é `RegistrarUseCase`, contra as linhas que existem de verdade.
 
     ⭐ **Não há campo de senha**, e a ausência é a regra: quem cadastra não
     escolhe a senha de ninguém. O sistema sorteia uma provisória, manda por
@@ -26,20 +33,14 @@ class RegistrarRequest(BaseModel):
 
     nome: str
     email_insper: str
-    posicao: Literal[
-        "diretor_projetos",
-        "diretor_pessoas",
-        "diretor",
-        "gerente",
-        "coordenador",
-        "consultor",
-    ] = "consultor"
+    posicao: str = "consultor"
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
 
 class RegistrarUseCase:
     def __init__(self, db: Session, email_sender=None):
         self.usuario_repository = UsuarioRepository(db)
+        self.posicao_repository = PosicaoPermissaoRepository(db)
         # Injetável para o teste passar um dublê — mesma costura do
         # `SolicitarRecuperacaoUseCase`. Sem ela, rodar a suíte mandaria
         # e-mail de verdade.
@@ -49,6 +50,9 @@ class RegistrarUseCase:
         existente = self.usuario_repository.get_by_email_insper(request.email_insper)
         if existente:
             raise RegraDeNegocioError("Já existe uma conta com este email")
+
+        if not self.posicao_repository.get_by_posicao(request.posicao):
+            raise RegraDeNegocioError("Posição inválida")
 
         # A senha real é sorteada logo abaixo, por `emitir_senha_provisoria`.
         # O placeholder existe porque `senha_hash` é NOT NULL e a emissão

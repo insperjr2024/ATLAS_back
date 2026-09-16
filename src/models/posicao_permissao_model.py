@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Enum, Integer
+from sqlalchemy import Boolean, Column, Integer, String
 from src.database.database import Base
 
 
@@ -9,8 +9,15 @@ class PosicaoPermissaoModel(Base):
     permissão convivendo (posição decidia o recorte de visão, cargo decidia
     o resto), e a distinção não sobreviveu ao uso real — cargo só criava
     combinação estranha (ex.: "Admin" que não amplia visão de projeto
-    nenhuma) sem servir pra delegar de verdade. Só 4 linhas, uma por posição,
-    sem CRUD de criar/apagar linha — só editar as caixas.
+    nenhuma) sem servir pra delegar de verdade.
+
+    Desde 2026-09-16 este É o catálogo de cargos: a diretoria cria e apaga
+    linha por `POST`/`DELETE /posicoes-permissoes` (ver `create_posicao_permissao.py`,
+    `delete_posicao_permissao.py`), igual `frente`/`escopo`. Os 6 cargos que a
+    plataforma sempre teve (`e_padrao=True`) continuam INTOCÁVEIS por essa
+    rota — apagar um deles quebraria as dezenas de regras hardcoded a eles por
+    nome em `middlewares/authorization.py` e afins, que um cargo novo
+    deliberadamente NÃO herda (ver a migration `a9cae5c30c6d`).
 
     Eram as mesmas 13 caixas que `cargo` tinha: as 9 da tabela do §3 do
     briefing, as 3 extensões (Avaliação de Desempenho, formulários dela,
@@ -35,19 +42,16 @@ class PosicaoPermissaoModel(Base):
     __tablename__ = "posicao_permissao"
 
     id = Column(Integer, primary_key=True, index=True)
-    posicao = Column(
-        Enum(
-            "diretor_projetos",
-            "diretor_pessoas",
-            "diretor",
-            "gerente",
-            "coordenador",
-            "consultor",
-            name="posicao_permissao_posicao",
-        ),
-        nullable=False,
-        unique=True,
-    )
+    #: O valor interno (slug), referenciado por `usuario.posicao`. Gerado a
+    #: partir de `nome` na criação — ver `create_posicao_permissao.py`.
+    posicao = Column(String(50), nullable=False, unique=True)
+    #: O rótulo mostrado na tela. Os 6 cargos padrão nasceram sem este campo
+    #: (o rótulo vivia hardcoded no front, `ROTULO_POSICAO`); a migration
+    #: `a9cae5c30c6d` fez o backfill deles.
+    nome = Column(String(100), nullable=False)
+    #: Os 6 cargos que a plataforma sempre teve. `False` para todo cargo
+    #: criado pela tela — só eles podem ser apagados por `DELETE`.
+    e_padrao = Column(Boolean, default=False, nullable=False, server_default="0")
 
     # 1. Criar projeto e alocar equipe
     pode_criar_projeto = Column(Boolean, default=False, nullable=False)
