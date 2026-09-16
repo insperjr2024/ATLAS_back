@@ -64,11 +64,18 @@ class BancaRepository:
         return self.db.query(BancaModel).filter(BancaModel.data_hora == data_hora).all()
 
     def get_por_periodo(self, inicio: datetime, fim: datetime) -> List[BancaModel]:
-        """Bancas ainda não realizadas com data dentro do intervalo — o
-        universo candidato do push automático (§8: uma semana antes).
+        """Bancas ainda não realizadas com data dentro do intervalo, que o
+        rodízio AINDA NÃO rodou — o universo candidato do push automático
+        (§8: uma semana antes).
 
         ⚠ Exclui `cancelada_em` (2026-09-04): uma banca cancelada não deve
         ganhar avaliador por rodízio — ela não vai acontecer de propósito.
+
+        ⚠ Exclui `push_executado_em` preenchido (2026-09-16, a pedido): o
+        rodízio roda UMA VEZ só por banca, não a cada passada do agendador.
+        Uma banca com push já feito não volta pra cá nem que a diretoria
+        tire depois alguém necessário pro piso — é decisão manual dela dali
+        pra frente, de propósito.
         """
         return (
             self.db.query(BancaModel)
@@ -78,6 +85,7 @@ class BancaRepository:
                 BancaModel.data_hora <= fim,
                 BancaModel.realizado_em.is_(None),
                 BancaModel.cancelada_em.is_(None),
+                BancaModel.push_executado_em.is_(None),
             )
             .all()
         )

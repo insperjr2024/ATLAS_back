@@ -69,3 +69,13 @@ class BancaModel(Base):
     entrega_link = Column(Text, nullable=True)
     entrega_arquivo_nome = Column(String(255), nullable=True)
     entrega_arquivo_conteudo = Column(LargeBinary, nullable=True)
+
+    #: ⭐ 2026-09-16, a pedido. O rodízio de alocação (§8) passa a rodar UMA
+    #: VEZ só por banca — assim que ela entra na janela de 7 dias, não em
+    #: toda passada do agendador. Preenchido nesse momento (tenha havido
+    #: alguém pra puxar ou não) e NUNCA mais reavaliado depois: se a
+    #: diretoria remover alguém necessário pro piso já preenchido, o rodízio
+    #: não volta a mexer nessa banca — vira decisão manual da diretoria daí
+    #: pra frente, de propósito (era o que fazia alguém recém-tirado de uma
+    #: banca reaparecer nela sozinho).
+    push_executado_em = Column(DateTime, nullable=True)

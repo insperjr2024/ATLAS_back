@@ -9,9 +9,20 @@ primeiro; empate é sorteado).
 Roda pelo agendador (`src/app.py`: de 5 em 5 minutos, e também na subida do
 app) e sob demanda (`POST /bancas/push-alocacao`, diretoria).
 
-A varredura é idempotente de propósito — é o que permite rodar com essa
-frequência sem medo: ela preenche até o piso e para, quem já está inscrito
-entra em `_excluidos`, e a notificação carrega chave de deduplicação.
+⭐ **UMA VEZ só por banca, não a cada passada (2026-09-16, a pedido).** Assim
+que a banca entra na janela de 7 dias, a primeira passada que a encontra
+avalia o piso, preenche o que faltar e marca `push_executado_em` — tenha
+escalado alguém ou não. `get_por_periodo` exclui banca já marcada, então
+nenhuma passada seguinte volta a mexer nela.
+
+⚠ Isto é diferente de idempotência: o rodízio já era idempotente (rodar duas
+vezes com o mesmo estado não duplicava nada), mas rodava a cada passada
+enquanto a banca estivesse na janela — e se a diretoria tirasse depois
+alguém necessário pro piso, a passada seguinte reagia sozinha, escalando
+outra pessoa sem ninguém ter pedido. Agora não: passado o UM push, cobrir um
+buraco que a diretoria abriu é decisão manual dela, de propósito — ela tem
+as ferramentas para isso (adicionar/remover candidatura de banca já
+realizada inclusive, ver `create_candidatura`/`update_candidatura`).
 """
 
 import random
@@ -92,6 +103,12 @@ class PushAlocacaoAutomaticaUseCase:
         resumo = []
         for banca in bancas:
             resultado = self._processar_banca(banca, teto, contagem_bancas)
+            # ⭐ Marca JÁ, resultado tendo escalado alguém ou não — é isto que
+            # torna esta a ÚNICA passada que mexe nesta banca (o filtro mora
+            # em `get_por_periodo`). Escalou 0 porque o piso já estava
+            # coberto? Também marca: não é "tentei e não achei ninguém",
+            # é "avaliei esta banca, ponto final".
+            self.banca_repository.update(banca.id, push_executado_em=agora)
             if resultado:
                 resumo.append(resultado)
         return resumo
