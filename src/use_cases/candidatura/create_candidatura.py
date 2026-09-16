@@ -121,7 +121,13 @@ class CreateCandidaturaUseCase:
             self.db,
         )
 
-        if len(candidaturas_existentes) >= vagas:
+        # ⚠ Não vale para a gestão (2026-09-16, a pedido — mesmo motivo da
+        # reserva de vaga logo abaixo): "a diretoria pode TUDO". É o próprio
+        # caminho pra corrigir uma banca que ficou lotada com composição
+        # errada (alguém saiu depois de cobrir um piso, e não sobrou vaga
+        # pra repor) — sem isto, a diretoria fica de mãos atadas exatamente
+        # no caso que mais precisa dela.
+        if len(candidaturas_existentes) >= vagas and not eh_gestao:
             raise RegraDeNegocioError("Não é possível se candidatar: banca lotada")
 
         # ⭐ As últimas vagas ficam RESERVADAS para os pisos por frente ainda

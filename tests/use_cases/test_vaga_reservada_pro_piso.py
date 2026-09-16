@@ -168,3 +168,28 @@ class TestGestaoIgnoraAReserva:
         )
         alocar(uc, 50, eh_gestao=True)
         assert repo.criadas == [50]
+
+    def test_diretoria_aloca_mesmo_com_a_banca_lotada(self, monkeypatch):
+        """2026-09-16, a pedido: banca no teto (8/8) recusava até a
+        diretoria com "banca lotada" — exatamente o caso em que ela mais
+        precisa poder corrigir a composição (alguém saiu depois de cobrir
+        um piso, e não sobrou vaga pra repor)."""
+        uc, repo = montar(
+            monkeypatch,
+            alocados=range(10, 18),
+            vagas=8,
+            deficit_por_ids=lambda ids: [deficit(membros=1)],
+        )
+        alocar(uc, 50, eh_gestao=True)
+        assert repo.criadas == [50]
+
+    def test_autoinscricao_continua_barrada_pela_banca_lotada(self, monkeypatch):
+        uc, repo = montar(
+            monkeypatch,
+            alocados=range(10, 18),
+            vagas=8,
+            deficit_por_ids=lambda ids: [deficit(membros=1)],
+        )
+        with pytest.raises(RegraDeNegocioError, match="lotada"):
+            alocar(uc, 50, eh_gestao=False)
+        assert repo.criadas == []
