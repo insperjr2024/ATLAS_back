@@ -68,6 +68,7 @@ from src.utils.contagem_dias import (
     marco_das_correcoes,
 )
 from src.utils.dias_uteis import contar_dias_uteis, dias_uteis_de_atraso
+from src.utils.fuso import hoje_local
 from src.utils.janela_escopo import calcular_janela, dias_de_atraso, dias_parados
 from src.utils.tarefa_status import (
     calcular_urgencia,
@@ -361,7 +362,7 @@ class VisaoGeralUseCase(_BaseMonitoramento):
         escopo_id: Optional[int] = None,
         status: Optional[List[str]] = None,
     ):
-        hoje = referencia or date.today()
+        hoje = referencia or hoje_local()
         projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         ctx = self._contexto(projetos)
         atrasos = self._atrasos(projetos, ctx, hoje)
@@ -935,7 +936,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
         escopo_id: Optional[int] = None,
         status: Optional[List[str]] = None,
     ):
-        hoje = referencia or date.today()
+        hoje = referencia or hoje_local()
         projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         ids = [p.id for p in projetos]
         inicio, fim = janela_semana(hoje)
@@ -1058,7 +1059,7 @@ class ExecucaoUseCase(_BaseMonitoramento):
         # front teria de recalcular a segunda-feira a partir do relógio local,
         # e uma máquina com fuso ou data errada mostraria a semana errada como
         # se fosse a de hoje.
-        semana_de_hoje = janela_semana(date.today())[0]
+        semana_de_hoje = janela_semana(hoje_local())[0]
         # Em semanas inteiras: a janela sempre começa numa segunda, então a
         # diferença é múltipla de 7 e a divisão é exata.
         semanas_atras = (semana_de_hoje - inicio).days // 7
@@ -1462,7 +1463,7 @@ class AtrasosUseCase(_BaseMonitoramento):
         escopo_id: Optional[int] = None,
         status: Optional[List[str]] = None,
     ):
-        hoje = referencia or date.today()
+        hoje = referencia or hoje_local()
         # ⭐ **Só projeto EM CURSO.** `_projetos_visiveis` só tira arquivado, e a
         # aba iterava a lista crua — um projeto finalizado com banca antiga
         # nunca marcada como realizada aparecia na fila de cobrança da
@@ -1729,7 +1730,7 @@ class TarefasGeraisUseCase(_BaseMonitoramento):
         escopo_id: Optional[int] = None,
         status: Optional[List[str]] = None,
     ):
-        hoje = referencia or date.today()
+        hoje = referencia or hoje_local()
         projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
         ids = [p.id for p in projetos]
         nomes_projeto = {p.id: p.nome for p in projetos}
@@ -1806,7 +1807,7 @@ class CronogramasGeraisUseCase(_BaseMonitoramento):
         escopo_id: Optional[int] = None,
         status: Optional[List[str]] = None,
     ):
-        referencia = referencia or date.today()
+        referencia = referencia or hoje_local()
         projetos = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
 
         itens = []

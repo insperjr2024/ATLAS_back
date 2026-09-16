@@ -2,6 +2,7 @@
 
 from datetime import date
 
+import src.utils.tarefa_status as tarefa_status_mod
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
@@ -117,3 +118,30 @@ class TestJanelaDaSemana:
 
     def test_semana_seguinte_nao_se_sobrepoe(self):
         assert inicio_semana(date(2026, 9, 21)) == date(2026, 9, 21)
+
+
+class TestHojeVemDeBrasiliaNaoDoRelogioDoServidor:
+    """2026-09-15 — sem `hoje` explícito, as funções caíam em `date.today()`,
+    que é a data conforme o fuso do SISTEMA OPERACIONAL do servidor. Se esse
+    relógio estiver em UTC (comum em container/nuvem), a "hoje" já vira
+    amanhã a partir das 21h de Brasília, e uma tarefa com prazo pra HOJE
+    aparecia "vencida há 1 dia" horas antes da meia-noite local. A correção
+    troca o fallback por `hoje_local()` (fuso.py, America/Sao_Paulo) — estes
+    testes prendem que é dela que a resposta vem, não de `date.today()`: se
+    alguém reverter a troca, o mock abaixo deixa de fazer diferença nenhuma
+    e os dois testes voltam a passar só por acidente (com a data real de
+    hoje), não porque o fuso certo foi usado."""
+
+    def test_eh_vencida_sem_hoje_explicito_usa_hoje_local(self, monkeypatch):
+        monkeypatch.setattr(tarefa_status_mod, "hoje_local", lambda: date(2026, 9, 15))
+
+        # Prazo é "hoje" (15/09) na data que hoje_local() diz — não deveria
+        # estar vencida ainda, não importa que dia seja de verdade agora.
+        assert not eh_vencida(date(2026, 9, 15), COLUNA_ABERTA)
+        # Um dia à frente do que hoje_local() diz: aí sim vencida.
+        assert eh_vencida(date(2026, 9, 14), COLUNA_ABERTA)
+
+    def test_dias_para_prazo_sem_hoje_explicito_usa_hoje_local(self, monkeypatch):
+        monkeypatch.setattr(tarefa_status_mod, "hoje_local", lambda: date(2026, 9, 15))
+
+        assert dias_para_prazo(date(2026, 9, 15)) == 0

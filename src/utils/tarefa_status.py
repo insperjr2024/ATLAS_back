@@ -18,6 +18,9 @@ no dia em que alguém mexesse só num lado.
 from datetime import date, timedelta
 from typing import Optional
 
+from src.utils.fuso import hoje_local
+
+
 def eh_vencida(
     prazo: Optional[date], coluna_encerra: bool, hoje: Optional[date] = None
 ) -> bool:
@@ -31,7 +34,7 @@ def eh_vencida(
     """
     if prazo is None:
         return False
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_local()
     return prazo < hoje and not coluna_encerra
 
 
@@ -59,7 +62,7 @@ def dias_para_prazo(prazo: Optional[date], hoje: Optional[date] = None) -> Optio
     """Dias CORRIDOS até o prazo. Negativo = já passou."""
     if prazo is None:
         return None
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_local()
     return (prazo - hoje).days
 
 
@@ -87,7 +90,7 @@ def calcular_urgencia(
 
 def inicio_semana(dia: Optional[date] = None) -> date:
     """A segunda-feira da semana de `dia`."""
-    dia = dia or date.today()
+    dia = dia or hoje_local()
     return dia - timedelta(days=dia.weekday())
 
 
@@ -97,5 +100,5 @@ def fim_semana(dia: Optional[date] = None) -> date:
 
 
 def janela_semana(dia: Optional[date] = None) -> tuple[date, date]:
-    dia = dia or date.today()
+    dia = dia or hoje_local()
     return inicio_semana(dia), fim_semana(dia)

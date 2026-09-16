@@ -28,6 +28,7 @@ from src.use_cases.tarefa.comentarios import (
     exigir_permissao_de_movimento,
 )
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.fuso import hoje_local
 from src.utils.tarefa_status import (
     calcular_urgencia,
     dias_para_prazo,
@@ -105,7 +106,7 @@ class ListTarefasUseCase:
         self.coluna_repository = TarefaColunaRepository(db)
 
     def execute(self, projeto_id: int) -> List[dict]:
-        hoje = date.today()
+        hoje = hoje_local()
         colunas = {c.id: c for c in self.coluna_repository.listar(projeto_id)}
         tarefas = self.repository.get_by_projeto(projeto_id)
         responsaveis = self.repository.responsaveis_por_tarefa(t.id for t in tarefas)

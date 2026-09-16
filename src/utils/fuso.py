@@ -23,7 +23,7 @@ o que este módulo resolve é a leitura de `banca.data_hora`, onde a convenção
 é conhecida e a comparação com a grade depende dela.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -60,6 +60,26 @@ def agora_utc() -> datetime:
     com "agora" usa isto.
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def hoje_local() -> date:
+    """"Hoje" de Brasília — NÃO `date.today()` (2026-09-15).
+
+    ⚠ `date.today()`/`datetime.now()` sem fuso dependem do relógio do
+    SISTEMA OPERACIONAL do servidor, não do fuso deste módulo. O resto do
+    código assume que esse relógio já está em horário de Brasília (ver a
+    nota sobre `criado_em`/`submetida_em` no topo do arquivo) — mas se o
+    servidor rodar com o SO em UTC (comum em container/nuvem), `date.today()`
+    já é amanhã a partir de 21h daqui. Foi assim que uma tarefa com prazo
+    para HOJE aparecia "vencida há 1 dia" três horas antes da meia-noite
+    local — `tarefa_status.py` comparava `prazo` (uma data que a pessoa
+    pensou em Brasília) contra o "hoje" errado.
+
+    Só usar onde o "hoje" vem do CALENDÁRIO (prazo de tarefa, "quantos dias
+    atrás") — comparação com `banca.data_hora` continua sendo com
+    `agora_utc()`, que já está certo pelo motivo oposto (ele pede UTC
+    explícito, não herda fuso nenhum do SO)."""
+    return datetime.now(FUSO_LOCAL).date()
 
 
 def para_hora_local(dt: datetime) -> datetime:

@@ -26,7 +26,7 @@ from typing import Dict, Iterable, List, Optional, Set
 from src.utils.ambientacao import fim_da_ambientacao
 from src.utils.banca_status import NAO_MARCADA, calcular_status_banca
 from src.utils.dias_uteis import normalizar
-from src.utils.fuso import para_hora_local
+from src.utils.fuso import hoje_local, para_hora_local
 from src.utils.tarefa_status import eh_vencida, janela_semana
 
 # Os 5 tipos 🔄 do §6.6, mais "banca hoje" e o prazo do §5.3.
@@ -120,7 +120,7 @@ def detectar_condicoes(
     conforme a frente que se olhe. Sem calendário nenhum a conta ainda fecha —
     só ignora feriados, e o alerta nasce um pouco cedo.
     """
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_local()
     responsaveis_por_tarefa = responsaveis_por_tarefa or {}
     # Normalizado UMA vez: `somar_dias_uteis` roda por projeto, e um gerador
     # chegaria vazio no segundo.
