@@ -67,6 +67,15 @@ class FakeSolicitacaoTrocaRepo:
         return []
 
 
+class FakeAvaliacaoRepo:
+    """Nenhum teste deste arquivo é sobre avaliação — só precisa não quebrar
+    a limpeza nova (`test_desaloca_apaga_avaliacao_pendente.py` cobre essa
+    checagem de verdade, com banco real)."""
+
+    def get_by_banca(self, banca_id):
+        return []
+
+
 def _fake_checker_cls(essenciais: set):
     """`essenciais` é o conjunto de usuario_id sem os quais a composição NÃO
     fecha — abstração de "o piso de membros e liderança de cada frente"."""
@@ -107,6 +116,7 @@ def cenario(monkeypatch):
         uc.banca_repository = SimpleNamespace(get_by_id=lambda bid: banca)
         uc.banca_frente_repository = FakeBancaFrenteRepo(com_vinculo)
         uc.solicitacao_troca_repository = FakeSolicitacaoTrocaRepo()
+        uc.avaliacao_repository = FakeAvaliacaoRepo()
 
         monkeypatch.setattr(mod, "ComposicaoBancaChecker", _fake_checker_cls(essenciais or set()))
         monkeypatch.setattr(composicao_config_mod, "ResolverComposicaoUseCase", FakeResolver)

@@ -1,6 +1,7 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from src.repositories.avaliacao_repository import AvaliacaoRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
@@ -73,6 +74,7 @@ class DeleteCandidaturaUseCase:
         self.banca_repository = BancaRepository(db)
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.solicitacao_troca_repository = SolicitacaoTrocaRepository(db)
+        self.avaliacao_repository = AvaliacaoRepository(db)
 
     def execute(self, candidatura_id: int, eh_gestao: bool = False) -> bool:
         candidatura = self.repository.get_by_id(candidatura_id)
@@ -83,7 +85,16 @@ class DeleteCandidaturaUseCase:
 
         # Mesma virada do create: só a realização tranca. Antes da F5, uma
         # banca que escorregava deixava as pessoas presas na inscrição.
-        if banca and calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)) == "realizada":
+        #
+        # ⚠ `eh_gestao` passa por cima (2026-09-15, a pedido): diretoria às
+        # vezes precisa corrigir quem avaliou uma banca que já aconteceu —
+        # tirar quem não devia ter sido escalado, por exemplo. Ninguém mais
+        # sai sozinho de uma banca já realizada, só quem gere membros.
+        if (
+            banca
+            and not eh_gestao
+            and calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)) == "realizada"
+        ):
             raise RegraDeNegocioError("Não é possível se desalocar: esta banca já foi realizada")
 
         # ⭐ Trava dos 7 dias, por pessoa (2026-09-09, refinada 2026-09-11).
@@ -109,6 +120,14 @@ class DeleteCandidaturaUseCase:
         for solicitacao in self.solicitacao_troca_repository.get_by_candidatura(candidatura_id):
             if solicitacao.status == "pendente":
                 self.solicitacao_troca_repository.update(solicitacao.id, status="cancelada")
+
+        # ⚠ A avaliação é DESSA pessoa NESSA banca — não faz sentido sobreviver
+        # à candidatura que a gerou (2026-09-15, a pedido). Sem isto, tirar
+        # alguém escalado por engano de uma banca já realizada deixava o voto
+        # dele contando na apuração como se ele ainda fosse avaliador dela.
+        for avaliacao in self.avaliacao_repository.get_by_banca(candidatura.banca_id):
+            if avaliacao.avaliador_id == candidatura.usuario_id:
+                self.avaliacao_repository.delete(avaliacao.id)
 
         return self.repository.delete(candidatura_id)
 

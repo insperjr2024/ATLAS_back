@@ -53,7 +53,7 @@ class CreateCandidaturaUseCase:
         self.banca_frente_repository = BancaFrenteRepository(db)
         self.frente_repository = FrenteRepository(db)
 
-    def execute(self, request: CreateCandidaturaRequest, usuario_id: int):
+    def execute(self, request: CreateCandidaturaRequest, usuario_id: int, eh_gestao: bool = False):
         banca = self.banca_repository.get_by_id(request.banca_id)
         if not banca:
             raise RegraDeNegocioError("Banca não encontrada")
@@ -62,7 +62,12 @@ class CreateCandidaturaUseCase:
         # `atrasada` (venceu e não aconteceu) continua aceitando gente, porque
         # ela ainda vai acontecer. Antes da F5 a data passada bloqueava.
         status = calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None))
-        if not aceita_inscricao(status):
+        # ⚠ `eh_gestao` só passa por cima do "já foi realizada" (2026-09-15, a
+        # pedido) — diretoria/quem gere membros às vezes precisa corrigir a
+        # ficha de uma banca que já aconteceu (trocar quem avaliou, por
+        # exemplo). Cancelada e sem data continuam travadas pra todo mundo:
+        # não tem "consertar" candidatura de banca que não vai acontecer.
+        if not aceita_inscricao(status) and not (eh_gestao and status == "realizada"):
             if status == "realizada":
                 raise RegraDeNegocioError("Não é possível se candidatar: esta banca já foi realizada")
             if status == "cancelada":

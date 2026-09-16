@@ -78,3 +78,77 @@ def test_criterio_de_escopo_que_a_banca_nao_cobre_nao_e_exigido(monkeypatch):
         obrigatorias_por_escopo={5: [1, 2], 17: [3, 4], 8: [7, 8]},
     )
     uc._exigir_criterios_completos(99, BANCA)  # não levanta
+
+
+def _uc_com_perguntas(monkeypatch, *, respondidas, perguntas):
+    """Mesmo dublê de `_uc`, mas com perguntas arbitrárias (tipo/texto) — pra
+    testar pergunta de TEXTO obrigatória, que `_uc` não cobre (só monta
+    'nota')."""
+    uc = SubmeterAvaliacaoUseCase(db=None)
+    uc.nota_repository = SimpleNamespace(
+        get_by_avaliacao=lambda _id: [SimpleNamespace(pergunta_id=p) for p in respondidas]
+    )
+    uc.banca_escopo_repository = SimpleNamespace(get_escopo_ids=lambda _id: [11, 78])
+    uc.projeto_escopo_repository = SimpleNamespace(get_by_ids=lambda _ids: [])
+    monkeypatch.setattr(
+        mod, "GetFormularioAtivoUseCase",
+        lambda _db: SimpleNamespace(execute=lambda: {"perguntas": perguntas}),
+    )
+    monkeypatch.setattr(
+        "src.use_cases.banca.get_banca.escopos_avaliados_ids",
+        lambda *_a, **_k: [5],
+    )
+    return uc
+
+
+class TestPerguntaDeTextoObrigatoria:
+    """2026-09-15, a pedido: pergunta de texto SEM 'opcional' no enunciado
+    também tranca o envio — antes só nota entrava na conta, e texto
+    obrigatório só era validado no front (bypassável por chamada direta)."""
+
+    def test_texto_obrigatorio_em_branco_e_barrado(self, monkeypatch):
+        uc = _uc_com_perguntas(
+            monkeypatch,
+            respondidas=[1],  # respondeu a nota, pulou o texto obrigatório (id 2)
+            perguntas=[
+                {"id": 1, "tipo_resposta": "nota", "texto": "Nota geral", "escopo_id": 5},
+                {"id": 2, "tipo_resposta": "texto", "texto": "O que faltou?", "escopo_id": 5},
+            ],
+        )
+        with pytest.raises(RegraDeNegocioError, match="critérios que você não respondeu"):
+            uc._exigir_criterios_completos(99, BANCA)
+
+    def test_texto_marcado_opcional_no_enunciado_nao_tranca(self, monkeypatch):
+        uc = _uc_com_perguntas(
+            monkeypatch,
+            respondidas=[1],
+            perguntas=[
+                {"id": 1, "tipo_resposta": "nota", "texto": "Nota geral", "escopo_id": 5},
+                {"id": 2, "tipo_resposta": "texto", "texto": "Algo mais? (opcional)", "escopo_id": 5},
+            ],
+        )
+        uc._exigir_criterios_completos(99, BANCA)  # não levanta
+
+    def test_texto_obrigatorio_preenchido_passa(self, monkeypatch):
+        uc = _uc_com_perguntas(
+            monkeypatch,
+            respondidas=[1, 2],
+            perguntas=[
+                {"id": 1, "tipo_resposta": "nota", "texto": "Nota geral", "escopo_id": 5},
+                {"id": 2, "tipo_resposta": "texto", "texto": "O que faltou?", "escopo_id": 5},
+            ],
+        )
+        uc._exigir_criterios_completos(99, BANCA)  # não levanta
+
+    def test_comentario_puro_continua_passando_mesmo_com_texto_obrigatorio_no_formulario(self, monkeypatch):
+        """O atalho de comentário puro (zero critérios respondidos) não pode
+        quebrar por causa da pergunta de texto nova — o gate nem entra."""
+        uc = _uc_com_perguntas(
+            monkeypatch,
+            respondidas=[],
+            perguntas=[
+                {"id": 1, "tipo_resposta": "nota", "texto": "Nota geral", "escopo_id": 5},
+                {"id": 2, "tipo_resposta": "texto", "texto": "O que faltou?", "escopo_id": 5},
+            ],
+        )
+        uc._exigir_criterios_completos(99, BANCA)  # não levanta

@@ -17,6 +17,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.database.database import Base
+from src.models.avaliacao_model import AvaliacaoModel
 from src.models.banca_frente_model import BancaFrenteModel
 from src.models.banca_model import BancaModel
 from src.models.candidatura_model import CandidaturaModel
@@ -30,6 +31,7 @@ TABELAS = [
     CandidaturaModel.__table__,
     BancaFrenteModel.__table__,
     SolicitacaoTrocaModel.__table__,
+    AvaliacaoModel.__table__,
 ]
 
 AGORA_UTC = datetime.now(timezone.utc).replace(tzinfo=None)

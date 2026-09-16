@@ -11,6 +11,7 @@ contornável por qualquer outro campo. Aqui a submissão é uma AÇÃO própria.
 avaliadores — esta submissão só fecha o formulário de notas e comentário.
 """
 
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -112,6 +113,14 @@ class SubmeterAvaliacaoUseCase:
 
         Zero critérios (comentário puro, o atalho da aba Banca do projeto)
         continua valendo — não é submissão do formulário completo.
+
+        ⚠ Pergunta de TEXTO obrigatória entra na conta também (2026-09-15, a
+        pedido). Até aqui só pergunta de NOTA fechava o gate — texto era
+        validado só no front (`required` do HTML, `isPerguntaOpcional` por
+        regex), que uma chamada direta à API ignora. `respondidas` já cobre os
+        dois tipos (o front nem cria a linha de texto em branco — ver
+        `handleSubmit`), então só faltava incluir o texto obrigatório no lado
+        que decide o que é obrigatório.
         """
         # Import local: `get_banca` puxa meia dúzia de use cases, e no topo
         # fecharia um ciclo com este módulo.
@@ -129,11 +138,18 @@ class SubmeterAvaliacaoUseCase:
         pe_por_id = {pe.id: pe for pe in self.projeto_escopo_repository.get_by_ids(pe_ids)}
         cobertos = set(escopos_avaliados_ids(pe_ids, pe_por_id, banca.escopo_id))
 
+        def _obrigatoria(p: dict) -> bool:
+            if p["tipo_resposta"] == "nota":
+                return True
+            # Mesma regra do front (`isPerguntaOpcional`, `lib/avaliacoes.ts`):
+            # "opcional" no texto da pergunta é o único jeito de marcar uma
+            # pergunta de texto como não-obrigatória — não há coluna própria.
+            return not re.search(r"opcional", p["texto"], re.IGNORECASE)
+
         obrigatorias = {
             p["id"]
             for p in form["perguntas"]
-            if p["tipo_resposta"] == "nota"
-            and (p["escopo_id"] is None or p["escopo_id"] in cobertos)
+            if (p["escopo_id"] is None or p["escopo_id"] in cobertos) and _obrigatoria(p)
         }
         if obrigatorias - respondidas:
             raise RegraDeNegocioError(

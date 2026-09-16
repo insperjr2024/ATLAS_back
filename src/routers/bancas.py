@@ -598,7 +598,9 @@ def create_candidatura(request: CreateCandidaturaRequest, current_user=Depends(g
             detail="Apenas o Diretor de Projetos pode alocar outra pessoa numa banca",
         )
     try:
-        return CreateCandidaturaUseCase(db).execute(request, usuario_id=alvo)
+        return CreateCandidaturaUseCase(db).execute(
+            request, usuario_id=alvo, eh_gestao=eh_diretoria_de_projetos(current_user)
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
