@@ -193,7 +193,9 @@ def gerar_documento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not usuario_tem_permissao(usuario, db, "pode_gerar_documento_juridico"):
+    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
+        usuario, db, "pode_gerar_documento_juridico"
+    ):
         raise HTTPException(status_code=403, detail="Sem permissão para gerar documentos jurídicos.")
 
     try:
