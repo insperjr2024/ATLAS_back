@@ -49,6 +49,17 @@ from src.utils.composicao_banca import (
 from src.utils.equipe_banca import coordenadores_da_banca, membros_da_banca
 
 
+def _juntar_com_e(nomes: list) -> str:
+    """"Fulano", "Fulano e Beltrano", "Fulano, Beltrano e Sicrano" — nunca só
+    " e " entre todo mundo, que lê "Fulano e Beltrano e Sicrano" quando um
+    projeto tem 3+ coordenadores (comum em projeto sinérgico)."""
+    if not nomes:
+        return ""
+    if len(nomes) == 1:
+        return nomes[0]
+    return f"{', '.join(nomes[:-1])} e {nomes[-1]}"
+
+
 class GetBancaDetalhesUseCase:
     def __init__(self, db: Session):
         #: Guardada para `_composicao`, que instancia o checker e o resolver
@@ -134,7 +145,7 @@ class GetBancaDetalhesUseCase:
             # ⚠ Junta os nomes de TODOS os coordenadores do projeto — antes
             # só lia `banca.coordenador_id` (o primeiro), e um segundo
             # coordenador de verdade simplesmente não aparecia na ficha.
-            "coordenador": " e ".join(sorted(self._nome(i) for i in coordenadores_ids)),
+            "coordenador": _juntar_com_e(sorted(self._nome(i) for i in coordenadores_ids)),
             # ⚠ O id junto do nome: a tela decide se mostra o formulário do
             # relato comparando com o usuário logado, e comparar por NOME
             # quebra em qualquer homônimo — além de esconder o formulário de
@@ -401,12 +412,18 @@ class GetBancaDetalhesUseCase:
             cache = {}
             self._cache_frentes_da_banca = cache
         if banca_id not in cache:
-            frentes = []
+            # ⚠ Dedup por frente_id: `banca_frente` não tem unique constraint
+            # em (banca_id, frente_id) (2026-09-17) — uma banca que já cobria
+            # Business e passou a cobrir também Direito, por exemplo, pode
+            # acabar com uma segunda linha de Business se o vínculo for
+            # recriado por outro caminho. Sem o dedup aqui, a mesma frente
+            # aparecia duas vezes na lista ("Direito, Business, Business").
+            vistas = {}
             for vinculo in self.banca_frente_repository.get_by_banca(banca_id):
                 frente = self.frente_repository.get_by_id(vinculo.frente_id)
                 if frente:
-                    frentes.append({"id": frente.id, "nome": frente.nome})
-            cache[banca_id] = sorted(frentes, key=lambda f: f["nome"])
+                    vistas[frente.id] = {"id": frente.id, "nome": frente.nome}
+            cache[banca_id] = sorted(vistas.values(), key=lambda f: f["nome"])
         return cache[banca_id]
 
     def _frentes_do_usuario(self, usuario_id: int) -> list:
