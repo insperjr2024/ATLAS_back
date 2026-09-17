@@ -15,7 +15,7 @@ def usuario(id, nome, posicao="consultor"):
 def _uc(*, ativos, contagem):
     uc = GetCargaBancasUseCase.__new__(GetCargaBancasUseCase)
     uc.candidatura_repository = SimpleNamespace(
-        contagem_bancas_por_usuario=lambda: contagem
+        contagem_bancas_por_usuario=lambda realizado=None: contagem
     )
     uc.usuario_repository = SimpleNamespace(get_ativos=lambda: ativos)
     return uc
@@ -74,6 +74,23 @@ def test_coordenador_de_vendas_entra_na_lista():
     resultado = uc.execute()
 
     assert {r["usuario_id"] for r in resultado} == {1}
+
+
+def test_filtro_repassa_o_recorte_certo_para_a_contagem():
+    """`filtro` só decide QUAL contagem pedir ao repositório — quem soma
+    realizado_em is/is not null é `contagem_bancas_por_usuario` (2026-09-17)."""
+    recebidos = []
+    uc = GetCargaBancasUseCase.__new__(GetCargaBancasUseCase)
+    uc.candidatura_repository = SimpleNamespace(
+        contagem_bancas_por_usuario=lambda realizado=None: recebidos.append(realizado) or {}
+    )
+    uc.usuario_repository = SimpleNamespace(get_ativos=lambda: [usuario(1, "Ana")])
+
+    uc.execute("todas")
+    uc.execute("realizadas")
+    uc.execute("futuras")
+
+    assert recebidos == [None, True, False]
 
 
 def test_empate_desempata_por_nome():
