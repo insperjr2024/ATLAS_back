@@ -16,6 +16,7 @@ from src.routers import (
     catalogo,
     cronograma,
     desempenho,
+    documentos_contratuais,
     monitoramento,
     notificacoes,
     projetos,
@@ -619,3 +620,4 @@ app.include_router(avaliacoes.router)
 app.include_router(desempenho.router)
 app.include_router(notificacoes.router)
 app.include_router(solicitacoes_troca.router)
+app.include_router(documentos_contratuais.router)

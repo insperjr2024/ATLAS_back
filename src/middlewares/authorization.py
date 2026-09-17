@@ -219,6 +219,38 @@ require_pode_gerir_calendarios_base = _dependencia_permissao(
     "Você não tem permissão para gerir os calendários base",
 )
 
+# ---------------------------------------------------------------- § Contratos
+
+require_pode_gerar_documento_juridico = _dependencia_permissao(
+    "pode_gerar_documento_juridico",
+    "Você não tem permissão para gerar documentos jurídicos",
+)
+
+require_pode_editar_documento_juridico = _dependencia_permissao(
+    "pode_editar_documento_juridico",
+    "Você não tem permissão para editar documentos jurídicos já confirmados",
+)
+
+require_pode_marcar_documento_assinado = _dependencia_permissao(
+    "pode_marcar_documento_assinado",
+    "Você não tem permissão para marcar um documento como assinado",
+)
+
+require_pode_ver_repositorio_contratos = _dependencia_permissao(
+    "pode_ver_repositorio_contratos",
+    "Você não tem permissão para ver o Repositório de Contratos",
+)
+
+require_pode_importar_documento_antigo = _dependencia_permissao(
+    "pode_importar_documento_antigo",
+    "Você não tem permissão para importar um documento antigo",
+)
+
+require_pode_solicitar_tep = _dependencia_permissao(
+    "pode_solicitar_tep",
+    "Você não tem permissão para solicitar um TEP",
+)
+
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):
