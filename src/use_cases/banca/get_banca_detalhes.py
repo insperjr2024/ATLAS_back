@@ -46,7 +46,7 @@ from src.utils.composicao_banca import (
     eh_lideranca,
     eh_lideranca_sem_frente,
 )
-from src.utils.equipe_banca import membros_da_banca
+from src.utils.equipe_banca import coordenadores_da_banca, membros_da_banca
 
 
 class GetBancaDetalhesUseCase:
@@ -86,8 +86,13 @@ class GetBancaDetalhesUseCase:
             if e
         ]
 
-        # O coordenador aparece na própria linha da ficha, então sai da lista
-        # de membros — repetir o mesmo nome nas duas diria menos, não mais.
+        coordenadores_ids = coordenadores_da_banca(
+            banca, self.banca_escopo_repository, self.escopo_repository, self.membro_repository
+        )
+
+        # O(s) coordenador(es) aparece(m) na própria linha da ficha, então
+        # saem da lista de membros — repetir o mesmo nome nas duas diria
+        # menos, não mais.
         equipe = membros_da_banca(
             banca,
             self.banca_escopo_repository,
@@ -95,7 +100,7 @@ class GetBancaDetalhesUseCase:
             self.membro_repository,
             self.equipe_projeto_repository,
         )
-        equipe.discard(banca.coordenador_id)
+        equipe -= coordenadores_ids
 
         # A MESMA sessão da nota final, senão os dois números do cabeçalho
         # falam de tentativas diferentes.
@@ -126,12 +131,20 @@ class GetBancaDetalhesUseCase:
             # (mín./máx. de membro e de liderança por frente). É o que deixa a
             # ficha dizer "Membros · Business 2/3" e marcar frente lotada.
             "composicao": self._composicao(banca, banca_id),
-            "coordenador": self._nome(banca.coordenador_id),
+            # ⚠ Junta os nomes de TODOS os coordenadores do projeto — antes
+            # só lia `banca.coordenador_id` (o primeiro), e um segundo
+            # coordenador de verdade simplesmente não aparecia na ficha.
+            "coordenador": " e ".join(sorted(self._nome(i) for i in coordenadores_ids)),
             # ⚠ O id junto do nome: a tela decide se mostra o formulário do
             # relato comparando com o usuário logado, e comparar por NOME
             # quebra em qualquer homônimo — além de esconder o formulário de
             # quem tem direito se o cadastro grafar o nome diferente.
+            #
+            # `coordenador_id` (singular) é só o PRIMEIRO, mantido pra quem
+            # ainda lê esse campo — quem precisa saber "sou eu, entre TODOS
+            # os coordenadores?" usa `coordenador_ids`.
             "coordenador_id": banca.coordenador_id,
+            "coordenador_ids": sorted(coordenadores_ids),
             "membros": sorted(self._nome(i) for i in equipe),
             # ⭐ Objetos, não nomes soltos: a aba precisa saber QUEM é cada um
             # para responder "sou eu?" e "já enviou?" sem cruzar listas do

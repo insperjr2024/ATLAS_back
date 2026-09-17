@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from src.models.banca_model import BancaModel
 from src.models.candidatura_model import CandidaturaModel
-from src.utils.exceptions import ResourceInUseError
+from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -21,7 +21,16 @@ class CandidaturaRepository:
             confirmado=confirmado
         )
         self.db.add(candidatura)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError:
+            # Rede de segurança da constraint `uq_candidatura_banca_usuario`
+            # (2026-09-16): o use case já barra a duplicata em condições
+            # normais, mas dois cliques em "Alocar-se" quase simultâneos
+            # podem passar pela checagem antes de qualquer um commitar — foi
+            # assim que uma consultora entrou 4x na mesma banca.
+            self.db.rollback()
+            raise RegraDeNegocioError("Esta pessoa já é candidata desta banca.")
         self.db.refresh(candidatura)
         return candidatura
 

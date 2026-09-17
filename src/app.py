@@ -39,6 +39,7 @@ from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaU
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
 from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
 from src.use_cases.notificacao.reenviar_pendentes import reenviar_emails_pendentes
+from src.utils.fuso import agora_utc
 from src.use_cases.notificacao.eventos import (
     notificar_lote_desempenho_lembrete,
     notificar_pdi_prazo_proximo,
@@ -160,10 +161,16 @@ def rodar_lembrete_lote_finalizacao() -> None:
 
     Dedup por `chave_dedup` (lote+pessoa) faz a varredura de 5 em 5 minutos
     custar uma query e nada mais depois do primeiro disparo — mesmo padrão
-    dos outros lembretes deste arquivo."""
+    dos outros lembretes deste arquivo.
+
+    ⚠ `agora_utc()`, não `datetime.now()` (2026-09-16): `data_fim` é UTC
+    (mesma régua de `banca.data_hora`, ver `fuso.py`), e comparar com a hora
+    LOCAL do servidor errava por 3h — um lote com prazo às 12:00 (local)
+    ainda parecia ter quase 1h de sobra às 14:05, e o lembrete saía dizendo
+    "responda até 12:00" já duas horas depois desse prazo ter passado."""
     db = SessionLocal()
     try:
-        agora = datetime.now()
+        agora = agora_utc()
         lote_repo = DesempenhoLoteRepository(db)
         avisos = 0
         for lote in lote_repo.get_abertos_agora():
