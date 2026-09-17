@@ -15,12 +15,27 @@ vez de virar um `timedelta(hours=3)` solto em cada chamador — o offset do Bras
 já mudou (horário de verão) e pode mudar de novo; `ZoneInfo` acompanha, um
 número fixo não.
 
-📐 Não confundir com os carimbos de auditoria (`criado_em`, `respondido_em`,
-`submetida_em`), que hoje são gravados com `datetime.now()` — hora local. Esses
-não passam por aqui: converter um valor que já é local o deslocaria de novo.
-Padronizar o backend inteiro num fuso só é uma decisão maior, ainda em aberto;
-o que este módulo resolve é a leitura de `banca.data_hora`, onde a convenção
-é conhecida e a comparação com a grade depende dela.
+⚠️ **Correção (2026-09-16): os carimbos de auditoria também são UTC.** Esta
+docstring dizia o contrário — que `criado_em`/`respondido_em`/`submetida_em`
+eram hora local do servidor, porque `datetime.now()` "sem fuso" parecia
+devolver horário de Brasília quando testado numa máquina local (o
+desenvolvedor mora em São Paulo, então o notebook dele também mora). Em
+produção o processo roda com o SO em UTC (comum em container/nuvem — o
+próprio `hoje_local()` logo abaixo já avisava disso, só que pra `date.today()`,
+não pra este caso) — `datetime.now()` no servidor real devolve UTC, não local.
+Foi assim que "Enviado em" numa avaliação de banca mostrava 3h adiantado: o
+front lia `submetida_em` cru com `new Date(iso)` (sem `Z`, interpretado como
+hora local pelo motor JS) em cima de um valor que já era UTC.
+
+A lição: qualquer datetime que sai do backend pro front pelas costas de um
+`datetime.now()` puro é UTC, ponto — mesma régua de `banca.data_hora`. Quem lê
+esse valor no FRONT usa `paraDataUtc()` (mesma ideia deste módulo, do lado
+de lá) antes de formatar. Quem compara no BACKEND contra outro UTC (ex.:
+`lote.data_fim`) usa `agora_utc()`, não `datetime.now()` cru — ver o
+comentário em `desempenho_lote.py`. Padronizar de vez (gravar tudo já como
+UTC-aware, por exemplo) é decisão maior, ainda em aberto; o que este módulo
+resolve é a leitura de `banca.data_hora`, onde a convenção sempre foi
+conhecida e a comparação com a grade depende dela.
 """
 
 from datetime import date, datetime, timezone
@@ -54,10 +69,14 @@ def normalizar_utc(dt: Optional[datetime]) -> Optional[datetime]:
 def agora_utc() -> datetime:
     """"Agora" na MESMA régua que `banca.data_hora` — UTC sem tzinfo.
 
-    ⚠ `datetime.now()` do servidor é hora LOCAL. Comparar `banca.data_hora`
-    (UTC) com ela erra por 3h: a finalização automática de uma banca marcada
-    para meio-dia só disparava às 15h (2026-09-09). Quem compara `data_hora`
-    com "agora" usa isto.
+    ⚠ Existe pelo motivo oposto do que esta função parecia sugerir antes
+    (2026-09-16, corrigido): `datetime.now()` cru do servidor É UTC em
+    produção, não local — mas comparações feitas contra ele às vezes foram
+    escritas assumindo local, e viviam erradas por 3h em qualquer direção
+    dependendo de qual lado do bug se olhava. `agora_utc()` não depende de
+    qual SO está por baixo: é sempre UTC explícito, comparável direto com
+    `banca.data_hora`/`lote.data_fim`, que também são UTC. Quem compara
+    qualquer um dos dois com "agora" usa isto, nunca `datetime.now()` cru.
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -66,11 +85,10 @@ def hoje_local() -> date:
     """"Hoje" de Brasília — NÃO `date.today()` (2026-09-15).
 
     ⚠ `date.today()`/`datetime.now()` sem fuso dependem do relógio do
-    SISTEMA OPERACIONAL do servidor, não do fuso deste módulo. O resto do
-    código assume que esse relógio já está em horário de Brasília (ver a
-    nota sobre `criado_em`/`submetida_em` no topo do arquivo) — mas se o
-    servidor rodar com o SO em UTC (comum em container/nuvem), `date.today()`
-    já é amanhã a partir de 21h daqui. Foi assim que uma tarefa com prazo
+    SISTEMA OPERACIONAL do servidor, não do fuso deste módulo — e em
+    produção esse relógio ESTÁ em UTC (confirmado 2026-09-16, não é só um
+    "se"; ver a correção no topo do arquivo), então `date.today()` já é
+    amanhã a partir de 21h daqui. Foi assim que uma tarefa com prazo
     para HOJE aparecia "vencida há 1 dia" três horas antes da meia-noite
     local — `tarefa_status.py` comparava `prazo` (uma data que a pessoa
     pensou em Brasília) contra o "hoje" errado.
