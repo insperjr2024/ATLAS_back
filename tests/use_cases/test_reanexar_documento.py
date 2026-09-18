@@ -1,5 +1,6 @@
 """Reanexar um .docx editado fora da plataforma (§ Contratos, 2026-09-18)."""
 
+import io
 from types import SimpleNamespace
 
 import pytest
@@ -38,8 +39,6 @@ class FakeVersaoRepo:
 
 
 def _docx_bytes():
-    import io
-
     doc = Document()
     doc.add_paragraph("Conteúdo editado fora da plataforma.")
     buffer = io.BytesIO()
@@ -47,47 +46,54 @@ def _docx_bytes():
     return buffer.getvalue()
 
 
+def _fake_converter_docx_para_pdf(docx_path: str) -> str:
+    pdf_path = docx_path[:-5] + ".pdf"
+    with open(pdf_path, "wb") as f:
+        f.write(b"%PDF-1.4 conteudo de mentira")
+    return pdf_path
+
+
 def documento(status="em_revisao_interna"):
     return SimpleNamespace(id=1, tipo="contrato", status=status, projeto_id=7)
 
 
-def montar(doc, tmp_path, monkeypatch):
-    monkeypatch.setattr(reanexar_mod, "GERADOS_DIR", str(tmp_path))
-    monkeypatch.setattr(reanexar_mod, "converter_docx_para_pdf", lambda docx_path: docx_path[:-5] + ".pdf")
+def montar(doc, monkeypatch):
+    monkeypatch.setattr(reanexar_mod, "converter_docx_para_pdf", _fake_converter_docx_para_pdf)
     uc = ReanexarDocumentoContratualUseCase.__new__(ReanexarDocumentoContratualUseCase)
     uc.documentos = FakeDocumentoRepo(doc)
     uc.versoes = FakeVersaoRepo()
     return uc
 
 
-def test_cria_nova_versao_a_partir_do_arquivo_enviado(tmp_path, monkeypatch):
+def test_cria_nova_versao_a_partir_do_arquivo_enviado(monkeypatch):
     doc = documento()
-    uc = montar(doc, tmp_path, monkeypatch)
+    uc = montar(doc, monkeypatch)
 
     versao = uc.execute(1, _docx_bytes())
 
     assert versao.versao == 2
     assert versao.status_arquivo == "rascunho"
-    assert Document(versao.docx_path).paragraphs[0].text == "Conteúdo editado fora da plataforma."
+    assert Document(io.BytesIO(versao.docx_conteudo)).paragraphs[0].text == "Conteúdo editado fora da plataforma."
+    assert versao.pdf_conteudo == b"%PDF-1.4 conteudo de mentira"
     assert doc.status == "em_revisao_interna"
 
 
-def test_recusa_sem_arquivo(tmp_path, monkeypatch):
-    uc = montar(documento(), tmp_path, monkeypatch)
+def test_recusa_sem_arquivo(monkeypatch):
+    uc = montar(documento(), monkeypatch)
 
     with pytest.raises(RegraDeNegocioError, match="Envie um arquivo"):
         uc.execute(1, b"")
 
 
-def test_recusa_fora_de_status_de_edicao(tmp_path, monkeypatch):
-    uc = montar(documento(status="aprovado_pelo_cliente"), tmp_path, monkeypatch)
+def test_recusa_fora_de_status_de_edicao(monkeypatch):
+    uc = montar(documento(status="aprovado_pelo_cliente"), monkeypatch)
 
     with pytest.raises(RegraDeNegocioError, match="anexar um novo rascunho"):
         uc.execute(1, _docx_bytes())
 
 
-def test_recusa_arquivo_que_nao_e_docx_valido(tmp_path, monkeypatch):
-    uc = montar(documento(), tmp_path, monkeypatch)
+def test_recusa_arquivo_que_nao_e_docx_valido(monkeypatch):
+    uc = montar(documento(), monkeypatch)
 
     with pytest.raises(RegraDeNegocioError, match="não é um .docx válido"):
         uc.execute(1, b"isto nao e um docx")

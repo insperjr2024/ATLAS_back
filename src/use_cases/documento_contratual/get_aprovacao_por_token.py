@@ -37,5 +37,4 @@ class GetAprovacaoPorTokenUseCase:
             "nome_projeto": documento.projeto.nome,
             "tipo_documento": documento.tipo,
             "status": documento.status,
-            "pdf_path": versao.pdf_path,
         }

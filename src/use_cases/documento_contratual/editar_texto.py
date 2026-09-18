@@ -1,11 +1,19 @@
 """Ler e editar o texto do rascunho gerado, parágrafo por parágrafo (§ Contratos).
 
-⭐ 2026-09-18 — porta de `PATCH /contratos/{id}/documento/texto` (uso de
-`editar_docx.py`). Edita o `.docx` da ÚLTIMA versão IN PLACE — não cria uma
-versão nova (diferente de gerar/reanexar) — e reconverte pra PDF, senão a
-tela de aprovação mostraria um PDF desatualizado.
+⭐ 2026-09-16 — porta de `PATCH /contratos/{id}/documento/texto` (uso de
+`editar_docx.py`). Edita a ÚLTIMA versão IN PLACE (mesma linha, `docx_
+conteudo`/`pdf_conteudo` atualizados) — não cria uma versão nova (diferente
+de gerar/reanexar).
+
+⚠ 2026-09-18 — `editar_docx.py` só sabe editar um ARQUIVO em disco (é
+`python-docx`, não dá pra editar bytes em memória direto). O conteúdo em si
+mora no banco (ver docstring do model): grava os bytes atuais num arquivo
+temporário, edita ali, lê de volta, e o diretório desaparece com o `with` —
+nada sobrevive em disco além desta chamada.
 """
 
+import os
+import tempfile
 from typing import Dict, List
 
 from sqlalchemy.orm import Session
@@ -31,7 +39,11 @@ class GetParagrafosEditaveisUseCase:
             raise RegraDeNegocioError(
                 f'Não é possível editar o texto com o documento no status "{documento.status}".'
             )
-        return extrair_paragrafos_editaveis(versao.docx_path)
+        with tempfile.TemporaryDirectory() as pasta_temp:
+            docx_path = os.path.join(pasta_temp, "rascunho.docx")
+            with open(docx_path, "wb") as f:
+                f.write(versao.docx_conteudo)
+            return extrair_paragrafos_editaveis(docx_path)
 
 
 class EditarTextoDocumentoContratualUseCase:
@@ -48,8 +60,20 @@ class EditarTextoDocumentoContratualUseCase:
         if not edicoes:
             raise RegraDeNegocioError("Nenhuma edição enviada.")
 
-        alterados = aplicar_edicoes(versao.docx_path, edicoes)
-        converter_docx_para_pdf(versao.docx_path)
+        with tempfile.TemporaryDirectory() as pasta_temp:
+            docx_path = os.path.join(pasta_temp, "rascunho.docx")
+            with open(docx_path, "wb") as f:
+                f.write(versao.docx_conteudo)
+
+            alterados = aplicar_edicoes(docx_path, edicoes)
+            pdf_path = converter_docx_para_pdf(docx_path)
+
+            with open(docx_path, "rb") as f:
+                docx_conteudo = f.read()
+            with open(pdf_path, "rb") as f:
+                pdf_conteudo = f.read()
+
+        self.versoes.update(versao.id, docx_conteudo=docx_conteudo, pdf_conteudo=pdf_conteudo)
         return {"alterados": alterados}
 
 

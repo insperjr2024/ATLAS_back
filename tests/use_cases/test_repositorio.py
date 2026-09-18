@@ -44,7 +44,7 @@ def montar(documentos, versoes=None, semestres=None):
 
 def test_monta_um_item_por_documento_com_rotulo_e_gestao():
     doc = documento(1)
-    versao = SimpleNamespace(docx_path="/a.docx", pdf_path="/a.pdf", arquivado_em="2026-09-01")
+    versao = SimpleNamespace(pdf_conteudo=b"%PDF-1.4", arquivado_em="2026-09-01")
     semestre = SimpleNamespace(id=5, nome="2026.2")
     uc = montar([doc], versoes={1: versao}, semestres=[semestre])
 
@@ -60,8 +60,7 @@ def test_monta_um_item_por_documento_com_rotulo_e_gestao():
             "tipo_rotulo": "Contrato de Prestação de Serviços",
             "gestao_id": 5,
             "gestao_nome": "2026.2",
-            "docx_path": "/a.docx",
-            "pdf_path": "/a.pdf",
+            "tem_arquivo": True,
             "arquivado_em": "2026-09-01",
         }
     ]
@@ -81,5 +80,5 @@ def test_documento_sem_versao_nao_quebra():
 
     itens = uc.execute()
 
-    assert itens[0]["docx_path"] is None
+    assert itens[0]["tem_arquivo"] is False
     assert itens[0]["gestao_nome"] is None

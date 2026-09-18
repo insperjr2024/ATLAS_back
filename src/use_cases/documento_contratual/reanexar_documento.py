@@ -1,13 +1,18 @@
 """Substituir o rascunho por um .docx editado fora da plataforma (§ Contratos).
 
 ⭐ 2026-09-18 — porta de `contratos-backend/src/use_cases/projeto/reanexar_documento.py`.
-Diferente de `editar_texto.py` (reescreve o mesmo arquivo, mesma versão),
-usa o mecanismo de "Gerar novo rascunho": cria uma linha nova em
-`documento_contratual_versao` com `versao` incrementada, preservando o
-histórico das versões anteriores.
+Diferente de `editar_texto.py` (reescreve a mesma versão), usa o mecanismo
+de "Gerar novo rascunho": cria uma linha nova em `documento_contratual_versao`
+com `versao` incrementada, preservando o histórico das versões anteriores.
+
+⚠ A validação de "é um .docx de verdade" e a conversão pra PDF exigem um
+arquivo real em disco (LibreOffice) — um diretório temporário existe só
+durante esta chamada; o conteúdo final vai pro banco (`docx_conteudo`/
+`pdf_conteudo`), nunca um caminho (ver docstring do model).
 """
 
 import os
+import tempfile
 
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
@@ -20,8 +25,6 @@ from src.repositories.documento_contratual_versao_repository import (
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.pdf import converter_docx_para_pdf
 from src.utils.status_documento_contratual import STATUS_EDICAO_TEXTO
-
-GERADOS_DIR = os.path.join(os.getcwd(), "gerados", "documentos_contratuais")
 
 
 class ReanexarDocumentoContratualUseCase:
@@ -41,28 +44,27 @@ class ReanexarDocumentoContratualUseCase:
                 f'Não é possível anexar um novo rascunho com o documento no status "{documento.status}".'
             )
 
+        with tempfile.TemporaryDirectory() as pasta_temp:
+            docx_path = os.path.join(pasta_temp, "reanexado.docx")
+            with open(docx_path, "wb") as f:
+                f.write(docx_bytes)
+
+            try:
+                Document(docx_path)
+            except PackageNotFoundError:
+                raise RegraDeNegocioError("O arquivo enviado não é um .docx válido.")
+
+            pdf_path = converter_docx_para_pdf(docx_path)
+            with open(pdf_path, "rb") as f:
+                pdf_conteudo = f.read()
+
         versao = self.versoes.ultima_versao(documento_id) + 1
-        pasta_projeto = os.path.join(GERADOS_DIR, str(documento.projeto_id))
-        os.makedirs(pasta_projeto, exist_ok=True)
-        nome_base = f"{documento.tipo}_v{versao}"
-        docx_path = os.path.join(pasta_projeto, f"{nome_base}.docx")
-        with open(docx_path, "wb") as f:
-            f.write(docx_bytes)
-
-        try:
-            Document(docx_path)
-        except PackageNotFoundError:
-            os.remove(docx_path)
-            raise RegraDeNegocioError("O arquivo enviado não é um .docx válido.")
-
-        pdf_path = converter_docx_para_pdf(docx_path)
-
         versao_criada = self.versoes.create(
             documento_id=documento_id,
             versao=versao,
             status_arquivo="rascunho",
-            docx_path=docx_path,
-            pdf_path=pdf_path,
+            docx_conteudo=docx_bytes,
+            pdf_conteudo=pdf_conteudo,
         )
 
         self.documentos.update(documento_id, status="em_revisao_interna")

@@ -15,10 +15,8 @@ projeto). Diretoria de projetos e quem tem `pode_editar_documento_juridico`
 (o Jurídico) sempre podem, qualquer tipo.
 """
 
-import os
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Any, Dict
@@ -229,15 +227,19 @@ def download_arquivo(
     versao = DocumentoContratualVersaoRepository(db).ultima_versao_obj(documento_id)
     if not versao:
         raise HTTPException(status_code=404, detail="Nenhum arquivo gerado ainda.")
-    caminho = versao.pdf_path if formato == "pdf" else versao.docx_path
-    if not caminho or not os.path.exists(caminho):
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor.")
+    conteudo = versao.pdf_conteudo if formato == "pdf" else versao.docx_conteudo
+    if not conteudo:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
     media_type = "application/pdf" if formato == "pdf" else (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
     nome = f"{documento['tipo']}_v{versao.versao}.{formato}"
-    return FileResponse(caminho, media_type=media_type, filename=nome)
+    return Response(
+        content=conteudo,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
 
 
 @router.patch("/documentos-contratuais/{documento_id}")

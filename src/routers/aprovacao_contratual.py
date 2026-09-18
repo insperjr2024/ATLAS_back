@@ -6,10 +6,8 @@ pública que `auth.router_publico` (login, esqueci-senha) — um `APIRouter`
 sem `Depends(get_current_user)`, o TOKEN de uso único é a única credencial.
 """
 
-import os
-
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -48,9 +46,13 @@ def download_arquivo_aprovacao(token: str, db: Session = Depends(get_db)):
     if not registro:
         raise HTTPException(status_code=404, detail="Link inválido.")
     versao = DocumentoContratualVersaoRepository(db).get_by_id(registro.versao_id)
-    if not versao or not versao.pdf_path or not os.path.exists(versao.pdf_path):
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor.")
-    return FileResponse(versao.pdf_path, media_type="application/pdf", filename="documento.pdf")
+    if not versao or not versao.pdf_conteudo:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+    return Response(
+        content=versao.pdf_conteudo,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="documento.pdf"'},
+    )
 
 
 @router_publico.post("/aprovacao/{token}/responder")

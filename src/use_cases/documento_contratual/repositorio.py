@@ -41,8 +41,10 @@ class ListarRepositorioContratualUseCase:
                     "tipo_rotulo": ROTULO_TIPO.get(documento.tipo, "Documento"),
                     "gestao_id": documento.gestao_id,
                     "gestao_nome": gestao.nome if gestao else None,
-                    "docx_path": versao_final.docx_path if versao_final else None,
-                    "pdf_path": versao_final.pdf_path if versao_final else None,
+                    # O conteúdo mora no banco (ver docstring do model) — o
+                    # front baixa por `documento.id` no endpoint dedicado,
+                    # não por caminho. Só avisa se há o que baixar.
+                    "tem_arquivo": bool(versao_final and versao_final.pdf_conteudo),
                     "arquivado_em": versao_final.arquivado_em if versao_final else None,
                 }
             )
