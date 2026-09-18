@@ -3,14 +3,28 @@
 ⭐ Mesmo dado que o push automático usa pra rodízio (`CandidaturaRepository.
 contagem_bancas_por_usuario`), só que agora exposto pra diretoria/gerência
 CONFERIREM — antes só existia dentro do cálculo do push, sem nenhuma tela
-mostrando pra fora. Conta bancas JÁ REALIZADAS + futuras, cancelada não
-conta (mesmo filtro do rodízio).
+mostrando pra fora. Cancelada não conta (mesmo filtro do rodízio), e por
+padrão soma JÁ REALIZADAS + futuras — mas aqui, diferente do push, o recorte
+é escolha de quem está olhando (`filtro`, 2026-09-17, a pedido): só quem já
+avaliou, só quem ainda vai, ou as duas somadas.
 """
+
+from typing import Literal
 
 from sqlalchemy.orm import Session
 
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.usuario_repository import UsuarioRepository
+
+FiltroCargaBancas = Literal["todas", "realizadas", "futuras"]
+
+#: `None` pra `contagem_bancas_por_usuario` quer dizer "sem filtro de
+#: realizado_em" — mesmo default do push.
+_REALIZADO_POR_FILTRO: dict[str, bool | None] = {
+    "todas": None,
+    "realizadas": True,
+    "futuras": False,
+}
 
 
 class GetCargaBancasUseCase:
@@ -18,8 +32,9 @@ class GetCargaBancasUseCase:
         self.candidatura_repository = CandidaturaRepository(db)
         self.usuario_repository = UsuarioRepository(db)
 
-    def execute(self) -> list[dict]:
-        contagem = self.candidatura_repository.contagem_bancas_por_usuario()
+    def execute(self, filtro: FiltroCargaBancas = "todas") -> list[dict]:
+        realizado = _REALIZADO_POR_FILTRO[filtro]
+        contagem = self.candidatura_repository.contagem_bancas_por_usuario(realizado)
         linhas = [
             {
                 "usuario_id": u.id,

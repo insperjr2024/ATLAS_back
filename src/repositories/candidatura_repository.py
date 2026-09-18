@@ -58,9 +58,8 @@ class CandidaturaRepository:
             .all()
         )
 
-    def contagem_bancas_por_usuario(self) -> Dict[int, int]:
-        """Quantas bancas cada pessoa carrega, JÁ REALIZADAS + FUTURAS — ranking
-        do push (2026-09-15).
+    def contagem_bancas_por_usuario(self, realizado: Optional[bool] = None) -> Dict[int, int]:
+        """Quantas bancas cada pessoa carrega — ranking do push (2026-09-15).
 
         ⚠ Substitui `ultima_alocacao_por_usuario` como critério do rodízio: o
         rodízio antigo olhava só "há quanto tempo foi a última alocação", não
@@ -68,23 +67,31 @@ class CandidaturaRepository:
         manuais e nenhuma escalação automática recente entrava primeiro na
         fila mesmo já carregado.
 
-        ⚠ Conta o HISTÓRICO inteiro, não só o que ainda vai acontecer
-        (2026-09-15, a pedido — versão anterior filtrava só bancas futuras).
-        Quem já realizou banca este semestre já carregou a parte dele: contar
-        só a agenda futura fazia essa pessoa parecer "livre" de novo assim que
-        a última banca dela acontecia, e o rodízio empilhava mais em cima. Só
-        cancelada não conta — ela não aconteceu de propósito.
+        ⚠ Por padrão (`realizado=None`) conta o HISTÓRICO inteiro, não só o
+        que ainda vai acontecer (2026-09-15, a pedido — versão anterior
+        filtrava só bancas futuras). Quem já realizou banca este semestre já
+        carregou a parte dele: contar só a agenda futura fazia essa pessoa
+        parecer "livre" de novo assim que a última banca dela acontecia, e o
+        rodízio empilhava mais em cima. Só cancelada não conta — ela não
+        aconteceu de propósito. **O push sempre chama sem argumento** — a
+        régua do rodízio é essa, ponto; o parâmetro existe só pra
+        `GetCargaBancasUseCase` oferecer o recorte (já atendidas / futuras /
+        todas) que a diretoria pediu pra CONFERIR carga, não pra decidir quem
+        escalar (2026-09-17).
         """
-        linhas = (
+        query = (
             self.db.query(
                 CandidaturaModel.usuario_id,
                 func.count(CandidaturaModel.id),
             )
             .join(BancaModel, BancaModel.id == CandidaturaModel.banca_id)
             .filter(BancaModel.cancelada_em.is_(None))
-            .group_by(CandidaturaModel.usuario_id)
-            .all()
         )
+        if realizado is True:
+            query = query.filter(BancaModel.realizado_em.is_not(None))
+        elif realizado is False:
+            query = query.filter(BancaModel.realizado_em.is_(None))
+        linhas = query.group_by(CandidaturaModel.usuario_id).all()
         return {usuario_id: qtd for usuario_id, qtd in linhas}
 
     def get_by_usuario(self, usuario_id: int) -> List[CandidaturaModel]:

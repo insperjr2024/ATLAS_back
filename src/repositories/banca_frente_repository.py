@@ -20,7 +20,18 @@ class BancaFrenteRepository:
         return self.db.query(BancaFrenteModel).filter(BancaFrenteModel.id == banca_frente_id).first()
 
     def get_by_banca(self, banca_id: int) -> List[BancaFrenteModel]:
-        return self.db.query(BancaFrenteModel).filter(BancaFrenteModel.banca_id == banca_id).all()
+        # ⚠ Dedup por frente_id (2026-09-17): não há unique constraint em
+        # (banca_id, frente_id), e uma linha duplicada aqui não é só um nome
+        # repetido na ficha — dobra o piso mínimo e as vagas calculadas para
+        # aquela frente em `ListBancasUseCase`. "Vinculado a uma frente" é
+        # sim/não; quem precisa do REGISTRO cru (tela de administração das
+        # linhas de `banca_frente`) usa `get_all()`, não isto.
+        vistos = {}
+        for vinculo in (
+            self.db.query(BancaFrenteModel).filter(BancaFrenteModel.banca_id == banca_id).all()
+        ):
+            vistos.setdefault(vinculo.frente_id, vinculo)
+        return list(vistos.values())
 
     def get_all(self) -> List[BancaFrenteModel]:
         return self.db.query(BancaFrenteModel).all()
