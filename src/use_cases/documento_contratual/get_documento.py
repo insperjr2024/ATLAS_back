@@ -7,6 +7,7 @@ from src.repositories.documento_contratual_repository import DocumentoContratual
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
+from src.use_cases.documento_contratual.marcar_assinado import dias_restantes_aceite_tacito
 
 
 def serializar_documento_contratual(
@@ -23,6 +24,9 @@ def serializar_documento_contratual(
         "criado_em": documento.criado_em,
         "atualizado_em": documento.atualizado_em,
         "ultima_versao": ultima_versao,
+        # Só não-`None` pro TEP em "aprovado_pelo_cliente" — o front usa isto
+        # pra liberar o botão "Considerar assinado (prazo vencido)".
+        "dias_restantes_aceite_tacito": dias_restantes_aceite_tacito(documento),
     }
 
 

@@ -27,7 +27,13 @@ from src.middlewares.authorization import (
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.repositories.solicitacao_alteracao_contratual_repository import (
+    SolicitacaoAlteracaoContratualRepository,
+)
 from src.use_cases.documento_contratual.abrir_documento import AbrirDocumentoContratualUseCase
+from src.use_cases.documento_contratual.analisar_solicitacao import (
+    AnalisarSolicitacaoAlteracaoUseCase,
+)
 from src.use_cases.documento_contratual.atualizar_dados import (
     AtualizarDadosDocumentoContratualUseCase,
 )
@@ -42,6 +48,9 @@ from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
     ListDocumentosContratuaisPorProjetoUseCase,
     serializar_documento_contratual,
+)
+from src.use_cases.documento_contratual.marcar_assinado import (
+    MarcarAssinadoDocumentoContratualUseCase,
 )
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -79,6 +88,12 @@ def _pode_editar_livre(usuario, db: Session) -> bool:
 def _pode_gerar_documento(usuario, db: Session) -> bool:
     return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
         usuario, db, "pode_gerar_documento_juridico"
+    )
+
+
+def _pode_marcar_assinado(usuario, db: Session) -> bool:
+    return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
+        usuario, db, "pode_marcar_documento_assinado"
     )
 
 
@@ -255,3 +270,72 @@ def recusar_assinatura_tep(
         return ExportarAprovacaoDocumentoContratualUseCase(db).recusar_assinatura_tep(documento_id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.post("/documentos-contratuais/{documento_id}/marcar-assinado")
+def marcar_assinado(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_marcar_assinado(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para marcar documentos como assinados.")
+
+    try:
+        atualizado = MarcarAssinadoDocumentoContratualUseCase(db).execute(documento_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return serializar_documento_contratual(atualizado)
+
+
+@router.post("/documentos-contratuais/{documento_id}/considerar-aceito-por-prazo")
+def considerar_aceito_por_prazo(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_marcar_assinado(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para marcar documentos como assinados.")
+
+    try:
+        atualizado = MarcarAssinadoDocumentoContratualUseCase(db).considerar_aceito_por_prazo(
+            documento_id
+        )
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return serializar_documento_contratual(atualizado)
+
+
+@router.patch("/solicitacoes-alteracao-contratual/{solicitacao_id}/analisar")
+def analisar_solicitacao(
+    solicitacao_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    solicitacao = SolicitacaoAlteracaoContratualRepository(db).get_by_id(solicitacao_id)
+    if not solicitacao:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    documento = GetDocumentoContratualUseCase(db).execute(solicitacao.documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_editar_livre(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para analisar esta solicitação.")
+
+    try:
+        analisada = AnalisarSolicitacaoAlteracaoUseCase(db).execute(solicitacao_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {
+        "id": analisada.id,
+        "documento_id": analisada.documento_id,
+        "status": analisada.status,
+    }
