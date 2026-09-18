@@ -65,6 +65,17 @@ ORDEM_TIPOS = (
     TipoDocumentoContratual.OUTRO,
 )
 
+#: Rótulo amigável do tipo — usado nas notificações e em qualquer tela que
+#: precise nomear o documento pra gente, não pro sistema.
+ROTULO_TIPO = {
+    TipoDocumentoContratual.CONTRATO.value: "Contrato de Prestação de Serviços",
+    TipoDocumentoContratual.TEP.value: "Termo de Encerramento de Projeto",
+    TipoDocumentoContratual.NDA.value: "Acordo de Confidencialidade",
+    TipoDocumentoContratual.USO_IMAGEM.value: "Termo de Uso de Imagem",
+    TipoDocumentoContratual.ADITIVO.value: "Termo Aditivo",
+    TipoDocumentoContratual.OUTRO.value: "Documento",
+}
+
 
 # ---------- Conjuntos de status ----------
 
@@ -96,7 +107,14 @@ STATUS_DADOS_TRAVADOS = frozenset({
 #: cliente não assina em N dias corridos contados de quando o TEP fica
 #: pronto para assinatura, o TEP se considera aceito. Nunca é automático —
 #: só libera um botão pro time confirmar manualmente depois de vencido.
-PRAZO_ACEITE_TACITO_TEP_DIAS = 20
+#:
+#: ⚠ 2026-09-18, corrigido: o texto real da cláusula (ver o .docx do
+#: template) diz 5 dias corridos. O valor 20 veio de uma confusão com o
+#: prazo de SUPORTE pós-aceite (20 dias ÚTEIS, Cláusula 18ª do Contrato de
+#: PS) — outro prazo, contado a partir de outro marco — e foi portado por
+#: engano junto com o resto na Fase 1. A fonte de verdade é o documento que
+#: o cliente assina, não o valor que o sistema antigo usava.
+PRAZO_ACEITE_TACITO_TEP_DIAS = 5
 
 
 def ordenar_por_tipo(tipos):

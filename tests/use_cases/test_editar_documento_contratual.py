@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import src.use_cases.documento_contratual.confirmar_preenchimento as confirmar_preenchimento_mod
 from src.use_cases.documento_contratual.atualizar_dados import (
     AtualizarDadosDocumentoContratualUseCase,
 )
@@ -40,10 +41,15 @@ def montar_atualizar(doc):
     return uc
 
 
-def montar_confirmar(doc):
+def montar_confirmar(doc, monkeypatch):
+    # A notificação (`documento_pronto_para_gerar`) não é o que este teste
+    # cobre — vira no-op, mesmo padrão de `test_entrada_solicitacao.py` pra
+    # não exigir um banco de verdade só pra montar destinatários.
+    monkeypatch.setattr(confirmar_preenchimento_mod, "documento_pronto_para_gerar", lambda *a, **k: None)
     uc = ConfirmarPreenchimentoDocumentoContratualUseCase.__new__(
         ConfirmarPreenchimentoDocumentoContratualUseCase
     )
+    uc.db = None
     uc.documentos = FakeDocumentoRepo(doc)
     return uc
 
@@ -95,24 +101,24 @@ class TestAtualizarDados:
 
 
 class TestConfirmarPreenchimento:
-    def test_confirma_um_documento_aguardando_preenchimento(self):
+    def test_confirma_um_documento_aguardando_preenchimento(self, monkeypatch):
         doc = documento()
-        uc = montar_confirmar(doc)
+        uc = montar_confirmar(doc, monkeypatch)
 
         confirmado = uc.execute(1)
 
         assert confirmado.confirmado is True
 
-    def test_nao_confirma_duas_vezes(self):
+    def test_nao_confirma_duas_vezes(self, monkeypatch):
         doc = documento(confirmado=True)
-        uc = montar_confirmar(doc)
+        uc = montar_confirmar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="já foi confirmado"):
             uc.execute(1)
 
-    def test_nao_confirma_fora_de_aguardando_preenchimento(self):
+    def test_nao_confirma_fora_de_aguardando_preenchimento(self, monkeypatch):
         doc = documento(status="em_revisao_interna")
-        uc = montar_confirmar(doc)
+        uc = montar_confirmar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="aguardando preenchimento"):
             uc.execute(1)

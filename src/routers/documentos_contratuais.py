@@ -1,9 +1,10 @@
-"""§ Contratos — abrir, preencher, confirmar e gerar documentos jurídicos.
+"""§ Contratos — abrir, preencher, confirmar, gerar, exportar e aprovar
+documentos jurídicos.
 
-⭐ 2026-09-16 — Fase 1 da integração com a antiga plataforma Contratos. Cobre
-o ciclo "abrir → preencher → confirmar → gerar rascunho"; o que vem depois
-(exportar aprovação pro cliente, marcar assinado, arquivar) é fase futura —
-ver o plano publicado nesta sessão.
+⭐ 2026-09-16 — Fase 1 cobriu o ciclo "abrir → preencher → confirmar → gerar
+rascunho". ⭐ 2026-09-18 (Fase 2) — o resto do ciclo: exportar pro cliente
+aprovar (o lado público, sem login, mora em `aprovacao_contratual.py`),
+marcar como assinado e arquivar.
 
 ⚠ Permissão de ABRIR um documento é por TIPO, não uma caixa só: o Contrato
 de Prestação usa a mesma permissão de criar projeto (é a venda que traz os
@@ -32,6 +33,9 @@ from src.use_cases.documento_contratual.atualizar_dados import (
 )
 from src.use_cases.documento_contratual.confirmar_preenchimento import (
     ConfirmarPreenchimentoDocumentoContratualUseCase,
+)
+from src.use_cases.documento_contratual.exportar_aprovacao import (
+    ExportarAprovacaoDocumentoContratualUseCase,
 )
 from src.use_cases.documento_contratual.gerar_documento import GerarDocumentoContratualUseCase
 from src.use_cases.documento_contratual.get_documento import (
@@ -69,6 +73,12 @@ def _pode_abrir_documento(usuario, db: Session, tipo: str) -> bool:
 def _pode_editar_livre(usuario, db: Session) -> bool:
     return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
         usuario, db, "pode_editar_documento_juridico"
+    )
+
+
+def _pode_gerar_documento(usuario, db: Session) -> bool:
+    return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
+        usuario, db, "pode_gerar_documento_juridico"
     )
 
 
@@ -193,9 +203,7 @@ def gerar_documento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
-        usuario, db, "pode_gerar_documento_juridico"
-    ):
+    if not _pode_gerar_documento(usuario, db):
         raise HTTPException(status_code=403, detail="Sem permissão para gerar documentos jurídicos.")
 
     try:
@@ -209,3 +217,41 @@ def gerar_documento(
         "status_arquivo": versao.status_arquivo,
         "criado_em": versao.criado_em,
     }
+
+
+@router.post("/documentos-contratuais/{documento_id}/exportar-aprovacao")
+def exportar_aprovacao(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_gerar_documento(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para exportar documentos jurídicos.")
+
+    try:
+        return ExportarAprovacaoDocumentoContratualUseCase(db).execute(documento_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.post("/documentos-contratuais/{documento_id}/recusar-assinatura-tep")
+def recusar_assinatura_tep(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_gerar_documento(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para exportar documentos jurídicos.")
+
+    try:
+        return ExportarAprovacaoDocumentoContratualUseCase(db).recusar_assinatura_tep(documento_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))

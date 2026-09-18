@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from src.database.database import SessionLocal, engine
 from src.routers import (
+    aprovacao_contratual,
     auth,
     avaliacoes,
     bancas,
@@ -614,6 +615,7 @@ def health_check():
 
 app.include_router(auth.router_publico)
 app.include_router(auth.router)
+app.include_router(aprovacao_contratual.router_publico)
 app.include_router(catalogo.router)
 app.include_router(usuarios.router)
 app.include_router(grade_horaria.router)
