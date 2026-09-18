@@ -43,6 +43,7 @@ from src.use_cases.banca.entrada_solicitacao import (
     DecidirEntradaBancaRequest,
     DecidirEntradaBancaUseCase,
     ListarEntradaBancaPendentesUseCase,
+    ListarMinhasEntradaBancaUseCase,
     SolicitarEntradaBancaRequest,
     SolicitarEntradaBancaUseCase,
 )
@@ -655,6 +656,15 @@ def solicitar_entrada_banca(
 def listar_entrada_banca_pendentes(_=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)):
     """A fila da aba Aprovações."""
     return ListarEntradaBancaPendentesUseCase(db).execute()
+
+
+@router.get("/bancas/entrada/minhas")
+def listar_minhas_entrada_banca(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """⭐ 2026-09-18: o que EU pedi e ainda espera decisão — pra `/bancas`
+    trocar "Solicitar entrada" por "Aguardando aprovação" nas bancas que já
+    pedi. Qualquer autenticado vê a própria fila; a justificativa de quem
+    pede não é assunto de quem só está olhando a lista de bancas."""
+    return ListarMinhasEntradaBancaUseCase(db).execute(current_user.id)
 
 
 @router.patch("/bancas/entrada/{pedido_id}")

@@ -19,6 +19,7 @@ from src.use_cases.banca.entrada_solicitacao import (
     DecidirEntradaBancaRequest,
     DecidirEntradaBancaUseCase,
     ListarEntradaBancaPendentesUseCase,
+    ListarMinhasEntradaBancaUseCase,
     SolicitarEntradaBancaRequest,
     SolicitarEntradaBancaUseCase,
 )
@@ -373,3 +374,25 @@ class TestListar:
         assert linhas[0]["projeto_nome"] == "FRUTAS I"
         assert linhas[0]["usuario_nome"] == "Fulano de Tal"
         assert linhas[0]["alocados"] == 2
+
+
+class TestListarMinhas:
+    def test_devolve_so_os_pedidos_pendentes_da_pessoa(self, monkeypatch):
+        """2026-09-18, a pedido: é o que `/bancas` usa pra trocar "Solicitar
+        entrada" por "Aguardando aprovação" nas bancas que a pessoa já
+        pediu — só as DELA, não a fila inteira da diretoria."""
+        meu_pedido = SimpleNamespace(id=1, banca_id=50, criado_em=datetime(2026, 9, 18))
+
+        class RepoFake:
+            def __init__(self, db):
+                pass
+
+            def get_pendentes_do_usuario(self, usuario_id):
+                assert usuario_id == 10
+                return [meu_pedido]
+
+        monkeypatch.setattr(entrada_solicitacao, "BancaEntradaSolicitacaoRepository", RepoFake)
+
+        linhas = ListarMinhasEntradaBancaUseCase(db=None).execute(10)
+
+        assert linhas == [{"id": 1, "banca_id": 50, "criado_em": datetime(2026, 9, 18)}]

@@ -17,6 +17,21 @@ class BancaEntradaSolicitacaoRepository(BaseRepository[BancaEntradaSolicitacaoMo
             .all()
         )
 
+    def get_pendentes_do_usuario(self, usuario_id: int) -> List[BancaEntradaSolicitacaoModel]:
+        """⭐ 2026-09-18, a pedido: quem já pediu não deve ver o botão de
+        pedir de novo — a tela troca por "Aguardando aprovação". Diferente
+        de `get_pendentes` (a fila da diretoria, todo mundo): esta é só o
+        que a PRÓPRIA pessoa pediu, porque a justificativa de quem pede é
+        dela, não de todo mundo que abre `/bancas`."""
+        return (
+            self.db.query(BancaEntradaSolicitacaoModel)
+            .filter(
+                BancaEntradaSolicitacaoModel.usuario_id == usuario_id,
+                BancaEntradaSolicitacaoModel.status == "pendente",
+            )
+            .all()
+        )
+
     def get_pendente_do_par(
         self, banca_id: int, usuario_id: int
     ) -> Optional[BancaEntradaSolicitacaoModel]:

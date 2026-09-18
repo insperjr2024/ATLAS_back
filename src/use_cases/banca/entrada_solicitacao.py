@@ -259,3 +259,18 @@ class ListarEntradaBancaPendentesUseCase:
                 }
             )
         return linhas
+
+
+class ListarMinhasEntradaBancaUseCase:
+    """⭐ 2026-09-18, a pedido: o que a PRÓPRIA pessoa pediu e ainda espera
+    decisão — pra `/bancas` trocar "Solicitar entrada" por "Aguardando
+    aprovação" nas bancas que ela já pediu, sem repetir o pedido."""
+
+    def __init__(self, db: Session):
+        self.repository = BancaEntradaSolicitacaoRepository(db)
+
+    def execute(self, usuario_id: int) -> list[dict]:
+        return [
+            {"id": p.id, "banca_id": p.banca_id, "criado_em": p.criado_em}
+            for p in self.repository.get_pendentes_do_usuario(usuario_id)
+        ]
