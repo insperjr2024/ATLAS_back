@@ -4,9 +4,14 @@ mais de um); consultor avalia o(s) coordenador(es) e os outros consultores.
 Pares repetidos em 2+ projetos do mesmo lote colapsam numa entrada só (regra
 2.7 precisa ver todos os projetos)."""
 
+from datetime import datetime
 from types import SimpleNamespace
 
-from src.utils.desempenho_fila import calcular_pares_lote, deduplicar_pares
+from src.utils.desempenho_fila import (
+    DATA_COORDENADOR_AVALIA_COORDENADOR,
+    calcular_pares_lote,
+    deduplicar_pares,
+)
 
 
 def membro(projeto_id: int, usuario_id: int, papel: str) -> SimpleNamespace:
@@ -46,6 +51,47 @@ class TestCalcularParesLote:
             (10, 11, "coordenador"),
             (11, 10, "coordenador"),
         }
+
+    def test_lote_anterior_a_regra_nao_inclui_par_coordenador_coordenador(self):
+        """2026-09-18, corrigido: a regra nasceu em 16/09 — um lote aberto
+        antes disso (a Finalização da BLEND I, 09/09) não pode cobrar de dois
+        coordenadores uma avaliação mútua que não existia quando eles
+        preencheram a própria fila."""
+        time = [membro(1, 10, "coordenador"), membro(1, 11, "coordenador")]
+        antes_da_regra = datetime(2026, 9, 9, 15, 0)
+
+        pares = calcular_pares_lote(time, antes_da_regra)
+
+        assert pares == []
+
+    def test_lote_no_dia_da_regra_ja_inclui_o_par(self):
+        time = [membro(1, 10, "coordenador"), membro(1, 11, "coordenador")]
+
+        pares = calcular_pares_lote(time, DATA_COORDENADOR_AVALIA_COORDENADOR)
+
+        assert {(p.avaliador_id, p.avaliado_id) for p in pares} == {(10, 11), (11, 10)}
+
+    def test_sem_data_do_lote_assume_a_regra_atual(self):
+        """`None` é só pra quem quer testar a fila em si, sem lote de
+        verdade — mantém o comportamento de antes da correção."""
+        time = [membro(1, 10, "coordenador"), membro(1, 11, "coordenador")]
+
+        pares = calcular_pares_lote(time, None)
+
+        assert {(p.avaliador_id, p.avaliado_id) for p in pares} == {(10, 11), (11, 10)}
+
+    def test_regra_nao_afeta_par_coordenador_consultor_em_lote_antigo(self):
+        """A correção é só do par coordenador↔coordenador — coordenador
+        continuar avaliando consultor (e vice-versa) sempre existiu."""
+        time = [
+            membro(1, 10, "coordenador"),
+            membro(1, 20, "consultor"),
+        ]
+        antes_da_regra = datetime(2026, 9, 9, 15, 0)
+
+        pares = calcular_pares_lote(time, antes_da_regra)
+
+        assert {(p.avaliador_id, p.avaliado_id) for p in pares} == {(10, 20), (20, 10)}
 
     def test_ninguem_avalia_a_si_mesmo(self):
         time = [membro(1, 10, "coordenador"), membro(1, 20, "consultor")]
