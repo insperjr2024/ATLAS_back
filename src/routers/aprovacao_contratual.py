@@ -6,10 +6,19 @@ pública que `auth.router_publico` (login, esqueci-senha) — um `APIRouter`
 sem `Depends(get_current_user)`, o TOKEN de uso único é a única credencial.
 """
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
+from src.repositories.documento_contratual_versao_repository import (
+    DocumentoContratualVersaoRepository,
+)
+from src.repositories.token_aprovacao_contratual_repository import (
+    TokenAprovacaoContratualRepository,
+)
 from src.use_cases.documento_contratual.get_aprovacao_por_token import (
     GetAprovacaoPorTokenUseCase,
 )
@@ -28,6 +37,20 @@ def get_aprovacao(token: str, db: Session = Depends(get_db)):
         return GetAprovacaoPorTokenUseCase(db).execute(token)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router_publico.get("/aprovacao/{token}/arquivo")
+def download_arquivo_aprovacao(token: str, db: Session = Depends(get_db)):
+    """O PDF exato que este link aponta — sempre a VERSÃO travada no token no
+    momento da exportação, não a última do documento (que pode já ter mudado
+    se o Jurídico gerou de novo sob um link diferente)."""
+    registro = TokenAprovacaoContratualRepository(db).get_by_token(token)
+    if not registro:
+        raise HTTPException(status_code=404, detail="Link inválido.")
+    versao = DocumentoContratualVersaoRepository(db).get_by_id(registro.versao_id)
+    if not versao or not versao.pdf_path or not os.path.exists(versao.pdf_path):
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor.")
+    return FileResponse(versao.pdf_path, media_type="application/pdf", filename="documento.pdf")
 
 
 @router_publico.post("/aprovacao/{token}/responder")

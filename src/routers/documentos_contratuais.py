@@ -15,7 +15,10 @@ projeto). Diretoria de projetos e quem tem `pode_editar_documento_juridico`
 (o Jurídico) sempre podem, qualquer tipo.
 """
 
+import os
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Any, Dict
@@ -27,6 +30,9 @@ from src.middlewares.authorization import (
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.repositories.documento_contratual_versao_repository import (
+    DocumentoContratualVersaoRepository,
+)
 from src.repositories.solicitacao_alteracao_contratual_repository import (
     SolicitacaoAlteracaoContratualRepository,
 )
@@ -200,6 +206,38 @@ def get_documento(
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
     return documento
+
+
+@router.get("/documentos-contratuais/{documento_id}/arquivo")
+def download_arquivo(
+    documento_id: int,
+    formato: str = "pdf",
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Baixa o .pdf ou .docx da ÚLTIMA versão gerada — o mesmo arquivo que a
+    tela de aprovação do cliente mostra, e o que o Repositório lista depois
+    de assinado (nenhuma versão nova nasce depois de aprovado pelo cliente).
+    """
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if formato not in ("pdf", "docx"):
+        raise HTTPException(status_code=422, detail='Formato deve ser "pdf" ou "docx".')
+
+    versao = DocumentoContratualVersaoRepository(db).ultima_versao_obj(documento_id)
+    if not versao:
+        raise HTTPException(status_code=404, detail="Nenhum arquivo gerado ainda.")
+    caminho = versao.pdf_path if formato == "pdf" else versao.docx_path
+    if not caminho or not os.path.exists(caminho):
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor.")
+
+    media_type = "application/pdf" if formato == "pdf" else (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    nome = f"{documento['tipo']}_v{versao.versao}.{formato}"
+    return FileResponse(caminho, media_type=media_type, filename=nome)
 
 
 @router.patch("/documentos-contratuais/{documento_id}")
