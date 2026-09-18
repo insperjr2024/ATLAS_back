@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from src.models.documento_contratual_model import DocumentoContratualModel
+from src.models.projeto_model import ProjetoModel
 from src.repositories.base_repository import BaseRepository
 
 
@@ -17,3 +18,25 @@ class DocumentoContratualRepository(BaseRepository[DocumentoContratualModel]):
 
     def get_by_projeto_e_tipo(self, projeto_id: int, tipo: str) -> Optional[DocumentoContratualModel]:
         return self.first_by(projeto_id=projeto_id, tipo=tipo)
+
+    def list_arquivados(
+        self, gestao_id: Optional[int] = None, busca: Optional[str] = None
+    ) -> List[DocumentoContratualModel]:
+        """O Repositório: todo documento final assinado, mais recente primeiro.
+
+        `busca` casa pelo nome do projeto OU do cliente — quem procura um
+        contrato antigo raramente lembra em que tipo de documento ele está.
+        """
+        query = (
+            self.db.query(DocumentoContratualModel)
+            .join(ProjetoModel, DocumentoContratualModel.projeto_id == ProjetoModel.id)
+            .filter(DocumentoContratualModel.status == "assinado_e_arquivado")
+        )
+        if gestao_id is not None:
+            query = query.filter(DocumentoContratualModel.gestao_id == gestao_id)
+        if busca:
+            termo = f"%{busca}%"
+            query = query.filter(
+                (ProjetoModel.nome.ilike(termo)) | (ProjetoModel.cliente.ilike(termo))
+            )
+        return query.order_by(DocumentoContratualModel.criado_em.desc()).all()

@@ -40,6 +40,9 @@ from src.use_cases.documento_contratual.atualizar_dados import (
 from src.use_cases.documento_contratual.confirmar_preenchimento import (
     ConfirmarPreenchimentoDocumentoContratualUseCase,
 )
+from src.use_cases.documento_contratual.deletar_documento import (
+    DeletarDocumentoContratualUseCase,
+)
 from src.use_cases.documento_contratual.editar_texto import (
     EditarTextoDocumentoContratualUseCase,
     GetParagrafosEditaveisUseCase,
@@ -48,6 +51,11 @@ from src.use_cases.documento_contratual.exportar_aprovacao import (
     ExportarAprovacaoDocumentoContratualUseCase,
 )
 from src.use_cases.documento_contratual.gerar_documento import GerarDocumentoContratualUseCase
+from src.use_cases.documento_contratual.identidade_institucional import (
+    AtualizarIdentidadeInstitucionalUseCase,
+    GetIdentidadeInstitucionalUseCase,
+)
+from src.use_cases.documento_contratual.repositorio import ListarRepositorioContratualUseCase
 from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
     ListDocumentosContratuaisPorProjetoUseCase,
@@ -74,6 +82,10 @@ class AtualizarDadosRequest(BaseModel):
 
 class EditarTextoRequest(BaseModel):
     edicoes: Dict[int, str]
+
+
+class AtualizarIdentidadeRequest(BaseModel):
+    dados: Dict[str, Any]
 
 
 def _pode_abrir_documento(usuario, db: Session, tipo: str) -> bool:
@@ -417,3 +429,79 @@ async def reanexar_documento(
         "status_arquivo": versao.status_arquivo,
         "criado_em": versao.criado_em,
     }
+
+
+@router.delete("/documentos-contratuais/{documento_id}", status_code=204)
+def deletar_documento(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_editar_livre(usuario, db) and not _pode_abrir_documento(
+        usuario, db, documento["tipo"]
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão para apagar este documento.")
+
+    try:
+        DeletarDocumentoContratualUseCase(db).execute(documento_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/identidade-institucional")
+def get_identidade_institucional(
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not eh_diretoria_de_projetos(usuario):
+        raise HTTPException(status_code=403, detail="Sem permissão para ver a identidade institucional.")
+    identidade = GetIdentidadeInstitucionalUseCase(db).execute()
+    if not identidade:
+        raise HTTPException(status_code=404, detail="Identidade institucional não configurada")
+    return _serializar_identidade(identidade)
+
+
+@router.patch("/identidade-institucional")
+def atualizar_identidade_institucional(
+    request: AtualizarIdentidadeRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not eh_diretoria_de_projetos(usuario):
+        raise HTTPException(status_code=403, detail="Sem permissão para editar a identidade institucional.")
+    try:
+        atualizado = AtualizarIdentidadeInstitucionalUseCase(db).execute(request.dados)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _serializar_identidade(atualizado)
+
+
+def _serializar_identidade(identidade) -> dict:
+    return {
+        campo: getattr(identidade, campo)
+        for campo in (
+            "presidente_nome", "presidente_cpf", "presidente_rg", "presidente_orgao_emissor",
+            "presidente_endereco", "presidente_estado_civil", "presidente_nacionalidade",
+            "presidente_profissao", "presidente_email", "presidente_telefone",
+            "testemunha1_nome", "testemunha1_cpf", "testemunha1_email", "testemunha1_telefone",
+            "testemunha2_nome", "testemunha2_cpf", "testemunha2_email", "testemunha2_telefone",
+        )
+    }
+
+
+@router.get("/repositorio-contratual")
+def get_repositorio(
+    gestao_id: int | None = None,
+    busca: str | None = None,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
+        usuario, db, "pode_ver_repositorio_contratos"
+    ):
+        raise HTTPException(status_code=403, detail="Sem permissão para ver o repositório.")
+    return {"itens": ListarRepositorioContratualUseCase(db).execute(gestao_id=gestao_id, busca=busca)}
