@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy.orm import Session
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
@@ -68,6 +70,36 @@ def composicao_da_banca(banca, frentes, candidatura_usuario_ids, checker, resolv
         }
         for c in checker.contar(banca, regras, set(candidatura_usuario_ids))
     ]
+
+
+def vaga_disponivel_para_usuario(
+    banca, frentes, candidatura_usuario_ids, usuario_id, resolver, checker, vagas: int
+) -> bool:
+    """⭐ 2026-09-18, a pedido: a MESMA banca é "tem vaga" pra uma pessoa e
+    "lotada" pra outra — quando falta só liderança/membro de uma frente
+    específica, a última vaga é reservada pra quem cobre aquela cota
+    (`CreateCandidaturaUseCase`, a mesma conta, replicada aqui em modo
+    leitura). Sem isto, `GET /bancas` só sabia dizer "tem vaga" pelo TETO
+    cru — alguém de Business via "1 vaga" numa banca que só falta liderança
+    de Tech, clicava "Alocar-se" e caía num erro sem contexto nenhum na
+    lista (só no clique). Agora a lista já sabe, e pode mostrar "Solicitar
+    entrada" direto, sem esperar o clique falhar.
+
+    Devolve `True` também pra quem já é candidato (a pergunta não é dele) —
+    quem chama já filtra esses casos antes de olhar este campo.
+    """
+    if usuario_id in candidatura_usuario_ids:
+        return True
+    if len(candidatura_usuario_ids) >= vagas:
+        return False
+    if not frentes:
+        return True
+    regras = resolver.para([f.id for f in frentes])
+    ids_com_essa = set(candidatura_usuario_ids) | {usuario_id}
+    status_depois = checker.verificar(banca, regras, ids_com_essa)
+    falta_depois = sum(d.piso_faltando + d.lideranca_faltando for d in status_depois.deficits)
+    vagas_livres_depois = vagas - (len(candidatura_usuario_ids) + 1)
+    return vagas_livres_depois >= falta_depois
 
 
 class GetBancaUseCase:
@@ -183,7 +215,7 @@ class ListBancasUseCase:
         self.membro_repository = ProjetoMembroRepository(db)
         self.equipe_projeto_repository = EquipeProjetoRepository(db)
 
-    def execute(self):
+    def execute(self, current_user_id: Optional[int] = None):
         from src.use_cases.configuracao.composicao_banca import ResolverComposicaoUseCase
 
         bancas = self.repository.get_all()
@@ -207,12 +239,14 @@ class ListBancasUseCase:
         resultado = []
         for b in bancas:
             candidaturas = self.candidatura_repository.get_by_banca(b.id)
+            candidatura_usuario_ids = [c.usuario_id for c in candidaturas]
             semestre = identificar_semestre(b.data_hora, semestres)
             frentes_da_banca = [
                 frentes_por_id[v.frente_id]
                 for v in self.banca_frente_repository.get_by_banca(b.id)
                 if v.frente_id in frentes_por_id
             ]
+            vagas_da_banca = resolver.vagas_da_combinacao([f.id for f in frentes_da_banca])
             resultado.append({
                 "id": b.id,
                 "nome_projeto": b.nome_projeto,
@@ -233,7 +267,7 @@ class ListBancasUseCase:
                 # O teto da combinação desta banca — o resolver acima já
                 # guarda em cache o que leu, então a lista não repete a
                 # consulta por linha.
-                "vagas": resolver.vagas_da_combinacao([f.id for f in frentes_da_banca]),
+                "vagas": vagas_da_banca,
                 "alocados": len(candidaturas),
                 "piso_minimo_override": b.piso_minimo_override,
                 "descricao_coordenador": b.descricao_coordenador,
@@ -242,9 +276,27 @@ class ListBancasUseCase:
                 "composicao": composicao_da_banca(
                     b,
                     frentes_da_banca,
-                    [c.usuario_id for c in candidaturas],
+                    candidatura_usuario_ids,
                     checker,
                     resolver,
+                ),
+                # ⭐ 2026-09-18: "tem vaga" pra ESTA pessoa — pode ser `False`
+                # mesmo com `alocados < vagas`, quando a última vaga é
+                # reservada pro piso de uma frente que ela não cobre. Sem
+                # `current_user_id` (nenhum viewer, ex.: um script) o campo
+                # não faz sentido e vem sempre `True`.
+                "vaga_disponivel_para_mim": (
+                    vaga_disponivel_para_usuario(
+                        b,
+                        frentes_da_banca,
+                        candidatura_usuario_ids,
+                        current_user_id,
+                        resolver,
+                        checker,
+                        vagas_da_banca,
+                    )
+                    if current_user_id is not None
+                    else True
                 ),
                 "equipe_ids": sorted(
                     membros_da_banca(

@@ -146,8 +146,8 @@ def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_
 
 
 @router.get("/bancas")
-def list_bancas(db: Session = Depends(get_db)):
-    return ListBancasUseCase(db).execute()
+def list_bancas(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return ListBancasUseCase(db).execute(current_user_id=current_user.id)
 
 
 # ⚠️ Precisa vir ANTES de /bancas/{banca_id}, senão o FastAPI casa
