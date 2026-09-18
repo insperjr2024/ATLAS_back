@@ -70,8 +70,22 @@ class ListarNotificacoesUseCase(_BaseMonitoramento):
         itens = self._condicoes_do_usuario(current_user, hoje)
         itens.extend(self._eventos(current_user))
 
-        # Não lidas primeiro; dentro de cada grupo, o buraco maior na frente.
-        itens.sort(key=lambda i: (i["lida"], i["dias"] is None, -(i["dias"] or 0)))
+        # Não lidas primeiro. Dentro de cada grupo, do mais recente pro
+        # menos recente: um 📌 evento tem `criado_em` real; uma condição ou
+        # agregado é recalculado a cada consulta e não tem data própria —
+        # entra como "agora", porque é exatamente o que ela é, um alerta do
+        # estado atual. Isso a mantém no topo (onde já ficava), mas por um
+        # motivo, não porque a ordem original de concatenação decidia por
+        # ela. O buraco maior (ou o agregado maior) desempata quando duas
+        # condições empatam em "agora".
+        agora = datetime.now()
+        itens.sort(
+            key=lambda i: (
+                i["lida"],
+                -(i["criado_em"] or agora).timestamp(),
+                -(i["dias"] if i["dias"] is not None else (i["total"] or 0)),
+            )
+        )
         return {
             "nao_lidas": sum(1 for i in itens if not i["lida"]),
             "itens": itens,
