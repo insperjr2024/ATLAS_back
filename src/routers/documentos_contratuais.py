@@ -357,6 +357,34 @@ def considerar_aceito_por_prazo(
     return serializar_documento_contratual(atualizado)
 
 
+@router.get("/documentos-contratuais/{documento_id}/solicitacoes-alteracao")
+def listar_solicitacoes_alteracao(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+
+    solicitacoes = SolicitacaoAlteracaoContratualRepository(db).list_by_documento(documento_id)
+    return {
+        "solicitacoes": [
+            {
+                "id": s.id,
+                "documento_id": s.documento_id,
+                "versao_id": s.versao_id,
+                "texto": s.texto,
+                "trechos": s.trechos or [],
+                "status": s.status,
+                "criado_em": s.criado_em,
+            }
+            for s in solicitacoes
+        ]
+    }
+
+
 @router.patch("/solicitacoes-alteracao-contratual/{solicitacao_id}/analisar")
 def analisar_solicitacao(
     solicitacao_id: int,
