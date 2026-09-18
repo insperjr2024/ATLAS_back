@@ -15,7 +15,7 @@ projeto). Diretoria de projetos e quem tem `pode_editar_documento_juridico`
 (o Jurídico) sempre podem, qualquer tipo.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Any, Dict
@@ -40,6 +40,10 @@ from src.use_cases.documento_contratual.atualizar_dados import (
 from src.use_cases.documento_contratual.confirmar_preenchimento import (
     ConfirmarPreenchimentoDocumentoContratualUseCase,
 )
+from src.use_cases.documento_contratual.editar_texto import (
+    EditarTextoDocumentoContratualUseCase,
+    GetParagrafosEditaveisUseCase,
+)
 from src.use_cases.documento_contratual.exportar_aprovacao import (
     ExportarAprovacaoDocumentoContratualUseCase,
 )
@@ -52,6 +56,9 @@ from src.use_cases.documento_contratual.get_documento import (
 from src.use_cases.documento_contratual.marcar_assinado import (
     MarcarAssinadoDocumentoContratualUseCase,
 )
+from src.use_cases.documento_contratual.reanexar_documento import (
+    ReanexarDocumentoContratualUseCase,
+)
 from src.utils.exceptions import RegraDeNegocioError
 
 router = APIRouter(tags=["documentos contratuais"], dependencies=[Depends(get_current_user)])
@@ -63,6 +70,10 @@ class AbrirDocumentoContratualRequest(BaseModel):
 
 class AtualizarDadosRequest(BaseModel):
     dados: Dict[str, Any]
+
+
+class EditarTextoRequest(BaseModel):
+    edicoes: Dict[int, str]
 
 
 def _pode_abrir_documento(usuario, db: Session, tipo: str) -> bool:
@@ -338,4 +349,71 @@ def analisar_solicitacao(
         "id": analisada.id,
         "documento_id": analisada.documento_id,
         "status": analisada.status,
+    }
+
+
+@router.get("/documentos-contratuais/{documento_id}/paragrafos-editaveis")
+def get_paragrafos_editaveis(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_editar_livre(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para editar este documento.")
+
+    try:
+        return {"paragrafos": GetParagrafosEditaveisUseCase(db).execute(documento_id)}
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.patch("/documentos-contratuais/{documento_id}/texto")
+def editar_texto(
+    documento_id: int,
+    request: EditarTextoRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_editar_livre(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para editar este documento.")
+
+    try:
+        return EditarTextoDocumentoContratualUseCase(db).execute(documento_id, request.edicoes)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.post("/documentos-contratuais/{documento_id}/reanexar")
+async def reanexar_documento(
+    documento_id: int,
+    arquivo: UploadFile = File(...),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_editar_livre(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para editar este documento.")
+
+    docx_bytes = await arquivo.read()
+    try:
+        versao = ReanexarDocumentoContratualUseCase(db).execute(documento_id, docx_bytes)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {
+        "id": versao.id,
+        "documento_id": versao.documento_id,
+        "versao": versao.versao,
+        "status_arquivo": versao.status_arquivo,
+        "criado_em": versao.criado_em,
     }
