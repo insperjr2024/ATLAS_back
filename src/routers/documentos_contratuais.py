@@ -50,6 +50,7 @@ from src.use_cases.documento_contratual.editar_texto import (
 from src.use_cases.documento_contratual.exportar_aprovacao import (
     ExportarAprovacaoDocumentoContratualUseCase,
 )
+from src.use_cases.documento_contratual.extrair_coleta import ExtrairColetaUseCase
 from src.use_cases.documento_contratual.gerar_documento import GerarDocumentoContratualUseCase
 from src.use_cases.documento_contratual.identidade_institucional import (
     AtualizarIdentidadeInstitucionalUseCase,
@@ -147,6 +148,25 @@ def listar_documentos_do_projeto(
 ):
     _projeto_visivel_ou_404(projeto_id, usuario, db)
     return {"documentos": ListDocumentosContratuaisPorProjetoUseCase(db).execute(projeto_id)}
+
+
+@router.post("/projetos/{projeto_id}/documentos-contratuais/extrair-coleta")
+async def extrair_coleta(
+    projeto_id: int,
+    tipo: str,
+    arquivo: UploadFile = File(...),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _projeto_visivel_ou_404(projeto_id, usuario, db)
+    if not _pode_abrir_documento(usuario, db, tipo):
+        raise HTTPException(status_code=403, detail="Sem permissão para preencher este tipo de documento.")
+
+    conteudo = await arquivo.read()
+    try:
+        return ExtrairColetaUseCase(db).execute(projeto_id, tipo, conteudo)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.post("/projetos/{projeto_id}/documentos-contratuais", status_code=201)
