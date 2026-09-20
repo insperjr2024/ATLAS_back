@@ -15,8 +15,10 @@ projeto). Diretoria de projetos e quem tem `pode_editar_documento_juridico`
 (o Jurídico) sempre podem, qualquer tipo.
 """
 
+import os
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Any, Dict
@@ -152,6 +154,26 @@ def listar_documentos_do_projeto(
 ):
     _projeto_visivel_ou_404(projeto_id, usuario, db)
     return {"documentos": ListDocumentosContratuaisPorProjetoUseCase(db).execute(projeto_id)}
+
+
+@router.get("/documentos-contratuais/coleta-dados/modelo")
+def baixar_modelo_coleta_dados(usuario=Depends(get_current_user)):
+    """O .docx em branco pra mandar ao cliente preencher — mesmos rótulos que
+    `extrair_coleta.py` reconhece na volta. Arquivo estático do próprio
+    deploy (não conteúdo gerado por usuário), então `FileResponse` é seguro
+    aqui — ao contrário do documento gerado (ver docstring do model de
+    versão), ele nasce de novo a cada deploy, não depende do disco persistir.
+    """
+    caminho = os.path.join(
+        os.path.dirname(__file__), "..", "documentos_contratuais", "templates", "coleta_dados.docx"
+    )
+    if not os.path.exists(caminho):
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
+    return FileResponse(
+        caminho,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="Coleta de Dados - Modelo.docx",
+    )
 
 
 @router.post("/projetos/{projeto_id}/documentos-contratuais/extrair-coleta")

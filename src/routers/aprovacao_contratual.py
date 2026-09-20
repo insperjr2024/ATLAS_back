@@ -20,6 +20,9 @@ from src.repositories.token_aprovacao_contratual_repository import (
 from src.use_cases.documento_contratual.get_aprovacao_por_token import (
     GetAprovacaoPorTokenUseCase,
 )
+from src.use_cases.documento_contratual.get_texto_aprovacao import (
+    GetTextoAprovacaoPorTokenUseCase,
+)
 from src.use_cases.documento_contratual.responder_aprovacao import (
     ResponderAprovacaoRequest,
     ResponderAprovacaoUseCase,
@@ -53,6 +56,14 @@ def download_arquivo_aprovacao(token: str, db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="documento.pdf"'},
     )
+
+
+@router_publico.get("/aprovacao/{token}/texto")
+def get_texto_aprovacao(token: str, db: Session = Depends(get_db)):
+    try:
+        return {"paragrafos": GetTextoAprovacaoPorTokenUseCase(db).execute(token)}
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router_publico.post("/aprovacao/{token}/responder")
