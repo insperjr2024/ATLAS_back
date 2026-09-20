@@ -1,18 +1,14 @@
-"""Link de WhatsApp pronto pra mandar o documento jurídico ao cliente.
+"""Texto pronto pra mandar o documento jurídico ao cliente pelo WhatsApp.
 
 ⭐ 2026-09-18 — porta de `contratos-backend/src/utils/wa_link.py`. Não há
-integração de envio nenhuma: a plataforma só monta o link e o texto: quem
-manda baixa o PDF e anexa por conta própria (ver `exportar_aprovacao.py`).
+integração de envio nenhuma: a plataforma só monta o texto; quem manda baixa
+o PDF e anexa por conta própria (ver `exportar_aprovacao.py`).
+
+⭐ 2026-09-20 — o link `wa.me` (que precisa do telefone) saiu daqui: o número
+cadastrado no formulário pode estar errado ou ser de outra pessoa, então quem
+manda digita o número na hora, no front (`montarLinkWhatsapp` em
+`lib/contratos.ts`) — o back só entrega este texto.
 """
-
-import re
-from urllib.parse import quote
-
-
-def montar_link_whatsapp(telefone: str, mensagem: str) -> str:
-    digitos = re.sub(r"\D", "", telefone)
-    numero_completo = digitos if digitos.startswith("55") else f"55{digitos}"
-    return f"https://wa.me/{numero_completo}?text={quote(mensagem)}"
 
 
 def mensagem_aprovacao(nome_projeto: str, link_aprovacao: str) -> str:

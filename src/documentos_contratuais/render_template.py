@@ -97,11 +97,27 @@ def _testemunhas_contexto(dados: dict, identidade: dict) -> dict:
 # ---------- Blocos de contexto ----------
 
 
+#: Nacionalidade/estado civil/profissão/cargo são substantivo e adjetivo
+#: comuns dentro de uma frase corrida do contrato, não nome próprio — sempre
+#: em minúsculo no documento final, não importa como a pessoa digitou no
+#: formulário ("Solteiro", "CASADO", "Empresário"...).
+CAMPOS_QUALIFICACAO = ("nacionalidade", "estado_civil", "profissao", "cargo")
+
+
+def _normalizar_qualificacao(pessoa: dict) -> dict:
+    normalizado = dict(pessoa)
+    for campo in CAMPOS_QUALIFICACAO:
+        valor = normalizado.get(campo)
+        if isinstance(valor, str):
+            normalizado[campo] = valor.strip().lower()
+    return normalizado
+
+
 def _contexto_base(tipo: str, dados: dict, identidade: dict) -> dict:
     contratante = dados.get("contratante") or {}
-    rep = contratante.get("representante") or {}
+    rep = _normalizar_qualificacao(contratante.get("representante") or {})
     assinatura = dados.get("assinatura") or {}
-    presidente = identidade.get("presidente") or {}
+    presidente = _normalizar_qualificacao(identidade.get("presidente") or {})
 
     data_assinatura = ""
     if assinatura.get("dia") and assinatura.get("mes") and assinatura.get("ano"):

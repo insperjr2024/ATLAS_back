@@ -50,7 +50,13 @@ def numero_extenso(n: int) -> str:
 
 
 def data_extenso(dia, mes, ano) -> str:
-    nome_mes = MESES[mes - 1] if isinstance(mes, int) else mes
+    """`mes` chega como veio do formulário de assinatura — pode ser `9`, `"9"`
+    ou `"setembro"` (o campo aceita "número ou nome"). Só o nome por extenso
+    fica bem numa data de contrato, nunca o número cru."""
+    try:
+        nome_mes = MESES[int(mes) - 1]
+    except (TypeError, ValueError, IndexError):
+        nome_mes = str(mes).strip().lower()
     return f"{dia} de {nome_mes} de {ano}"
 
 

@@ -96,14 +96,12 @@ class TestExecute:
         with pytest.raises(RegraDeNegocioError, match="Nenhum rascunho"):
             uc.execute(1)
 
-    def test_link_whatsapp_so_existe_com_telefone(self, monkeypatch):
-        sem_telefone = montar(documento(telefone=""), monkeypatch=monkeypatch)
-        assert sem_telefone.execute(1)["link_whatsapp"] is None
+    def test_mensagem_whatsapp_sempre_presente(self, monkeypatch):
+        uc = montar(documento(telefone=""), monkeypatch=monkeypatch)
+        resultado = uc.execute(1)
 
-        com_telefone = montar(documento(telefone="11999998888"), monkeypatch=monkeypatch)
-        link = com_telefone.execute(1)["link_whatsapp"]
-        assert link is not None
-        assert "wa.me/5511999998888" in link
+        assert "Projeto Alfa" in resultado["mensagem_whatsapp"]
+        assert resultado["link_aprovacao"] in resultado["mensagem_whatsapp"]
 
 
 class TestRecusarAssinaturaTep:

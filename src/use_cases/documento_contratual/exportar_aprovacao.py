@@ -26,7 +26,7 @@ from src.utils.exceptions import RegraDeNegocioError
 from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
 from src.utils.notificar_documento_contratual import documento_liberado_para_cliente
 from src.utils.status_documento_contratual import STATUS_EXPORTACAO_PERMITIDA, TipoDocumentoContratual
-from src.utils.wa_link_contratual import mensagem_aprovacao, montar_link_whatsapp
+from src.utils.wa_link_contratual import mensagem_aprovacao
 
 
 class ExportarAprovacaoDocumentoContratualUseCase:
@@ -79,16 +79,17 @@ class ExportarAprovacaoDocumentoContratualUseCase:
         settings = get_settings()
         link_aprovacao = f"{settings.FRONTEND_URL.rstrip('/')}/aprovacao/{token}"
 
-        contratante = (documento.dados or {}).get("contratante") or {}
-        telefone = (contratante.get("representante") or {}).get("telefone")
-        link_whatsapp = None
-        if telefone:
-            nome_projeto = documento.projeto.nome
-            link_whatsapp = montar_link_whatsapp(
-                telefone, mensagem_aprovacao(nome_projeto, link_aprovacao)
-            )
+        # ⭐ 2026-09-20 — a pedido: quem manda decide o telefone na hora (o
+        # cadastrado pode estar errado, ou o WhatsApp certo pra isso é de
+        # outra pessoa) — o back só entrega o texto pronto, o número e o
+        # link de wa.me são montados no front (`montarLinkWhatsapp`).
+        mensagem_whatsapp = mensagem_aprovacao(documento.projeto.nome, link_aprovacao)
 
-        return {"token": token, "link_aprovacao": link_aprovacao, "link_whatsapp": link_whatsapp}
+        return {
+            "token": token,
+            "link_aprovacao": link_aprovacao,
+            "mensagem_whatsapp": mensagem_whatsapp,
+        }
 
     def _get(self, documento_id: int):
         documento = self.documentos.get_by_id(documento_id)
