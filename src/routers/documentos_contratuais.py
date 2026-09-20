@@ -74,6 +74,7 @@ from src.use_cases.documento_contratual.marcar_assinado import (
 from src.use_cases.documento_contratual.reanexar_documento import (
     ReanexarDocumentoContratualUseCase,
 )
+from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError
 
 router = APIRouter(tags=["documentos contratuais"], dependencies=[Depends(get_current_user)])
@@ -308,7 +309,7 @@ def confirmar_preenchimento(
     try:
         confirmado = ConfirmarPreenchimentoDocumentoContratualUseCase(db).execute(documento_id)
     except RegraDeNegocioError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise erro_de_regra(e)
 
     return serializar_documento_contratual(confirmado)
 
@@ -329,7 +330,7 @@ def gerar_documento(
     try:
         versao = GerarDocumentoContratualUseCase(db).execute(documento_id)
     except RegraDeNegocioError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise erro_de_regra(e)
     return {
         "id": versao.id,
         "documento_id": versao.documento_id,

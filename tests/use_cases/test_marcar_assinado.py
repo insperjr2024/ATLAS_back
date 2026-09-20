@@ -8,11 +8,20 @@ from types import SimpleNamespace
 
 import pytest
 
+import src.use_cases.documento_contratual.marcar_assinado as marcar_assinado_mod
 from src.use_cases.documento_contratual.marcar_assinado import (
     MarcarAssinadoDocumentoContratualUseCase,
     dias_restantes_aceite_tacito,
 )
 from src.utils.exceptions import RegraDeNegocioError
+
+
+@pytest.fixture(autouse=True)
+def _sem_mudanca_de_status_automatica(monkeypatch):
+    # Quem move o projeto sozinho pro Período de ajustes tem teste próprio
+    # em test_mudar_status_projeto_automatico.py — aqui exigiria um
+    # ProjetoRepository de verdade, que este arquivo não monta.
+    monkeypatch.setattr(marcar_assinado_mod, "mudar_status_projeto_automaticamente", lambda *a, **k: None)
 
 
 class FakeDocumentoRepo:
@@ -56,7 +65,7 @@ class FakeSemestreRepo:
 
 def documento(tipo="contrato", status="aprovado_pelo_cliente", atualizado_em=None):
     return SimpleNamespace(
-        id=1, tipo=tipo, status=status, atualizado_em=atualizado_em or datetime.now()
+        id=1, projeto_id=7, tipo=tipo, status=status, atualizado_em=atualizado_em or datetime.now()
     )
 
 
@@ -65,6 +74,7 @@ _PADRAO = object()
 
 def montar(doc, versao=_PADRAO, semestre=_PADRAO):
     uc = MarcarAssinadoDocumentoContratualUseCase.__new__(MarcarAssinadoDocumentoContratualUseCase)
+    uc.db = None
     uc.documentos = FakeDocumentoRepo(doc)
     uc.versoes = FakeVersaoRepo(SimpleNamespace(id=9) if versao is _PADRAO else versao)
     uc.semestres = FakeSemestreRepo(SimpleNamespace(id=5) if semestre is _PADRAO else semestre)

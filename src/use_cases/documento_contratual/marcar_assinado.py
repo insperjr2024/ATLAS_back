@@ -23,6 +23,7 @@ from src.repositories.documento_contratual_versao_repository import (
 )
 from src.repositories.semestre_repository import SemestreRepository
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
 from src.utils.status_documento_contratual import PRAZO_ACEITE_TACITO_TEP_DIAS
 
 
@@ -45,6 +46,7 @@ def dias_restantes_aceite_tacito(documento) -> int | None:
 
 class MarcarAssinadoDocumentoContratualUseCase:
     def __init__(self, db: Session):
+        self.db = db
         self.documentos = DocumentoContratualRepository(db)
         self.versoes = DocumentoContratualVersaoRepository(db)
         self.semestres = SemestreRepository(db)
@@ -86,9 +88,17 @@ class MarcarAssinadoDocumentoContratualUseCase:
         if versao:
             self.versoes.marcar_final(versao, gestao_id)
 
-        return self.documentos.update(
+        atualizado = self.documentos.update(
             documento.id, status="assinado_e_arquivado", gestao_id=gestao_id
         )
+
+        # 🤖 2026-09-21 — a pedido: TEP assinado (ou aceito por prazo) move o
+        # projeto sozinho pra "Período de ajustes" — a entrega final já foi
+        # validada, o que resta é ajuste fino, não mais execução.
+        if documento.tipo == "tep":
+            mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "periodo_ajustes")
+
+        return atualizado
 
     def _get(self, documento_id: int):
         documento = self.documentos.get_by_id(documento_id)

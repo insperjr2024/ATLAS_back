@@ -1,7 +1,15 @@
-"""Campos obrigatórios de um documento jurídico (§ Contratos, 2026-09-20)."""
+"""Campos obrigatórios de um documento jurídico (§ Contratos, 2026-09-20/21)."""
 
 from src.utils.dados_documento_contratual import dados_iniciais_contrato
-from src.utils.validar_dados_documento_contratual import campos_faltando
+from src.utils.validar_dados_documento_contratual import campos_faltando, erro_campos_faltando
+
+
+def rotulos(faltando):
+    return [rotulo for _, rotulo in faltando]
+
+
+def caminhos(faltando):
+    return [caminho for caminho, _ in faltando]
 
 
 def _contratante_completo():
@@ -33,13 +41,19 @@ def _assinatura_completa():
 
 class TestComumATodosOsTipos:
     def test_contrato_em_branco_lista_tudo(self):
-        faltando = campos_faltando("contrato", dados_iniciais_contrato())
+        faltando = rotulos(campos_faltando("contrato", dados_iniciais_contrato()))
 
         assert "Razão social do contratante" in faltando
         assert "CNPJ do contratante" in faltando
         assert "Nome do representante" in faltando
         assert "Nome da testemunha 1" in faltando
         assert "Dia da assinatura" in faltando
+
+    def test_cada_item_carrega_o_caminho_do_campo(self):
+        faltando = campos_faltando("contrato", dados_iniciais_contrato())
+
+        assert ("contratante.razao_social", "Razão social do contratante") in faltando
+        assert ("assinatura.dia", "Dia da assinatura") in faltando
 
     def test_testemunha_2_e_sempre_opcional(self):
         dados = {
@@ -94,19 +108,19 @@ class TestContrato:
         dados = self._dados_base()
         dados["projeto"]["escopos"] = []
 
-        assert "Escopos do projeto" in campos_faltando("contrato", dados)
+        assert "Escopos do projeto" in rotulos(campos_faltando("contrato", dados))
 
     def test_exige_numero_de_consultores(self):
         dados = self._dados_base()
         dados["projeto"]["num_consultores"] = 0
 
-        assert "Número de consultores" in campos_faltando("contrato", dados)
+        assert "Número de consultores" in rotulos(campos_faltando("contrato", dados))
 
     def test_parcelado_exige_dados_da_parcela(self):
         dados = self._dados_base()
         dados["financeiro"]["parcelado"] = True
 
-        faltando = campos_faltando("contrato", dados)
+        faltando = rotulos(campos_faltando("contrato", dados))
 
         assert "Número de parcelas" in faltando
         assert "Data do primeiro vencimento" in faltando
@@ -115,7 +129,7 @@ class TestContrato:
     def test_parcela_unica_nao_exige_dados_de_parcelamento(self):
         dados = self._dados_base()
         # parcelado=False (padrão) — não deveria cobrar número de parcelas.
-        assert "Número de parcelas" not in campos_faltando("contrato", dados)
+        assert "Número de parcelas" not in rotulos(campos_faltando("contrato", dados))
 
 
 class TestTep:
@@ -128,7 +142,7 @@ class TestTep:
             "execucao": {"data_inicio": "", "data_fim": ""},
         }
 
-        faltando = campos_faltando("tep", dados)
+        faltando = rotulos(campos_faltando("tep", dados))
 
         assert "Nome do projeto" in faltando
         assert "Escopos entregues" in faltando
@@ -145,7 +159,7 @@ class TestUsoImagem:
             "contexto": "",
         }
 
-        assert "Contexto de captação da imagem" in campos_faltando("uso_imagem", dados)
+        assert "Contexto de captação da imagem" in rotulos(campos_faltando("uso_imagem", dados))
 
 
 class TestAditivo:
@@ -158,7 +172,7 @@ class TestAditivo:
         }
 
     def test_exige_pelo_menos_uma_secao(self):
-        faltando = campos_faltando("aditivo", self._dados_base())
+        faltando = rotulos(campos_faltando("aditivo", self._dados_base()))
 
         assert any("Pelo menos uma seção" in f for f in faltando)
 
@@ -167,7 +181,7 @@ class TestAditivo:
         dados["secoes"]["objeto"] = True
         dados["objeto"] = {"descricao": "", "itens": []}
 
-        faltando = campos_faltando("aditivo", dados)
+        faltando = rotulos(campos_faltando("aditivo", dados))
 
         assert "Descrição do objeto do aditivo" in faltando
         assert "Itens do objeto do aditivo" in faltando
@@ -177,7 +191,7 @@ class TestAditivo:
         dados["secoes"]["preco"] = True
         dados["preco"] = {"valor_novo": 30000, "parcelado": True}
 
-        faltando = campos_faltando("aditivo", dados)
+        faltando = rotulos(campos_faltando("aditivo", dados))
 
         assert "Número de parcelas do aditivo" in faltando
 
@@ -187,3 +201,29 @@ class TestAditivo:
         dados["prazo"] = {"dias_uteis": 30}
 
         assert campos_faltando("aditivo", dados) == []
+
+
+class TestErroCamposFaltando:
+    def test_mensagem_lista_os_rotulos(self):
+        faltando = [("assinatura.dia", "Dia da assinatura"), ("assinatura.mes", "Mês da assinatura")]
+
+        erro = erro_campos_faltando(faltando)
+
+        assert str(erro) == "Faltam campos obrigatórios: Dia da assinatura, Mês da assinatura."
+
+    def test_carrega_os_caminhos_pro_front_destacar_o_campo(self):
+        faltando = [("assinatura.dia", "Dia da assinatura"), ("assinatura.mes", "Mês da assinatura")]
+
+        erro = erro_campos_faltando(faltando)
+
+        assert erro.campos == ["assinatura.dia", "assinatura.mes"]
+
+    def test_erro_de_regra_leva_os_campos_no_detail(self):
+        from src.utils.erro_http import erro_de_regra
+
+        faltando = [("assinatura.dia", "Dia da assinatura")]
+        http_erro = erro_de_regra(erro_campos_faltando(faltando))
+
+        assert http_erro.status_code == 422
+        assert http_erro.detail["campos"] == ["assinatura.dia"]
+        assert "Dia da assinatura" in http_erro.detail["msg"]

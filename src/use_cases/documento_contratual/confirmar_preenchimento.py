@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from src.repositories.documento_contratual_repository import DocumentoContratualRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.notificar_documento_contratual import documento_pronto_para_gerar
-from src.utils.validar_dados_documento_contratual import campos_faltando
+from src.utils.validar_dados_documento_contratual import campos_faltando, erro_campos_faltando
 
 
 class ConfirmarPreenchimentoDocumentoContratualUseCase:
@@ -39,7 +39,7 @@ class ConfirmarPreenchimentoDocumentoContratualUseCase:
 
         faltando = campos_faltando(documento.tipo, documento.dados)
         if faltando:
-            raise RegraDeNegocioError(f"Faltam campos obrigatórios: {', '.join(faltando)}.")
+            raise erro_campos_faltando(faltando)
 
         confirmado = self.documentos.update(documento_id, confirmado=True)
         documento_pronto_para_gerar(self.db, confirmado)

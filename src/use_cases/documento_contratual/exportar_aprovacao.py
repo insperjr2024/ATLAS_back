@@ -23,6 +23,7 @@ from src.repositories.token_aprovacao_contratual_repository import (
     TokenAprovacaoContratualRepository,
 )
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
 from src.utils.notificar_documento_contratual import documento_liberado_para_cliente
 from src.utils.status_documento_contratual import STATUS_EXPORTACAO_PERMITIDA, TipoDocumentoContratual
 from src.utils.wa_link_contratual import mensagem_aprovacao, montar_link_whatsapp
@@ -67,6 +68,13 @@ class ExportarAprovacaoDocumentoContratualUseCase:
         self.tokens.create(token=token, documento_id=documento.id, versao_id=versao.id)
         documento = self.documentos.update(documento.id, status="aguardando_aprovacao_cliente")
         documento_liberado_para_cliente(self.db, documento)
+
+        # 🤖 2026-09-21 — a pedido: TEP enviado pro cliente move o projeto
+        # sozinho pra "Envio do TEP". Só na primeira vez de fato importa —
+        # reenviar (recusar_assinatura_tep) já encontra o projeto lá e não
+        # faz nada (ver o guard em mudar_status_projeto_automaticamente).
+        if documento.tipo == TipoDocumentoContratual.TEP.value:
+            mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "envio_tep")
 
         settings = get_settings()
         link_aprovacao = f"{settings.FRONTEND_URL.rstrip('/')}/aprovacao/{token}"

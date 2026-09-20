@@ -49,7 +49,7 @@ class FakeTokenRepo:
 def documento(tipo="contrato", status="em_revisao_interna", telefone=""):
     projeto = SimpleNamespace(nome="Projeto Alfa", criado_por=None)
     dados = {"contratante": {"representante": {"telefone": telefone}}}
-    return SimpleNamespace(id=1, tipo=tipo, status=status, dados=dados, projeto=projeto)
+    return SimpleNamespace(id=1, projeto_id=7, tipo=tipo, status=status, dados=dados, projeto=projeto)
 
 
 _SEM_VERSAO = object()
@@ -57,6 +57,10 @@ _SEM_VERSAO = object()
 
 def montar(doc, versao=_SEM_VERSAO, monkeypatch=None):
     monkeypatch.setattr(exportar_mod, "documento_liberado_para_cliente", lambda *a, **k: None)
+    # Idem: quem move o projeto sozinho pro Envio do TEP não é o que estes
+    # testes cobrem (isso tem teste próprio em test_mudar_status_projeto_
+    # automatico.py) — e exigiria um ProjetoRepository de verdade.
+    monkeypatch.setattr(exportar_mod, "mudar_status_projeto_automaticamente", lambda *a, **k: None)
     uc = ExportarAprovacaoDocumentoContratualUseCase.__new__(ExportarAprovacaoDocumentoContratualUseCase)
     uc.db = None
     uc.documentos = FakeDocumentoRepo(doc)

@@ -23,11 +23,17 @@ class RegraDeNegocioError(Exception):
 
     ⚠ Só declare código onde a interface REAGE à recusa. Regra que só precisa
     ser mostrada não ganha código — seria vocabulário morto para manter.
+
+    ⭐ 2026-09-21 — `campos` é a mesma ideia que `codigo`, para o caso em que
+    a interface reage a uma LISTA (destacar cada campo vazio no formulário,
+    não só mostrar o texto). Ver `validar_dados_documento_contratual.py` +
+    `erro_de_regra`.
     """
 
-    def __init__(self, mensagem: str, codigo: str | None = None):
+    def __init__(self, mensagem: str, codigo: str | None = None, campos: list[str] | None = None):
         super().__init__(mensagem)
         self.codigo = codigo
+        self.campos = campos
 
 
 #: Tirar a última porta de entrada da tela de permissões. A interface REAGE:

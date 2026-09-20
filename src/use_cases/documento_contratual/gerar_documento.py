@@ -38,7 +38,7 @@ from src.utils.exceptions import RegraDeNegocioError
 from src.utils.identidade_institucional import identidade_de_configuracao
 from src.utils.pdf import converter_docx_para_pdf
 from src.utils.status_documento_contratual import STATUS_GERACAO_PERMITIDA
-from src.utils.validar_dados_documento_contratual import campos_faltando
+from src.utils.validar_dados_documento_contratual import campos_faltando, erro_campos_faltando
 
 
 class GerarDocumentoContratualUseCase:
@@ -60,7 +60,7 @@ class GerarDocumentoContratualUseCase:
             raise RegraDeNegocioError(f'Não há template para documentos do tipo "{documento.tipo}".')
         faltando = campos_faltando(documento.tipo, documento.dados)
         if faltando:
-            raise RegraDeNegocioError(f"Faltam campos obrigatórios: {', '.join(faltando)}.")
+            raise erro_campos_faltando(faltando)
 
         identidade = identidade_de_configuracao(self.identidade.get())
         doc = renderizar(documento.tipo, documento.dados, identidade)
