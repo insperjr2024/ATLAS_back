@@ -1,0 +1,189 @@
+"""Campos obrigatórios de um documento jurídico (§ Contratos, 2026-09-20)."""
+
+from src.utils.dados_documento_contratual import dados_iniciais_contrato
+from src.utils.validar_dados_documento_contratual import campos_faltando
+
+
+def _contratante_completo():
+    return {
+        "razao_social": "Empresa X",
+        "cnpj": "11.222.333/0001-81",
+        "endereco": "Rua X, 100",
+        "representante": {
+            "nome": "Fulano",
+            "nacionalidade": "Brasileira",
+            "estado_civil": "Solteiro",
+            "profissao": "Empresário",
+            "cargo": "Diretor",
+            "rg": "12.345.678-9",
+            "cpf": "111.444.777-35",
+            "endereco": "Rua Y, 200",
+        },
+        "email_cobranca": "",
+    }
+
+
+def _testemunhas_completas():
+    return [{"nome": "Testemunha 1", "cpf": "111.444.777-35"}, {"nome": "", "cpf": ""}]
+
+
+def _assinatura_completa():
+    return {"dia": 18, "mes": 9, "ano": 2026}
+
+
+class TestComumATodosOsTipos:
+    def test_contrato_em_branco_lista_tudo(self):
+        faltando = campos_faltando("contrato", dados_iniciais_contrato())
+
+        assert "Razão social do contratante" in faltando
+        assert "CNPJ do contratante" in faltando
+        assert "Nome do representante" in faltando
+        assert "Nome da testemunha 1" in faltando
+        assert "Dia da assinatura" in faltando
+
+    def test_testemunha_2_e_sempre_opcional(self):
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": _testemunhas_completas(),
+            "assinatura": _assinatura_completa(),
+        }
+        faltando = campos_faltando("nda", dados)
+
+        assert faltando == []
+
+    def test_email_e_telefone_do_representante_sao_opcionais(self):
+        contratante = _contratante_completo()
+        contratante["representante"]["email"] = ""
+        contratante["representante"]["telefone"] = ""
+        dados = {
+            "contratante": contratante,
+            "testemunhas": _testemunhas_completas(),
+            "assinatura": _assinatura_completa(),
+        }
+
+        assert campos_faltando("nda", dados) == []
+
+    def test_outro_nunca_exige_nada(self):
+        assert campos_faltando("outro", {}) == []
+        assert campos_faltando("outro", None) == []
+
+
+class TestContrato:
+    def _dados_base(self):
+        return {
+            "contratante": _contratante_completo(),
+            "testemunhas": _testemunhas_completas(),
+            "assinatura": _assinatura_completa(),
+            "projeto": {
+                "servico": "Consultoria",
+                "escopos": [{"nome": "Ambientação", "prazo_dias_uteis": 5}],
+                "num_consultores": 3,
+                "num_coordenadores": 1,
+            },
+            "financeiro": {
+                "valor_total": 22000,
+                "forma_pagamento": "PIX",
+                "parcelado": False,
+            },
+        }
+
+    def test_completo_nao_falta_nada(self):
+        assert campos_faltando("contrato", self._dados_base()) == []
+
+    def test_exige_escopos(self):
+        dados = self._dados_base()
+        dados["projeto"]["escopos"] = []
+
+        assert "Escopos do projeto" in campos_faltando("contrato", dados)
+
+    def test_exige_numero_de_consultores(self):
+        dados = self._dados_base()
+        dados["projeto"]["num_consultores"] = 0
+
+        assert "Número de consultores" in campos_faltando("contrato", dados)
+
+    def test_parcelado_exige_dados_da_parcela(self):
+        dados = self._dados_base()
+        dados["financeiro"]["parcelado"] = True
+
+        faltando = campos_faltando("contrato", dados)
+
+        assert "Número de parcelas" in faltando
+        assert "Data do primeiro vencimento" in faltando
+        assert "Dia do vencimento mensal" in faltando
+
+    def test_parcela_unica_nao_exige_dados_de_parcelamento(self):
+        dados = self._dados_base()
+        # parcelado=False (padrão) — não deveria cobrar número de parcelas.
+        assert "Número de parcelas" not in campos_faltando("contrato", dados)
+
+
+class TestTep:
+    def test_exige_escopos_entregues_e_execucao(self):
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": _testemunhas_completas(),
+            "assinatura": _assinatura_completa(),
+            "projeto": {"nome": "", "escopos_entregues": []},
+            "execucao": {"data_inicio": "", "data_fim": ""},
+        }
+
+        faltando = campos_faltando("tep", dados)
+
+        assert "Nome do projeto" in faltando
+        assert "Escopos entregues" in faltando
+        assert "Data de início da execução" in faltando
+        assert "Data de término da execução" in faltando
+
+
+class TestUsoImagem:
+    def test_exige_contexto(self):
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": _testemunhas_completas(),
+            "assinatura": _assinatura_completa(),
+            "contexto": "",
+        }
+
+        assert "Contexto de captação da imagem" in campos_faltando("uso_imagem", dados)
+
+
+class TestAditivo:
+    def _dados_base(self):
+        return {
+            "contratante": _contratante_completo(),
+            "testemunhas": _testemunhas_completas(),
+            "assinatura": _assinatura_completa(),
+            "secoes": {"objeto": False, "alteracao": False, "preco": False, "prazo": False},
+        }
+
+    def test_exige_pelo_menos_uma_secao(self):
+        faltando = campos_faltando("aditivo", self._dados_base())
+
+        assert any("Pelo menos uma seção" in f for f in faltando)
+
+    def test_secao_objeto_exige_descricao_e_itens(self):
+        dados = self._dados_base()
+        dados["secoes"]["objeto"] = True
+        dados["objeto"] = {"descricao": "", "itens": []}
+
+        faltando = campos_faltando("aditivo", dados)
+
+        assert "Descrição do objeto do aditivo" in faltando
+        assert "Itens do objeto do aditivo" in faltando
+
+    def test_secao_preco_parcelado_exige_parcelas(self):
+        dados = self._dados_base()
+        dados["secoes"]["preco"] = True
+        dados["preco"] = {"valor_novo": 30000, "parcelado": True}
+
+        faltando = campos_faltando("aditivo", dados)
+
+        assert "Número de parcelas do aditivo" in faltando
+
+    def test_secao_marcada_e_preenchida_nao_falta_nada(self):
+        dados = self._dados_base()
+        dados["secoes"]["prazo"] = True
+        dados["prazo"] = {"dias_uteis": 30}
+
+        assert campos_faltando("aditivo", dados) == []

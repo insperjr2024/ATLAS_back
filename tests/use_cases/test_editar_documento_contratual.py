@@ -31,8 +31,34 @@ class FakeDocumentoRepo:
         return self._documento
 
 
-def documento(status="aguardando_preenchimento", confirmado=False, dados=None):
-    return SimpleNamespace(id=1, status=status, confirmado=confirmado, dados=dados or {})
+def documento(status="aguardando_preenchimento", confirmado=False, dados=None, tipo="nda"):
+    return SimpleNamespace(id=1, status=status, tipo=tipo, confirmado=confirmado, dados=dados or {})
+
+
+def dados_nda_completos():
+    """NDA só usa os campos comuns (contratante/testemunha 1/assinatura) —
+    o tipo mais simples de satisfazer pra testar o resto da máquina de
+    estados sem o ruído dos campos obrigatórios (ver `test_validar_dados_
+    documento_contratual.py`, que cobre a validação em si)."""
+    return {
+        "contratante": {
+            "razao_social": "Empresa X",
+            "cnpj": "11.222.333/0001-81",
+            "endereco": "Rua X, 100",
+            "representante": {
+                "nome": "Fulano",
+                "nacionalidade": "Brasileira",
+                "estado_civil": "Solteiro",
+                "profissao": "Empresário",
+                "cargo": "Diretor",
+                "rg": "12.345.678-9",
+                "cpf": "111.444.777-35",
+                "endereco": "Rua Y, 200",
+            },
+        },
+        "testemunhas": [{"nome": "Testemunha 1", "cpf": "111.444.777-35"}, {"nome": "", "cpf": ""}],
+        "assinatura": {"dia": 18, "mes": 9, "ano": 2026},
+    }
 
 
 def montar_atualizar(doc):
@@ -102,12 +128,19 @@ class TestAtualizarDados:
 
 class TestConfirmarPreenchimento:
     def test_confirma_um_documento_aguardando_preenchimento(self, monkeypatch):
-        doc = documento()
+        doc = documento(dados=dados_nda_completos())
         uc = montar_confirmar(doc, monkeypatch)
 
         confirmado = uc.execute(1)
 
         assert confirmado.confirmado is True
+
+    def test_recusa_confirmar_com_campo_obrigatorio_vazio(self, monkeypatch):
+        doc = documento()  # dados={} — nada preenchido
+        uc = montar_confirmar(doc, monkeypatch)
+
+        with pytest.raises(RegraDeNegocioError, match="Faltam campos obrigatórios"):
+            uc.execute(1)
 
     def test_nao_confirma_duas_vezes(self, monkeypatch):
         doc = documento(confirmado=True)

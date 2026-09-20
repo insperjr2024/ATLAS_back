@@ -15,6 +15,12 @@ com alteração solicitada pelo cliente.
 não em disco (ver docstring do model). O LibreOffice só converte a partir de
 um arquivo real, então um diretório temporário existe só durante esta
 chamada — nada sobrevive nele depois do `with`.
+
+⭐ 2026-09-20 — a pedido: recusa gerar com campo obrigatório vazio. É a
+segunda trava (a primeira é `confirmar_preenchimento.py`) — o Jurídico
+também não deve conseguir gerar um documento incompleto, mesmo que o
+confirmado tenha, por algum motivo, ficado incompleto (dado editado depois
+por quem tem `pode_editar_documento_juridico`, que pula a confirmação).
 """
 
 import os
@@ -32,6 +38,7 @@ from src.utils.exceptions import RegraDeNegocioError
 from src.utils.identidade_institucional import identidade_de_configuracao
 from src.utils.pdf import converter_docx_para_pdf
 from src.utils.status_documento_contratual import STATUS_GERACAO_PERMITIDA
+from src.utils.validar_dados_documento_contratual import campos_faltando
 
 
 class GerarDocumentoContratualUseCase:
@@ -51,8 +58,9 @@ class GerarDocumentoContratualUseCase:
             )
         if documento.tipo not in TEMPLATE_POR_TIPO:
             raise RegraDeNegocioError(f'Não há template para documentos do tipo "{documento.tipo}".')
-        if not documento.dados:
-            raise RegraDeNegocioError(f'Dados de "{documento.tipo}" ainda não preenchidos.')
+        faltando = campos_faltando(documento.tipo, documento.dados)
+        if faltando:
+            raise RegraDeNegocioError(f"Faltam campos obrigatórios: {', '.join(faltando)}.")
 
         identidade = identidade_de_configuracao(self.identidade.get())
         doc = renderizar(documento.tipo, documento.dados, identidade)
