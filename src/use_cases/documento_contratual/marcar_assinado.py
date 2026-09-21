@@ -24,6 +24,7 @@ from src.repositories.documento_contratual_versao_repository import (
 from src.repositories.semestre_repository import SemestreRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
+from src.utils.notificar_projeto import projeto_vendido
 from src.utils.status_documento_contratual import PRAZO_ACEITE_TACITO_TEP_DIAS
 
 
@@ -103,6 +104,7 @@ class MarcarAssinadoDocumentoContratualUseCase:
         # "contrato em elaboração" (`create_projeto.py`).
         if documento.tipo == "contrato":
             mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "vendido")
+            projeto_vendido(self.db, documento.projeto)
 
         return atualizado
 

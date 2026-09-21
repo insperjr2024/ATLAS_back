@@ -16,6 +16,7 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.eventos import notificar_alocacao
 from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
 from src.use_cases.tarefa.colunas import criar_colunas_padrao
+from src.utils.notificar_projeto import projeto_criado
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
     EscopoVendidoRequest,
     validar_calendario_do_escopo,
@@ -156,9 +157,6 @@ class CreateProjetoUseCase:
             )
             notificar_alocacao(self.db, projeto, membro.usuario_id)
 
-        # Sem notificação: quem vendeu não foi ALOCADO em nada — ganhou visão
-        # de leitura, não trabalho. Avisar "você entrou no projeto" seria
-        # mentira, e é a única mensagem que existe para este evento.
         if request.vendedor_ids:
             self.vendedor_repository.definir(
                 projeto.id, list(dict.fromkeys(request.vendedor_ids)), criado_por
@@ -170,5 +168,12 @@ class CreateProjetoUseCase:
             status_novo="contrato_em_elaboracao",
             alterado_por=criado_por,
         )
+
+        # ⭐ 2026-09-21 — a pedido: todo projeto nasce "Contrato em
+        # elaboração" agora — diretoria, gerentes e quem vendeu precisam
+        # saber que uma venda começou a ser formalizada. Diferente da
+        # alocação de equipe (`notificar_alocacao` acima), que é sobre
+        # trabalho: isto é sobre acompanhar a venda, não é mentira nenhuma.
+        projeto_criado(self.db, projeto)
 
         return serializar_projeto_resumo(projeto, self.frente_repository, self.membro_repository)

@@ -29,6 +29,9 @@ def _mudanca_de_status_automatica(monkeypatch):
         "mudar_status_projeto_automaticamente",
         lambda db, projeto_id, status_novo: chamadas.append((projeto_id, status_novo)),
     )
+    # Idem pra notificação de "virou vendido" — tem teste próprio em
+    # test_notificar_projeto.py.
+    monkeypatch.setattr(marcar_assinado_mod, "projeto_vendido", lambda *a, **k: None)
     return chamadas
 
 
@@ -73,7 +76,8 @@ class FakeSemestreRepo:
 
 def documento(tipo="contrato", status="aprovado_pelo_cliente", atualizado_em=None):
     return SimpleNamespace(
-        id=1, projeto_id=7, tipo=tipo, status=status, atualizado_em=atualizado_em or datetime.now()
+        id=1, projeto_id=7, tipo=tipo, status=status, atualizado_em=atualizado_em or datetime.now(),
+        projeto=SimpleNamespace(id=7, nome="Projeto Alfa"),
     )
 
 
