@@ -24,7 +24,7 @@ NINGUEM = usuario(5)
 def documento(id, projeto_id, tipo, nome_projeto="Projeto X"):
     projeto = SimpleNamespace(nome=nome_projeto, cliente="Cliente Y")
     return SimpleNamespace(id=id, projeto_id=projeto_id, tipo=tipo, status="em_revisao_interna",
-                            dados=None, criado_em=None, atualizado_em=None, projeto=projeto)
+                            confirmado=True, dados=None, criado_em=None, atualizado_em=None, projeto=projeto)
 
 
 def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridico=(), permissoes_painel=()):
@@ -48,10 +48,16 @@ def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridi
         def get_by_projetos(self, _projeto_ids, apenas_atuais=False):
             return membros
 
+    class FrenteFake:
+        def __init__(self, db): pass
+        def get_by_projetos(self, _projeto_ids):
+            return []
+
     monkeypatch.setattr(mod, "DocumentoContratualRepository", DocumentoFake)
     monkeypatch.setattr(mod, "DocumentoContratualVersaoRepository", VersaoFake)
     monkeypatch.setattr(mod, "ProjetoVendedorRepository", VendedorFake)
     monkeypatch.setattr(mod, "ProjetoMembroRepository", MembroFake)
+    monkeypatch.setattr(mod, "ProjetoFrenteRepository", FrenteFake)
     monkeypatch.setattr(mod, "eh_diretoria_de_projetos", lambda u: u.posicao == "diretor_projetos")
     monkeypatch.setattr(
         mod,

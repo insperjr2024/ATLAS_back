@@ -48,6 +48,11 @@ def serializar_projeto_resumo(
         "cliente": projeto.cliente,
         "criado_em": projeto.criado_em,
         "status": projeto.status,
+        # ⭐ 2026-09-21 — contrato institucional (Agro etc.): sem frente/
+        # equipe/escopo, só existe pra pendurar um documento jurídico. O
+        # front usa isto pra tirar da lista/Kanban geral pra sempre, não só
+        # enquanto "contrato em elaboração".
+        "institucional": projeto.institucional,
         "frente_ids": [f.frente_id for f in frentes],
         "sinergico": len(frentes) > 1,
         # ⚠ `coordenador_id` (singular) é o PRIMEIRO da lista, mantido só

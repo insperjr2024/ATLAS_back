@@ -210,10 +210,16 @@ class _BaseMonitoramento:
         status: Optional[List[str]] = None,
     ) -> List[ProjetoModel]:
         # Projeto arquivado é histórico (§12) — não deve inflar nenhum KPI,
-        # tabela ou cronograma do monitoramento da gestão atual.
-        query = aplicar_recorte_visao(
-            self.db.query(ProjetoModel), current_user, self.db, frente_id
-        ).filter(ProjetoModel.arquivado_em.is_(None))
+        # tabela ou cronograma do monitoramento da gestão atual. Contrato
+        # institucional (Agro etc.) nunca entra aqui — sem frente/equipe/
+        # escopo, não é entrega de consultoria, e misturar poluiria todo
+        # KPI que qualquer tela deste módulo calcula (a aba Contratos é o
+        # lugar dele).
+        query = (
+            aplicar_recorte_visao(self.db.query(ProjetoModel), current_user, self.db, frente_id)
+            .filter(ProjetoModel.arquivado_em.is_(None))
+            .filter(ProjetoModel.institucional.is_(False))
+        )
         # `escopo_id` é do CATÁLOGO (mesmo id do `?frente_id=` do filtro
         # irmão) — projeto com esse escopo vendido, custom ("Outro") fica de
         # fora, porque não tem `escopo_id` nenhum pra bater.

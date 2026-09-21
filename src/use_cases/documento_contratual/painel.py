@@ -24,6 +24,7 @@ from src.repositories.documento_contratual_repository import DocumentoContratual
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
+from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.utils.status_documento_contratual import ROTULO_TIPO
@@ -36,11 +37,21 @@ class PainelContratualUseCase:
         self.versoes = DocumentoContratualVersaoRepository(db)
         self.membros = ProjetoMembroRepository(db)
         self.vendedores = ProjetoVendedorRepository(db)
+        self.frentes = ProjetoFrenteRepository(db)
 
     def execute(self, usuario) -> List[dict]:
         documentos = self.documentos.list_nao_arquivados()
         visiveis = self._filtrar_visiveis(usuario, documentos)
-        return [self._serializar(d) for d in visiveis]
+
+        # Em lote — a Kanban filtra por frente, e uma consulta por card
+        # (potencialmente centenas) seria o mesmo N+1 que `serializar_
+        # projeto_resumo` evita em lote pro Kanban de projetos.
+        projeto_ids = list({d.projeto_id for d in visiveis})
+        frentes_por_projeto: dict = {pid: [] for pid in projeto_ids}
+        for frente in self.frentes.get_by_projetos(projeto_ids):
+            frentes_por_projeto[frente.projeto_id].append(frente.frente_id)
+
+        return [self._serializar(d, frentes_por_projeto.get(d.projeto_id, [])) for d in visiveis]
 
     def _ve_tudo(self, usuario) -> bool:
         return (
@@ -72,15 +83,20 @@ class PainelContratualUseCase:
             or (d.tipo == "tep" and d.projeto_id in coordenador_de)
         ]
 
-    def _serializar(self, documento) -> dict:
+    def _serializar(self, documento, frente_ids: List[int]) -> dict:
         return {
             "id": documento.id,
             "projeto_id": documento.projeto_id,
             "projeto_nome": documento.projeto.nome,
             "cliente": documento.projeto.cliente,
+            "frente_ids": frente_ids,
             "tipo": documento.tipo,
             "tipo_rotulo": ROTULO_TIPO.get(documento.tipo, "Documento"),
             "status": documento.status,
+            # A Kanban precisa disto pra saber se um `aguardando_
+            # preenchimento` já está confirmado (2ª coluna) ou não (1ª) —
+            # mesma régua de `indiceDaEtapaDocumento` no front.
+            "confirmado": documento.confirmado,
             "ultima_versao": self.versoes.ultima_versao(documento.id) or None,
             "criado_em": documento.criado_em,
             "atualizado_em": documento.atualizado_em,

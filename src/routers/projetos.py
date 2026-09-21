@@ -49,6 +49,10 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.banca.get_banca_detalhes import ListBancasDoProjetoUseCase
 from src.use_cases.projeto.arquivar_projeto import ArquivarProjetoUseCase, DesarquivarProjetoUseCase
 from src.use_cases.projeto.create_projeto import CreateProjetoUseCase, CreateProjetoRequest
+from src.use_cases.projeto.create_projeto_institucional import (
+    CreateProjetoInstitucionalRequest,
+    CreateProjetoInstitucionalUseCase,
+)
 from src.use_cases.projeto.delete_projeto import DeleteProjetoPermanenteUseCase
 from src.use_cases.projeto.pedir_justificativa import (
     PedirJustificativaRequest,
@@ -106,6 +110,21 @@ router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_pode_criar_projeto), db: Session = Depends(get_db)):
     try:
         return CreateProjetoUseCase(db).execute(request, criado_por=current_user.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/projetos/institucional")
+def create_projeto_institucional(
+    request: CreateProjetoInstitucionalRequest,
+    current_user=Depends(require_pode_criar_projeto),
+    db: Session = Depends(get_db),
+):
+    # Mesma permissão de criar projeto normal — quem pode abrir um Contrato
+    # de Prestação já pode abrir um contrato institucional, é o mesmo
+    # "estou começando um cliente novo".
+    try:
+        return CreateProjetoInstitucionalUseCase(db).execute(request, criado_por=current_user.id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

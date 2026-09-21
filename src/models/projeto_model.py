@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -59,6 +60,14 @@ class ProjetoModel(Base):
         default="contrato_em_elaboracao",
         server_default="contrato_em_elaboracao",
     )
+    #: ⭐ 2026-09-21 — contrato institucional (Agro etc.): criado só com nome,
+    #: sem frente/equipe/escopo, pra pendurar um documento jurídico que
+    #: precisa de um `ProjetoModel` de verdade (a FK exige), mas não é
+    #: entrega de consultoria nenhuma — ver `create_projeto_institucional.py`.
+    #: Fica fora do Kanban/lista geral de projetos e das métricas de
+    #: Monitoramento pra sempre (não só enquanto "contrato em elaboração"),
+    #: pra não poluir os números de quem acompanha entrega de verdade.
+    institucional = Column(Boolean, nullable=False, default=False)
     dias_ambientacao = Column(Integer, nullable=False, default=5, server_default="5")
     #: Teto de consultores do projeto — o que decide se ele ainda tem vaga na
     #: tela de declaração de interesse. Não conta o coordenador: ele entra pelo
