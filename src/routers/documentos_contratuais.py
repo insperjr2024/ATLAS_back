@@ -33,12 +33,17 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.solicitacao_alteracao_contratual_repository import (
     SolicitacaoAlteracaoContratualRepository,
 )
 from src.use_cases.documento_contratual.abrir_documento import AbrirDocumentoContratualUseCase
 from src.use_cases.documento_contratual.analisar_solicitacao import (
     AnalisarSolicitacaoAlteracaoUseCase,
+)
+from src.use_cases.documento_contratual.aprovar_internamente import (
+    AprovarInternamenteDocumentoContratualUseCase,
 )
 from src.use_cases.documento_contratual.atualizar_dados import (
     AtualizarDadosDocumentoContratualUseCase,
@@ -126,6 +131,29 @@ def _pode_marcar_assinado(usuario, db: Session) -> bool:
     return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
         usuario, db, "pode_marcar_documento_assinado"
     )
+
+
+def _pode_enviar_ao_cliente(usuario, db: Session, documento: dict) -> bool:
+    """⭐ 2026-09-21 — a pedido: separado de `_pode_gerar_documento`. Quem
+    manda pro cliente depende do TIPO do documento — o vendedor do projeto
+    no Contrato de Prestação (ele que negociou, ele que sabe o WhatsApp
+    certo), diretoria de projetos ou coordenador do projeto no TEP. Continua
+    exigindo que o documento já esteja `aprovado_internamente`
+    (`STATUS_EXPORTACAO_PERMITIDA`) — isto só decide QUEM, não QUANDO."""
+    if eh_diretoria_de_projetos(usuario):
+        return True
+    if usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico"):
+        return True
+    projeto_id = documento["projeto_id"]
+    if documento["tipo"] == "contrato":
+        vendedores = ProjetoVendedorRepository(db).get_by_projeto(projeto_id)
+        return any(v.usuario_id == usuario.id for v in vendedores)
+    if documento["tipo"] == "tep":
+        membro = ProjetoMembroRepository(db).get_atual_do_usuario_no_projeto(projeto_id, usuario.id)
+        return bool(membro and membro.papel == "coordenador")
+    # NDA/Uso de Imagem/Aditivo: sem pedido específico ainda, mantém o
+    # comportamento de antes (Jurídico/diretoria).
+    return _pode_gerar_documento(usuario, db)
 
 
 def _projeto_visivel_ou_404(projeto_id: int, usuario, db: Session) -> None:
@@ -340,6 +368,27 @@ def gerar_documento(
     }
 
 
+@router.post("/documentos-contratuais/{documento_id}/aprovar-internamente")
+def aprovar_internamente(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not _pode_editar_livre(usuario, db):
+        raise HTTPException(status_code=403, detail="Sem permissão para aprovar documentos jurídicos.")
+
+    try:
+        aprovado = AprovarInternamenteDocumentoContratualUseCase(db).execute(documento_id)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
+    return serializar_documento_contratual(aprovado, ultima_versao=ultima_versao)
+
+
 @router.post("/documentos-contratuais/{documento_id}/exportar-aprovacao")
 def exportar_aprovacao(
     documento_id: int,
@@ -350,7 +399,7 @@ def exportar_aprovacao(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_gerar_documento(usuario, db):
+    if not _pode_enviar_ao_cliente(usuario, db, documento):
         raise HTTPException(status_code=403, detail="Sem permissão para exportar documentos jurídicos.")
 
     try:
@@ -369,7 +418,7 @@ def recusar_assinatura_tep(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_gerar_documento(usuario, db):
+    if not _pode_enviar_ao_cliente(usuario, db, documento):
         raise HTTPException(status_code=403, detail="Sem permissão para exportar documentos jurídicos.")
 
     try:
@@ -395,7 +444,8 @@ def marcar_assinado(
         atualizado = MarcarAssinadoDocumentoContratualUseCase(db).execute(documento_id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return serializar_documento_contratual(atualizado)
+    ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
+    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao)
 
 
 @router.post("/documentos-contratuais/{documento_id}/considerar-aceito-por-prazo")
@@ -417,7 +467,8 @@ def considerar_aceito_por_prazo(
         )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return serializar_documento_contratual(atualizado)
+    ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
+    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao)
 
 
 @router.get("/documentos-contratuais/{documento_id}/solicitacoes-alteracao")

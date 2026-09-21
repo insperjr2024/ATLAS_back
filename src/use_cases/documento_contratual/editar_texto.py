@@ -74,6 +74,13 @@ class EditarTextoDocumentoContratualUseCase:
                 pdf_conteudo = f.read()
 
         self.versoes.update(versao.id, docx_conteudo=docx_conteudo, pdf_conteudo=pdf_conteudo)
+
+        # ⭐ 2026-09-21 — a pedido: editar o texto depois de aprovado
+        # internamente invalida essa aprovação — o Jurídico validou UM
+        # conteúdo, não "o documento" em abstrato. Volta pra revisão.
+        if documento.status == "aprovado_internamente":
+            self.documentos.update(documento_id, status="em_revisao_interna")
+
         return {"alterados": alterados}
 
 

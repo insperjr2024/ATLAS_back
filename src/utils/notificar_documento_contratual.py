@@ -41,6 +41,23 @@ def documento_pronto_para_gerar(db: Session, documento) -> None:
         )
 
 
+def documento_aprovado_internamente(db: Session, documento) -> None:
+    """Jurídico aprovou por dentro — avisa quem abriu o documento que já
+    pode preparar o envio ao cliente."""
+    tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
+    titulo = f'Documento aprovado internamente — já pode mandar ao cliente: "{tipo}" do projeto "{documento.projeto.nome}".'
+    for usuario in _usuario_criador(db, documento):
+        registrar(
+            db,
+            usuario_id=usuario.id,
+            tipo="documento_contratual_aprovado_internamente",
+            titulo=titulo,
+            projeto_id=documento.projeto_id,
+            rota=_rota(documento.projeto_id),
+            chave_dedup=f"documento_contratual:{documento.id}:aprovado_internamente:{uuid4()}",
+        )
+
+
 def documento_liberado_para_cliente(db: Session, documento) -> None:
     """Gerado/exportado — avisa quem abriu o documento que o link já está pronto."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")

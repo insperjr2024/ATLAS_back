@@ -46,7 +46,7 @@ class FakeTokenRepo:
         return token
 
 
-def documento(tipo="contrato", status="em_revisao_interna", telefone=""):
+def documento(tipo="contrato", status="aprovado_internamente", telefone=""):
     projeto = SimpleNamespace(nome="Projeto Alfa", criado_por=None)
     dados = {"contratante": {"representante": {"telefone": telefone}}}
     return SimpleNamespace(id=1, projeto_id=7, tipo=tipo, status=status, dados=dados, projeto=projeto)
@@ -82,11 +82,11 @@ class TestExecute:
         assert uc.tokens.criados[0].documento_id == 1
         assert uc.tokens.criados[0].versao_id == 9
 
-    def test_recusa_fora_de_em_revisao_interna(self, monkeypatch):
-        doc = documento(status="aguardando_preenchimento")
+    def test_recusa_fora_de_aprovado_internamente(self, monkeypatch):
+        doc = documento(status="em_revisao_interna")
         uc = montar(doc, monkeypatch=monkeypatch)
 
-        with pytest.raises(RegraDeNegocioError, match="em_revisao_interna"):
+        with pytest.raises(RegraDeNegocioError, match="aprovado_internamente"):
             uc.execute(1)
 
     def test_recusa_sem_nenhuma_versao_gerada(self, monkeypatch):

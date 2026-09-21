@@ -41,7 +41,7 @@ class ExportarAprovacaoDocumentoContratualUseCase:
         if documento.status not in STATUS_EXPORTACAO_PERMITIDA:
             raise RegraDeNegocioError(
                 'Só é possível exportar para aprovação do cliente com o documento '
-                'em "em_revisao_interna".'
+                'em "aprovado_internamente".'
             )
         return self._gerar_link(documento)
 

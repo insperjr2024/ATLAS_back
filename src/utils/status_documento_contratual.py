@@ -35,6 +35,14 @@ class TipoDocumentoContratual(str, Enum):
 class StatusDocumentoContratual(str, Enum):
     AGUARDANDO_PREENCHIMENTO = "aguardando_preenchimento"
     EM_REVISAO_INTERNA = "em_revisao_interna"
+    #: ⭐ 2026-09-21 — a pedido: separa "o Jurídico aprovou por dentro" de
+    #: "gerou o rascunho". Antes das duas coisas eram a mesma permissão —
+    #: agora só depois desta aprovação é que dá para exportar/mandar pro
+    #: cliente (`STATUS_EXPORTACAO_PERMITIDA`), e quem manda pode ser gente
+    #: de fora do Jurídico (vendedor do projeto no Contrato de Prestação,
+    #: diretor de projetos/coordenador no TEP — ver `_pode_enviar_ao_cliente`
+    #: em `routers/documentos_contratuais.py`).
+    APROVADO_INTERNAMENTE = "aprovado_internamente"
     AGUARDANDO_APROVACAO_CLIENTE = "aguardando_aprovacao_cliente"
     ALTERACAO_SOLICITADA = "alteracao_solicitada"
     #: Documento pronto, cliente já aprovou o texto — só falta ser assinado
@@ -79,21 +87,33 @@ ROTULO_TIPO = {
 
 # ---------- Conjuntos de status ----------
 
-#: Gerar um novo rascunho: antes de o cliente ter aprovado.
+#: Gerar um novo rascunho: antes de o cliente ter aprovado. Regerar depois
+#: de já aprovado internamente é permitido (o Jurídico pode ter pedido um
+#: ajuste antes de mandar) — mas invalida a aprovação anterior, ver
+#: `gerar_documento.py`.
 STATUS_GERACAO_PERMITIDA = frozenset({
     StatusDocumentoContratual.AGUARDANDO_PREENCHIMENTO,
     StatusDocumentoContratual.EM_REVISAO_INTERNA,
+    StatusDocumentoContratual.APROVADO_INTERNAMENTE,
     StatusDocumentoContratual.ALTERACAO_SOLICITADA,
 })
 
-#: Editar o texto do .docx à mão: só com um rascunho já gerado em revisão.
+#: Editar o texto do .docx à mão: um rascunho já gerado, em revisão ou já
+#: aprovado internamente (idem acima, invalida a aprovação — ver
+#: `editar_texto.py`/`reanexar_documento.py`).
 STATUS_EDICAO_TEXTO = frozenset({
     StatusDocumentoContratual.EM_REVISAO_INTERNA,
+    StatusDocumentoContratual.APROVADO_INTERNAMENTE,
     StatusDocumentoContratual.ALTERACAO_SOLICITADA,
 })
 
-#: Mandar o link de aprovação pro cliente.
-STATUS_EXPORTACAO_PERMITIDA = frozenset({StatusDocumentoContratual.EM_REVISAO_INTERNA})
+#: Aprovar o rascunho por dentro (Jurídico) — só de quem ainda não passou
+#: por isso.
+STATUS_APROVACAO_INTERNA_PERMITIDA = frozenset({StatusDocumentoContratual.EM_REVISAO_INTERNA})
+
+#: Mandar o link de aprovação pro cliente — só depois do Jurídico aprovar
+#: por dentro (era só "em_revisao_interna", a mesma pessoa gerava e mandava).
+STATUS_EXPORTACAO_PERMITIDA = frozenset({StatusDocumentoContratual.APROVADO_INTERNAMENTE})
 
 #: A partir daqui o cliente já aprovou o documento gerado com estes dados —
 #: editar invalidaria a aprovação dada. Regra de ciclo de vida, não de
