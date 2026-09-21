@@ -21,10 +21,17 @@ class IdentidadeInstitucionalModel(Base):
     presidente_cpf = Column(String(20), nullable=False, server_default="042.777.813-14")
     presidente_rg = Column(String(30), nullable=False, server_default="688539531")
     presidente_orgao_emissor = Column(String(20), nullable=False, server_default="SSP/SP")
-    presidente_endereco = Column(
-        String(500), nullable=False,
-        server_default="Rua Casa do Ator, nº 829, Vila Olímpia, CEP: 4546003, São Paulo/SP",
-    )
+    #: ⚠ 2026-09-21 — endereço estruturado (era um `String(500)` livre): o
+    #: documento gerado precisa do endereço inteiro numa frase só, mas quem
+    #: cadastra digita rua/número/bairro/etc. separados — junta em
+    #: `identidade_institucional.py` (`endereco_presidente_completo`).
+    presidente_endereco_rua = Column(String(255), nullable=False, server_default="Rua Casa do Ator")
+    presidente_endereco_numero = Column(String(20), nullable=False, server_default="829")
+    presidente_endereco_complemento = Column(String(255), nullable=True)
+    presidente_endereco_bairro = Column(String(100), nullable=False, server_default="Vila Olímpia")
+    presidente_endereco_cidade = Column(String(100), nullable=False, server_default="São Paulo")
+    presidente_endereco_estado = Column(String(2), nullable=False, server_default="SP")
+    presidente_endereco_cep = Column(String(20), nullable=False, server_default="04546-003")
     presidente_estado_civil = Column(String(30), nullable=False, server_default="solteiro")
     presidente_nacionalidade = Column(String(30), nullable=False, server_default="brasileiro")
     presidente_profissao = Column(String(100), nullable=False, server_default="estudante")

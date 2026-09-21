@@ -97,11 +97,16 @@ def _testemunhas_contexto(dados: dict, identidade: dict) -> dict:
 # ---------- Blocos de contexto ----------
 
 
-#: Nacionalidade/estado civil/profissão/cargo são substantivo e adjetivo
-#: comuns dentro de uma frase corrida do contrato, não nome próprio — sempre
-#: em minúsculo no documento final, não importa como a pessoa digitou no
+#: Nacionalidade/estado civil/profissão são substantivo e adjetivo comuns
+#: dentro de uma frase corrida do contrato, não nome próprio — sempre em
+#: minúsculo no documento final, não importa como a pessoa digitou no
 #: formulário ("Solteiro", "CASADO", "Empresário"...).
-CAMPOS_QUALIFICACAO = ("nacionalidade", "estado_civil", "profissao", "cargo")
+CAMPOS_QUALIFICACAO = ("nacionalidade", "estado_civil", "profissao")
+
+#: ⚠ `cargo`, diferente dos três acima, NÃO entra nessa régua: nos cinco
+#: templates ele é impresso como título no bloco de assinatura, pareado com
+#: "DIRETOR PRESIDENTE" (texto fixo, em caixa alta) do lado da Insper Jr —
+#: por isso mínimo com inicial maiúscula, nunca em minúsculo.
 
 
 def _normalizar_qualificacao(pessoa: dict) -> dict:
@@ -110,6 +115,10 @@ def _normalizar_qualificacao(pessoa: dict) -> dict:
         valor = normalizado.get(campo)
         if isinstance(valor, str):
             normalizado[campo] = valor.strip().lower()
+    cargo = normalizado.get("cargo")
+    if isinstance(cargo, str) and cargo.strip():
+        cargo = cargo.strip()
+        normalizado["cargo"] = cargo[0].upper() + cargo[1:]
     return normalizado
 
 

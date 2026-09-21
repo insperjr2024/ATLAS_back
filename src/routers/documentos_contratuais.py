@@ -596,7 +596,10 @@ def _serializar_identidade(identidade) -> dict:
         campo: getattr(identidade, campo)
         for campo in (
             "presidente_nome", "presidente_cpf", "presidente_rg", "presidente_orgao_emissor",
-            "presidente_endereco", "presidente_estado_civil", "presidente_nacionalidade",
+            "presidente_endereco_rua", "presidente_endereco_numero", "presidente_endereco_complemento",
+            "presidente_endereco_bairro", "presidente_endereco_cidade", "presidente_endereco_estado",
+            "presidente_endereco_cep",
+            "presidente_estado_civil", "presidente_nacionalidade",
             "presidente_profissao", "presidente_email", "presidente_telefone",
             "testemunha1_nome", "testemunha1_cpf", "testemunha1_email", "testemunha1_telefone",
             "testemunha2_nome", "testemunha2_cpf", "testemunha2_email", "testemunha2_telefone",

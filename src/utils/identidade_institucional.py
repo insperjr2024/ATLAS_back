@@ -9,6 +9,20 @@ trocando `ConfiguracaoModel` (Contratos) por `IdentidadeInstitucionalModel`
 from src.models.identidade_institucional_model import IdentidadeInstitucionalModel
 
 
+def endereco_presidente_completo(identidade: IdentidadeInstitucionalModel) -> str:
+    """Rua/número/complemento/bairro/cidade/estado/CEP cadastrados
+    separados, juntados numa frase só — é o que o documento gerado espera
+    (`{{ presidente.endereco }}` nos templates, uma string única)."""
+    numero_complemento = identidade.presidente_endereco_numero
+    if identidade.presidente_endereco_complemento:
+        numero_complemento += f", {identidade.presidente_endereco_complemento}"
+    return (
+        f"{identidade.presidente_endereco_rua}, nº {numero_complemento}, "
+        f"{identidade.presidente_endereco_bairro}, CEP: {identidade.presidente_endereco_cep}, "
+        f"{identidade.presidente_endereco_cidade}/{identidade.presidente_endereco_estado}"
+    )
+
+
 def identidade_de_configuracao(identidade: IdentidadeInstitucionalModel) -> dict:
     return {
         "presidente": {
@@ -16,7 +30,7 @@ def identidade_de_configuracao(identidade: IdentidadeInstitucionalModel) -> dict
             "cpf": identidade.presidente_cpf,
             "rg": identidade.presidente_rg,
             "orgao_emissor": identidade.presidente_orgao_emissor,
-            "endereco": identidade.presidente_endereco,
+            "endereco": endereco_presidente_completo(identidade),
             "estado_civil": identidade.presidente_estado_civil,
             "nacionalidade": identidade.presidente_nacionalidade,
             "profissao": identidade.presidente_profissao,
