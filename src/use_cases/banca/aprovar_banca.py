@@ -42,6 +42,7 @@ from src.use_cases.banca.marcar_banca_escopo import registrar_resultado_na_sessa
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.apuracao_banca import apurar_aprovacao
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
 
 
 def _frentes_da_banca(db: Session, banca_id: int) -> List[int]:
@@ -85,6 +86,24 @@ def projeto_da_banca(db: Session, banca_id: int) -> Optional[int]:
         if escopo:
             return escopo.projeto_id
     return None
+
+
+def _validacao_tecnica_completa(db: Session, projeto_id: int) -> bool:
+    """Nenhum escopo deste projeto tem banca realizada esperando resultado —
+    mesmo filtro de `monitoramento/aprovacoes.py::_bancas_sem_resultado`
+    (banca com `realizado_em` e sem `resultado` ainda é pendência), só que
+    de um projeto só em vez do portfólio inteiro. Escopo sem banca nenhuma
+    (ambientação, por exemplo) não conta como pendência — só entra na conta
+    quem já tem banca de verdade esperando veredito."""
+    escopos = ProjetoEscopoRepository(db).get_by_projeto(projeto_id)
+    if not escopos:
+        return False
+    bancas_por_escopo = BancaRepository(db).mapa_por_escopo([e.id for e in escopos])
+    for escopo in escopos:
+        banca = bancas_por_escopo.get(escopo.id)
+        if banca and banca.realizado_em and not banca.resultado:
+            return False
+    return True
 
 
 def sessao_corrente(db: Session, banca_id: int) -> int:
@@ -235,6 +254,15 @@ class RegistrarAprovacaoBancaUseCase:
             banca_id, resultado=apurar_aprovacao(request.aprovado)
         )
         registrar_resultado_na_sessao(self.sessao_repository, banca)
+
+        # 🤖 2026-09-21 — a pedido: quando a última banca pendente do projeto
+        # é aprovada, o projeto já vai pra "Envio do TEP" sozinho — o TEP em
+        # si continua sendo aberto e preenchido por uma pessoa
+        # (`pode_solicitar_tep`), isto só move o status, não elabora nada.
+        if request.aprovado:
+            projeto_id = projeto_da_banca(self.db, banca_id)
+            if projeto_id and _validacao_tecnica_completa(self.db, projeto_id):
+                mudar_status_projeto_automaticamente(self.db, projeto_id, "envio_tep")
 
         return {"banca_id": banca_id, **montar_situacao_aprovacao(self.db, banca)}
 

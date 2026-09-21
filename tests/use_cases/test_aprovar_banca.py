@@ -72,6 +72,23 @@ def mundo(monkeypatch):
                 for k, v in kwargs.items():
                     setattr(banca, k, v)
                 return banca
+            def mapa_por_escopo(self, projeto_escopo_ids):
+                return {}
+
+        # ⚠ Nenhum destes cenários de teste liga a banca a um projeto/escopo
+        # de verdade — o que importa aqui é o FAN-OUT de quem decide, não o
+        # gatilho de "Envio do TEP" (que tem teste próprio,
+        # `TestMoveProjetoParaEnvioDoTep`). Sem vínculo, `projeto_da_banca`
+        # devolve `None` e o gatilho nem chega a rodar.
+        class BancaEscopoFake:
+            def __init__(self, db): pass
+            def get_escopo_ids(self, banca_id):
+                return []
+
+        class ProjetoEscopoFake:
+            def __init__(self, db): pass
+            def get_by_projeto(self, projeto_id):
+                return []
 
         class BancaFrenteFake:
             def __init__(self, db): pass
@@ -153,6 +170,8 @@ def mundo(monkeypatch):
             ("FrenteRepository", FrenteFake),
             ("BancaAprovacaoRepository", BancaAprovacaoFake),
             ("BancaSessaoRepository", SessaoFake),
+            ("BancaEscopoRepository", BancaEscopoFake),
+            ("ProjetoEscopoRepository", ProjetoEscopoFake),
         ):
             monkeypatch.setattr(mod, nome, dublê)
 
@@ -162,6 +181,10 @@ def mundo(monkeypatch):
             "frentes_do_usuario",
             lambda u, db: list(frentes_por_usuario.get(u.id, minhas_frentes)),
         )
+        # Idem: quem move o projeto sozinho pro "Envio do TEP" tem teste
+        # próprio (`TestMoveProjetoParaEnvioDoTep`) — aqui, sem vínculo de
+        # projeto (ver `BancaEscopoFake`), a chamada nem chega a acontecer.
+        monkeypatch.setattr(mod, "mudar_status_projeto_automaticamente", lambda *a, **k: None)
 
         return RegistrarAprovacaoBancaUseCase(db=None), banca
 
@@ -330,3 +353,72 @@ class TestSituacaoAntesDeDecidir:
             f"Usuário {GERENTE_TECH.id}",
             f"Usuário {GERENTE_BUSINESS.id}",
         }
+
+
+class TestMoveProjetoParaEnvioDoTep:
+    """🤖 2026-09-21 — a pedido: quando a última banca pendente do projeto é
+    aprovada, o projeto vai pra "Envio do TEP" sozinho (`aprovar_banca.py`,
+    dentro de `RegistrarAprovacaoBancaUseCase.execute()`)."""
+
+    def _ligar_ao_projeto(self, monkeypatch, projeto_id, escopo_id, bancas_por_escopo):
+        class BancaEscopoFake:
+            def __init__(self, db): pass
+            def get_escopo_ids(self, banca_id):
+                return [escopo_id]
+
+        class ProjetoEscopoFake:
+            def __init__(self, db): pass
+            def get_by_id(self, id_):
+                return SimpleNamespace(id=id_, projeto_id=projeto_id)
+            def get_by_projeto(self, pid):
+                return [SimpleNamespace(id=eid) for eid in bancas_por_escopo] if pid == projeto_id else []
+
+        class BancaComEscopoFake:
+            def __init__(self, db): pass
+            def mapa_por_escopo(self, projeto_escopo_ids):
+                return {eid: b for eid, b in bancas_por_escopo.items() if eid in projeto_escopo_ids}
+
+        monkeypatch.setattr(mod, "BancaEscopoRepository", BancaEscopoFake)
+        monkeypatch.setattr(mod, "ProjetoEscopoRepository", ProjetoEscopoFake)
+        monkeypatch.setattr(mod, "BancaRepository", BancaComEscopoFake)
+
+        chamadas = []
+        monkeypatch.setattr(
+            mod, "mudar_status_projeto_automaticamente",
+            lambda db, pid, status: chamadas.append((pid, status)),
+        )
+        return chamadas
+
+    def test_ultima_banca_pendente_aprovada_move_o_projeto(self, mundo, monkeypatch):
+        uc, banca = mundo(realizado_em="2026-09-01", resultado=None)
+        outra_banca_ja_resolvida = SimpleNamespace(id=2, realizado_em="2026-09-01", resultado="aprovada")
+        chamadas = self._ligar_ao_projeto(
+            monkeypatch, projeto_id=99, escopo_id=10,
+            bancas_por_escopo={10: banca, 20: outra_banca_ja_resolvida},
+        )
+
+        decidir(uc, aprovado=True, usuario=DIRETOR)
+
+        assert chamadas == [(99, "envio_tep")]
+
+    def test_banca_aprovada_mas_nao_a_ultima_nao_move(self, mundo, monkeypatch):
+        uc, banca = mundo(realizado_em="2026-09-01", resultado=None)
+        outra_banca_ainda_pendente = SimpleNamespace(id=2, realizado_em="2026-09-01", resultado=None)
+        chamadas = self._ligar_ao_projeto(
+            monkeypatch, projeto_id=99, escopo_id=10,
+            bancas_por_escopo={10: banca, 20: outra_banca_ainda_pendente},
+        )
+
+        decidir(uc, aprovado=True, usuario=DIRETOR)
+
+        assert chamadas == []
+
+    def test_banca_reprovada_nao_move_mesmo_sendo_a_ultima(self, mundo, monkeypatch):
+        uc, banca = mundo(realizado_em="2026-09-01", resultado=None)
+        chamadas = self._ligar_ao_projeto(
+            monkeypatch, projeto_id=99, escopo_id=10, bancas_por_escopo={10: banca},
+        )
+
+        decidir(uc, aprovado=False, usuario=DIRETOR)
+
+        assert chamadas == []
