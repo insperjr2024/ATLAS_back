@@ -85,16 +85,20 @@ def pode_pausar(status_atual: str) -> bool:
 def transicao_manual_valida(status_atual: str, status_novo: str, tem_kickoff: bool) -> bool:
     """Pode ir de `status_atual` pra `status_novo`?
 
-    Contrato em elaboração não tem transição manual nenhuma — só vira
-    Vendido sozinho, quando o Contrato de Prestação é assinado (integração
-    com a Contratos). Vendido só vira Ambientação, e só com `data_kickoff`
-    já marcada. Qualquer etapa ativa (fora as duas acima e Pausado, que têm
-    mecanismo próprio) vai pra qualquer outra ativa, livremente.
+    Contrato em elaboração normalmente vira Vendido sozinho, quando o
+    Contrato de Prestação é assinado (integração com a Contratos) — mas
+    também aceita a transição manual pra Vendido, escape pra quando o
+    contrato foi resolvido fora da plataforma (import antigo, caso
+    excepcional). Quem chama decide se quem está pedindo tem permissão pra
+    isso (é diretoria) — aqui só a máquina de estados importa, não quem
+    aciona. Vendido só vira Ambientação, e só com `data_kickoff` já marcada.
+    Qualquer etapa ativa (fora as duas acima e Pausado, que têm mecanismo
+    próprio) vai pra qualquer outra ativa, livremente.
     """
     if status_novo == status_atual:
         return False
     if status_atual == "contrato_em_elaboracao":
-        return False
+        return status_novo == "vendido"
     if status_atual == "vendido":
         return status_novo == "ambientacao" and tem_kickoff
     return status_atual in STATUS_ATIVOS and status_novo in STATUS_ATIVOS
@@ -107,7 +111,7 @@ def destinos_validos(status_atual: str, tem_kickoff: bool) -> List[str]:
     if status_atual == "pausado":
         return []
     if status_atual == "contrato_em_elaboracao":
-        return []
+        return ["vendido"]
     if status_atual == "vendido":
         return ["ambientacao"] if tem_kickoff else []
     return [s for s in STATUS_ORDEM[2:] if s != status_atual]

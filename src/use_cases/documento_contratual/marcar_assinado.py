@@ -98,6 +98,12 @@ class MarcarAssinadoDocumentoContratualUseCase:
         if documento.tipo == "tep":
             mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "periodo_ajustes")
 
+        # 🤖 2026-09-21 — a pedido: Contrato de Prestação assinado é o que de
+        # fato torna a venda real — antes disso o projeto só existe como
+        # "contrato em elaboração" (`create_projeto.py`).
+        if documento.tipo == "contrato":
+            mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "vendido")
+
         return atualizado
 
     def _get(self, documento_id: int):

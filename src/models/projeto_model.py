@@ -56,8 +56,8 @@ class ProjetoModel(Base):
             name="status_projeto",
         ),
         nullable=False,
-        default="vendido",
-        server_default="vendido",
+        default="contrato_em_elaboracao",
+        server_default="contrato_em_elaboracao",
     )
     dias_ambientacao = Column(Integer, nullable=False, default=5, server_default="5")
     #: Teto de consultores do projeto — o que decide se ele ainda tem vaga na

@@ -17,11 +17,19 @@ from src.utils.exceptions import RegraDeNegocioError
 
 
 @pytest.fixture(autouse=True)
-def _sem_mudanca_de_status_automatica(monkeypatch):
-    # Quem move o projeto sozinho pro Período de ajustes tem teste próprio
-    # em test_mudar_status_projeto_automatico.py — aqui exigiria um
-    # ProjetoRepository de verdade, que este arquivo não monta.
-    monkeypatch.setattr(marcar_assinado_mod, "mudar_status_projeto_automaticamente", lambda *a, **k: None)
+def _mudanca_de_status_automatica(monkeypatch):
+    # A lógica de dentro (idempotência, projeto pausado etc.) tem teste
+    # próprio em test_mudar_status_projeto_automatico.py — aqui exigiria um
+    # ProjetoRepository de verdade, que este arquivo não monta. O que ESTE
+    # arquivo cobre é só: pra qual status cada TIPO de documento manda o
+    # projeto (ou se manda) — daí o espião em vez de um no-op silencioso.
+    chamadas = []
+    monkeypatch.setattr(
+        marcar_assinado_mod,
+        "mudar_status_projeto_automaticamente",
+        lambda db, projeto_id, status_novo: chamadas.append((projeto_id, status_novo)),
+    )
+    return chamadas
 
 
 class FakeDocumentoRepo:
@@ -91,6 +99,31 @@ class TestExecute:
         assert atualizado.status == "assinado_e_arquivado"
         assert atualizado.gestao_id == 5
         assert uc.versoes.marcada.status_arquivo == "final_assinado"
+
+    def test_contrato_assinado_move_o_projeto_pra_vendido(self, _mudanca_de_status_automatica):
+        doc = documento(tipo="contrato")
+        uc = montar(doc)
+
+        uc.execute(1)
+
+        assert _mudanca_de_status_automatica == [(7, "vendido")]
+
+    def test_tep_assinado_move_o_projeto_pra_periodo_de_ajustes(self, _mudanca_de_status_automatica):
+        doc = documento(tipo="tep")
+        uc = montar(doc)
+
+        uc.execute(1)
+
+        assert _mudanca_de_status_automatica == [(7, "periodo_ajustes")]
+
+    def test_outros_tipos_nao_movem_o_projeto(self, _mudanca_de_status_automatica):
+        for tipo in ("nda", "uso_imagem", "aditivo"):
+            doc = documento(tipo=tipo)
+            uc = montar(doc)
+
+            uc.execute(1)
+
+        assert _mudanca_de_status_automatica == []
 
     def test_recusa_fora_de_aprovado_pelo_cliente(self):
         doc = documento(status="em_revisao_interna")

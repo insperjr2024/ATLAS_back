@@ -194,18 +194,23 @@ class TestPausarERetomar:
 
 class TestContratoEmElaboracao:
     """⭐ 2026-09-16 — integração com a Contratos: o projeto nasce aqui ao
-    abrir o Contrato de Prestação de Serviços, e só vira Vendido sozinho,
-    quando ele é assinado. Nenhuma transição manual sai daqui — nem pro
-    próprio Vendido, nem pra mais nada — porque não é decisão de quem olha
-    o seletor, é fato que só a assinatura do documento estabelece."""
+    ser criado, e normalmente só vira Vendido sozinho, quando o Contrato de
+    Prestação de Serviços é assinado (`marcar_assinado.py`).
 
-    def test_nao_tem_destino_manual_nenhum(self):
-        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=True) == []
-        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=False) == []
+    ⭐ 2026-09-21 — a única transição manual que existe daqui é pra Vendido
+    mesmo, o escape de diretoria pra quando o contrato foi resolvido fora da
+    plataforma (import antigo, caso excepcional) — quem pode usá-la é
+    decidido no router (`routers/projetos.py`), não aqui: esta função só é a
+    máquina de estados."""
 
-    def test_nenhuma_transicao_manual_e_valida(self):
+    def test_so_tem_vendido_como_destino_manual(self):
+        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=True) == ["vendido"]
+        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=False) == ["vendido"]
+
+    def test_so_a_transicao_pra_vendido_e_valida(self):
+        assert transicao_manual_valida("contrato_em_elaboracao", "vendido", tem_kickoff=True)
         for destino in STATUS_ORDEM:
-            if destino == "contrato_em_elaboracao":
+            if destino in ("contrato_em_elaboracao", "vendido"):
                 continue
             assert not transicao_manual_valida(
                 "contrato_em_elaboracao", destino, tem_kickoff=True

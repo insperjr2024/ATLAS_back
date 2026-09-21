@@ -7,9 +7,12 @@ com `alterado_por` nulo — é o que a tela de Histórico lê para escrever "pel
 sistema" em vez de um nome.
 
 ⭐ 2026-09-21 — a pedido: o ciclo do TEP move o projeto sozinho em dois
-pontos. Exportar o TEP pro cliente aprovar → "Envio do TEP"; TEP assinado
+pontos. Exportar o TEP pro cliente aprovar → "Envio do TEP" (também quando a
+última banca de validação é aprovada, ver `aprovar_banca.py`); TEP assinado
 (ou aceito por prazo) → "Período de ajustes". Ver `exportar_aprovacao.py` e
-`marcar_assinado.py`.
+`marcar_assinado.py`. Contrato de Prestação assinado → "Vendido" (mesmo
+arquivo) fecha o outro lado: o projeto nasce "Contrato em elaboração"
+(`create_projeto.py`) e só vira venda de fato quando o cliente assina.
 
 ⏸ Projeto pausado não é tocado — mesma cautela do encerramento de
 ambientação: pausar é parar o relógio, e uma troca automática desfaria a

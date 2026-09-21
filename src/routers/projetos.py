@@ -302,6 +302,21 @@ def update_frentes(projeto_id: int, request: UpdateFrentesRequest, current_user=
 @router.patch("/projetos/{projeto_id}/status")
 def update_status(projeto_id: int, request: UpdateStatusRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    # ⚠ 2026-09-21 — "Contrato em elaboração" → "Vendido" manual é escape de
+    # diretoria (contrato fechado fora da plataforma), não uma etapa comum
+    # que coordenador/gerente também decide — os demais destinos continuam
+    # liberados pra quem tem `require_lideranca`, só este é mais restrito.
+    if request.status_novo == "vendido":
+        projeto_atual = ProjetoRepository(db).get_by_id(projeto_id)
+        if (
+            projeto_atual
+            and projeto_atual.status == "contrato_em_elaboracao"
+            and not eh_diretoria_de_projetos(current_user)
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Só a diretoria de projetos pode forçar 'Vendido' sem o Contrato de Prestação assinado.",
+            )
     try:
         result = UpdateStatusUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
     except RegraDeNegocioError as e:

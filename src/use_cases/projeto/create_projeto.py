@@ -110,7 +110,10 @@ class CreateProjetoUseCase:
             cliente=request.cliente,
             descricao=request.descricao,
             link_proposta=request.link_proposta,
-            status="vendido",
+            # ⭐ 2026-09-21 — a pedido: só vira "vendido" quando o Contrato de
+            # Prestação é assinado (`marcar_assinado.py`), não na criação —
+            # antes disso o projeto existe mas a venda ainda não é certa.
+            status="contrato_em_elaboracao",
             dias_ambientacao=request.dias_ambientacao,
             max_consultores=request.max_consultores,
             data_entrega_prevista_cliente=request.data_entrega_prevista_cliente,
@@ -164,7 +167,7 @@ class CreateProjetoUseCase:
         self.historico_repository.create(
             projeto_id=projeto.id,
             status_anterior=None,
-            status_novo="vendido",
+            status_novo="contrato_em_elaboracao",
             alterado_por=criado_por,
         )
 
