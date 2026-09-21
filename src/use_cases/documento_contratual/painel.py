@@ -1,0 +1,87 @@
+"""A aba Contratos: painel cross-projeto de documentos jurídicos em andamento
+(§ Contratos, 2026-09-21).
+
+⭐ Diferente do Repositório (`repositorio.py`, só arquivado) — aqui é fila de
+trabalho: quem tem contrato em andamento, o que espera aprovação da
+Valentina (Jurídico), o que já foi mandado pro cliente. Cada linha ainda
+abre a tela de documento que já existe; este painel é só o ponto de entrada
+cross-projeto, não duplica nada da tela em si.
+
+⚠ O recorte de QUEM VÊ O QUÊ mora aqui, não no router — depende de LINHA
+(vendedor/coordenador DESTE projeto), não só de permissão global. Mesmo
+formato de `ListarAprovacoesUseCase` (`monitoramento/aprovacoes.py`): o use
+case recebe `usuario` direto e filtra ele mesmo, em vez do padrão do resto
+de `documento_contratual` (permissão pura no router) — ali é sempre "pode
+ou não fazer X num documento só"; aqui é "quais LINHAS de uma lista".
+"""
+
+from typing import List
+
+from sqlalchemy.orm import Session
+
+from src.middlewares.authorization import eh_diretoria_de_projetos, usuario_tem_permissao
+from src.repositories.documento_contratual_repository import DocumentoContratualRepository
+from src.repositories.documento_contratual_versao_repository import (
+    DocumentoContratualVersaoRepository,
+)
+from src.repositories.projeto_membro_repository import ProjetoMembroRepository
+from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
+from src.utils.status_documento_contratual import ROTULO_TIPO
+
+
+class PainelContratualUseCase:
+    def __init__(self, db: Session):
+        self.db = db
+        self.documentos = DocumentoContratualRepository(db)
+        self.versoes = DocumentoContratualVersaoRepository(db)
+        self.membros = ProjetoMembroRepository(db)
+        self.vendedores = ProjetoVendedorRepository(db)
+
+    def execute(self, usuario) -> List[dict]:
+        documentos = self.documentos.list_nao_arquivados()
+        visiveis = self._filtrar_visiveis(usuario, documentos)
+        return [self._serializar(d) for d in visiveis]
+
+    def _ve_tudo(self, usuario) -> bool:
+        return (
+            eh_diretoria_de_projetos(usuario)
+            or usuario_tem_permissao(usuario, self.db, "pode_editar_documento_juridico")
+            or usuario_tem_permissao(usuario, self.db, "pode_ver_painel_contratos")
+        )
+
+    def _filtrar_visiveis(self, usuario, documentos):
+        if self._ve_tudo(usuario):
+            return documentos
+
+        projeto_ids = list({d.projeto_id for d in documentos})
+        vendedor_de = {
+            v.projeto_id
+            for v in self.vendedores.get_by_projetos(projeto_ids)
+            if v.usuario_id == usuario.id
+        }
+        coordenador_de = {
+            m.projeto_id
+            for m in self.membros.get_by_projetos(projeto_ids, apenas_atuais=True)
+            if m.usuario_id == usuario.id and m.papel == "coordenador"
+        }
+
+        return [
+            d
+            for d in documentos
+            if (d.tipo == "contrato" and d.projeto_id in vendedor_de)
+            or (d.tipo == "tep" and d.projeto_id in coordenador_de)
+        ]
+
+    def _serializar(self, documento) -> dict:
+        return {
+            "id": documento.id,
+            "projeto_id": documento.projeto_id,
+            "projeto_nome": documento.projeto.nome,
+            "cliente": documento.projeto.cliente,
+            "tipo": documento.tipo,
+            "tipo_rotulo": ROTULO_TIPO.get(documento.tipo, "Documento"),
+            "status": documento.status,
+            "ultima_versao": self.versoes.ultima_versao(documento.id) or None,
+            "criado_em": documento.criado_em,
+            "atualizado_em": documento.atualizado_em,
+        }

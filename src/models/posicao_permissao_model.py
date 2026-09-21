@@ -151,6 +151,12 @@ class PosicaoPermissaoModel(Base):
     #: Ver o Repositório — todo documento final assinado, de todo projeto,
     #: organizado por gestão.
     pode_ver_repositorio_contratos = Column(Boolean, default=False, nullable=False)
+    #: ⭐ 2026-09-21 — a aba "Contratos" (painel cross-projeto de documentos
+    #: EM ANDAMENTO, não arquivados — diferente do Repositório acima). O
+    #: "ajuste" pedido: dá acesso à aba pra alguém fora da régua padrão
+    #: (diretoria/Jurídico/vendedor/coordenador do projeto), como um
+    #: consultor alocado dentro do Jurídico.
+    pode_ver_painel_contratos = Column(Boolean, default=False, nullable=False)
     #: Cadastrar documento já assinado fora do fluxo normal (gestão anterior,
     #: por exemplo) — só guarda o arquivo e arquiva direto na gestão informada.
     pode_importar_documento_antigo = Column(Boolean, default=False, nullable=False)

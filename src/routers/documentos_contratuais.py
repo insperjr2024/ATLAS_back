@@ -67,6 +67,7 @@ from src.use_cases.documento_contratual.identidade_institucional import (
     AtualizarIdentidadeInstitucionalUseCase,
     GetIdentidadeInstitucionalUseCase,
 )
+from src.use_cases.documento_contratual.painel import PainelContratualUseCase
 from src.use_cases.documento_contratual.repositorio import ListarRepositorioContratualUseCase
 from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
@@ -656,6 +657,19 @@ def _serializar_identidade(identidade) -> dict:
             "testemunha2_nome", "testemunha2_cpf", "testemunha2_email", "testemunha2_telefone",
         )
     }
+
+
+@router.get("/contratos-painel")
+def get_painel_contratual(
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Sem gate de permissão aqui: o use case já filtra por LINHA (vendedor/
+    # coordenador do projeto, diretoria, Jurídico, ou a caixa `pode_ver_
+    # painel_contratos`) — quem não se encaixa em nenhum desses recebe lista
+    # vazia, não 403. Um 403 exigiria refazer a mesma conta só pra decidir
+    # se deixa passar, e a resposta seria a mesma (nada pra ver).
+    return {"itens": PainelContratualUseCase(db).execute(usuario)}
 
 
 @router.get("/repositorio-contratual")

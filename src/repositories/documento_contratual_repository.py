@@ -19,6 +19,17 @@ class DocumentoContratualRepository(BaseRepository[DocumentoContratualModel]):
     def get_by_projeto_e_tipo(self, projeto_id: int, tipo: str) -> Optional[DocumentoContratualModel]:
         return self.first_by(projeto_id=projeto_id, tipo=tipo)
 
+    def list_nao_arquivados(self) -> List[DocumentoContratualModel]:
+        """A aba Contratos: todo documento jurídico ainda EM ANDAMENTO, de
+        todo projeto — o oposto do Repositório (`list_arquivados`). O
+        recorte de quem vê o quê é do use case (`painel.py`), não daqui."""
+        return (
+            self.db.query(DocumentoContratualModel)
+            .filter(DocumentoContratualModel.status != "assinado_e_arquivado")
+            .order_by(DocumentoContratualModel.criado_em.desc())
+            .all()
+        )
+
     def list_arquivados(
         self, gestao_id: Optional[int] = None, busca: Optional[str] = None
     ) -> List[DocumentoContratualModel]:

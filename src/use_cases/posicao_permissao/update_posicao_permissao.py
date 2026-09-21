@@ -41,6 +41,7 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_editar_documento_juridico: Optional[bool] = None
     pode_marcar_documento_assinado: Optional[bool] = None
     pode_ver_repositorio_contratos: Optional[bool] = None
+    pode_ver_painel_contratos: Optional[bool] = None
     pode_importar_documento_antigo: Optional[bool] = None
     pode_solicitar_tep: Optional[bool] = None
 
