@@ -3,6 +3,7 @@ from sqlalchemy.sql import func
 from src.database.database import Base
 
 STATUS_PROJETO_ENUM = Enum(
+    "contrato_em_elaboracao",
     "vendido",
     "ambientacao",
     "em_andamento",
