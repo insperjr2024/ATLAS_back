@@ -16,6 +16,7 @@ projeto). Diretoria de projetos e quem tem `pode_editar_documento_juridico`
 """
 
 import os
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -68,6 +69,7 @@ from src.use_cases.documento_contratual.identidade_institucional import (
     GetIdentidadeInstitucionalUseCase,
 )
 from src.use_cases.documento_contratual.painel import PainelContratualUseCase
+from src.use_cases.documento_contratual.sugerir_dias_excecao import SugerirDiasExcecaoUseCase
 from src.use_cases.documento_contratual.repositorio import ListarRepositorioContratualUseCase
 from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
@@ -193,6 +195,25 @@ def listar_documentos_do_projeto(
 ):
     _projeto_visivel_ou_404(projeto_id, usuario, db)
     return {"documentos": ListDocumentosContratuaisPorProjetoUseCase(db).execute(projeto_id)}
+
+
+@router.get("/projetos/{projeto_id}/documentos-contratuais/sugerir-dias-excecao")
+def sugerir_dias_excecao(
+    projeto_id: int,
+    inicio: date,
+    fim: date,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Dias tipo "prova" do calendário acadêmico da(s) frente(s) do projeto,
+    dentro do intervalo do contrato — só sugestão, quem preenche decide o
+    que de fato entra como dia de exceção (ver `SugerirDiasExcecaoUseCase`)."""
+    _projeto_visivel_ou_404(projeto_id, usuario, db)
+    try:
+        dias = SugerirDiasExcecaoUseCase(db).execute(projeto_id, inicio, fim)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    return {"dias": dias}
 
 
 @router.get("/documentos-contratuais/coleta-dados/modelo")

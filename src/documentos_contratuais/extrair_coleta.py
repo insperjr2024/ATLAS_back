@@ -373,8 +373,13 @@ CAMPOS_REPRESENTANTE = {
     "estado civil": CampoColeta("contratante.representante.estado_civil", "texto", "Estado civil do representante"),
     "profissao": CampoColeta("contratante.representante.profissao", "texto", "Profissão do representante"),
     "cpf do representante legal": CampoColeta("contratante.representante.cpf", "cpf", "CPF do representante"),
+    # ⭐ 2026-09-21 — a Coleta de Dados (form externo) ainda pede RG e órgão
+    # emissor num texto só; o formulário do ATLAS separou os dois campos, mas
+    # a extração automática não tem como partir esse texto livre com
+    # confiança — cai inteiro em `rg_numero`, e quem revisar completa o
+    # órgão emissor à mão.
     "rg do representante (com orgao emissor)": CampoColeta(
-        "contratante.representante.rg", "rg", "RG do representante"
+        "contratante.representante.rg_numero", "rg", "RG do representante"
     ),
     "endereco completo [logradouro, cep, bairro, cidade, estado]": CampoColeta(
         "contratante.representante.endereco", "texto", "Endereço do representante"

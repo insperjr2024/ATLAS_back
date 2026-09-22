@@ -20,7 +20,8 @@ from src.documentos_contratuais.common import MESES
 def _contratante_em_branco() -> dict:
     representante = {
         "nome": "", "nacionalidade": "", "estado_civil": "", "profissao": "",
-        "cargo": "", "rg": "", "cpf": "", "endereco": "", "email": "", "telefone": "",
+        "cargo": "", "rg_numero": "", "rg_orgao_emissor": "", "cpf": "",
+        "endereco": "", "email": "", "telefone": "",
     }
     return {
         "razao_social": "",
@@ -43,7 +44,11 @@ def dados_iniciais_contrato() -> dict:
     return {
         "projeto": {
             "servico": "",
-            "escopos": [],
+            # ⭐ 2026-09-21 — a pedido: o primeiro escopo de todo Contrato de
+            # Prestação é sempre a Ambientação (§5.1) — nasce já aqui, editável
+            # ou removível pelo formulário como qualquer outro. 5 dias úteis
+            # é o mesmo default de `ProjetoModel.dias_ambientacao`.
+            "escopos": [{"nome": "Ambientação", "prazo_dias_uteis": 5}],
             "num_consultores": 0,
             "num_coordenadores": 0,
             "dias_excecao": [],
