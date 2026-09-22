@@ -34,7 +34,6 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_responsavel_por_vendas": registro.pode_responsavel_por_vendas,
         "pode_coordenar_vendas": registro.pode_coordenar_vendas,
         "pode_aprovar_contrato_internamente": registro.pode_aprovar_contrato_internamente,
-        "pode_importar_documento_antigo": registro.pode_importar_documento_antigo,
         "pode_editar_identidade_institucional": registro.pode_editar_identidade_institucional,
         "pode_elaborar_contratos_proprios": registro.pode_elaborar_contratos_proprios,
         "pode_elaborar_qualquer_contrato": registro.pode_elaborar_qualquer_contrato,

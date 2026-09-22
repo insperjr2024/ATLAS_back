@@ -226,11 +226,6 @@ require_pode_aprovar_contrato_internamente = _dependencia_permissao(
     "Você não tem permissão para aprovar contratos internamente",
 )
 
-require_pode_importar_documento_antigo = _dependencia_permissao(
-    "pode_importar_documento_antigo",
-    "Você não tem permissão para importar um documento antigo",
-)
-
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):

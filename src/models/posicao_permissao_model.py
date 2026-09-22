@@ -149,9 +149,6 @@ class PosicaoPermissaoModel(Base):
     #: confirmação/regerar E marcar como assinado — não precisava de caixa
     #: à parte pra cada uma dessas ações.
     pode_aprovar_contrato_internamente = Column(Boolean, default=False, nullable=False)
-    #: Cadastrar documento já assinado fora do fluxo normal (gestão anterior,
-    #: por exemplo) — só guarda o arquivo e arquiva direto na gestão informada.
-    pode_importar_documento_antigo = Column(Boolean, default=False, nullable=False)
     #: ⭐ 2026-09-21 — a pedido: quem assina PELA Insper Jr era só diretoria
     #: de projetos, hardcoded (`eh_diretoria_de_projetos`). Vira delegável.
     pode_editar_identidade_institucional = Column(Boolean, default=False, nullable=False)

@@ -38,7 +38,6 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_responsavel_por_vendas: Optional[bool] = None
     pode_coordenar_vendas: Optional[bool] = None
     pode_aprovar_contrato_internamente: Optional[bool] = None
-    pode_importar_documento_antigo: Optional[bool] = None
     pode_editar_identidade_institucional: Optional[bool] = None
     pode_elaborar_contratos_proprios: Optional[bool] = None
     pode_elaborar_qualquer_contrato: Optional[bool] = None
