@@ -34,7 +34,6 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
-from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.solicitacao_alteracao_contratual_repository import (
@@ -78,7 +77,7 @@ from src.use_cases.documento_contratual.sugerir_dias_excecao import SugerirDiasE
 from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
     ListDocumentosContratuaisPorProjetoUseCase,
-    serializar_documento_contratual,
+    serializar_documento_contratual_completo,
 )
 from src.use_cases.documento_contratual.marcar_assinado import (
     MarcarAssinadoDocumentoContratualUseCase,
@@ -244,7 +243,7 @@ def criar_documento_institucional(
         documento = CriarDocumentoInstitucionalUseCase(db).execute(request)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
-    return serializar_documento_contratual(documento, ultima_versao=None)
+    return serializar_documento_contratual_completo(db, documento, ultima_versao=None)
 
 
 @router.get("/projetos/{projeto_id}/documentos-contratuais/sugerir-dias-excecao")
@@ -322,8 +321,7 @@ def abrir_documento(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    frente_ids = [f.frente_id for f in ProjetoFrenteRepository(db).get_by_projeto(projeto_id)]
-    return serializar_documento_contratual(documento, ultima_versao=0, frente_ids=frente_ids)
+    return serializar_documento_contratual_completo(db, documento, ultima_versao=0)
 
 
 @router.get("/documentos-contratuais/{documento_id}")
@@ -400,7 +398,7 @@ def atualizar_dados(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    return serializar_documento_contratual(atualizado, frente_ids=documento["frente_ids"])
+    return serializar_documento_contratual_completo(db, atualizado)
 
 
 @router.post("/documentos-contratuais/{documento_id}/confirmar")
@@ -419,11 +417,13 @@ def confirmar_preenchimento(
         raise HTTPException(status_code=403, detail="Sem permissão para confirmar este documento.")
 
     try:
-        confirmado = ConfirmarPreenchimentoDocumentoContratualUseCase(db).execute(documento_id)
+        confirmado = ConfirmarPreenchimentoDocumentoContratualUseCase(db).execute(
+            documento_id, confirmado_por=usuario.id
+        )
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
 
-    return serializar_documento_contratual(confirmado, frente_ids=documento["frente_ids"])
+    return serializar_documento_contratual_completo(db, confirmado)
 
 
 @router.post("/documentos-contratuais/{documento_id}/gerar")
@@ -466,11 +466,13 @@ def aprovar_internamente(
         raise HTTPException(status_code=403, detail="Sem permissão para aprovar documentos jurídicos.")
 
     try:
-        aprovado = AprovarInternamenteDocumentoContratualUseCase(db).execute(documento_id)
+        aprovado = AprovarInternamenteDocumentoContratualUseCase(db).execute(
+            documento_id, aprovado_por=usuario.id
+        )
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
     ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
-    return serializar_documento_contratual(aprovado, ultima_versao=ultima_versao, frente_ids=documento["frente_ids"])
+    return serializar_documento_contratual_completo(db, aprovado, ultima_versao=ultima_versao)
 
 
 @router.post("/documentos-contratuais/{documento_id}/exportar-aprovacao")
@@ -529,7 +531,7 @@ def marcar_assinado(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
     ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
-    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao, frente_ids=documento["frente_ids"])
+    return serializar_documento_contratual_completo(db, atualizado, ultima_versao=ultima_versao)
 
 
 @router.post("/documentos-contratuais/{documento_id}/considerar-aceito-por-prazo")
@@ -552,7 +554,7 @@ def considerar_aceito_por_prazo(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
     ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
-    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao, frente_ids=documento["frente_ids"])
+    return serializar_documento_contratual_completo(db, atualizado, ultima_versao=ultima_versao)
 
 
 @router.get("/documentos-contratuais/{documento_id}/solicitacoes-alteracao")

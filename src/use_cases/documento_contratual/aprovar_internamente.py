@@ -9,6 +9,8 @@ Prestação) ou ela e os coordenadores (TEP). Esta é a aprovação — o gate d
 quem pode MANDAR depois dela mora no router (`_pode_enviar_ao_cliente`).
 """
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from src.repositories.documento_contratual_repository import DocumentoContratualRepository
@@ -22,7 +24,7 @@ class AprovarInternamenteDocumentoContratualUseCase:
         self.db = db
         self.documentos = DocumentoContratualRepository(db)
 
-    def execute(self, documento_id: int):
+    def execute(self, documento_id: int, aprovado_por: int):
         documento = self.documentos.get_by_id(documento_id)
         if not documento:
             raise RegraDeNegocioError("Documento não encontrado.")
@@ -31,6 +33,14 @@ class AprovarInternamenteDocumentoContratualUseCase:
                 f'Não é possível aprovar internamente com o documento no status "{documento.status}".'
             )
 
-        aprovado = self.documentos.update(documento_id, status="aprovado_internamente")
+        # ⭐ 2026-09-22 — a pedido: registro de auditoria (quem aprovou,
+        # quando) — mostrado na tela, não só uma notificação que some do
+        # sino depois de lida.
+        aprovado = self.documentos.update(
+            documento_id,
+            status="aprovado_internamente",
+            aprovado_internamente_por=aprovado_por,
+            aprovado_internamente_em=datetime.now(),
+        )
         documento_aprovado_internamente(self.db, aprovado)
         return aprovado

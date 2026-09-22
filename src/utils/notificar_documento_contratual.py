@@ -28,6 +28,7 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.registrar_notificacao import registrar
+from src.utils.notificar_projeto import diretoria_e_gerentes
 from src.utils.status_documento_contratual import ROTULO_TIPO, nome_do_projeto
 from src.utils.usuarios_com_permissao import usuarios_com_permissao
 
@@ -55,11 +56,60 @@ def documento_pronto_para_gerar(db: Session, documento) -> None:
         )
 
 
+def documento_contrato_confirmado(db: Session, documento) -> None:
+    """⭐ 2026-09-22 — a pedido: Contrato de Prestação elaborado (confirmado,
+    entrou em Geração) — avisa diretoria de projetos, gerentes e o(s)
+    vendedor(es) do projeto. Só pra tipo "contrato", sem pedido pros
+    outros tipos ainda."""
+    titulo = f'Contrato de Prestação elaborado — "{nome_do_projeto(documento)}" está em geração.'
+    destinatarios = diretoria_e_gerentes(db)
+    vendedor_ids = [v.usuario_id for v in ProjetoVendedorRepository(db).get_by_projeto(documento.projeto_id)]
+    usuarios = UsuarioRepository(db)
+    for uid in vendedor_ids:
+        usuario = usuarios.get_by_id(uid)
+        if usuario:
+            destinatarios[usuario.id] = usuario
+
+    for usuario in destinatarios.values():
+        registrar(
+            db,
+            usuario_id=usuario.id,
+            tipo="documento_contratual_pronto_para_gerar",
+            titulo=titulo,
+            projeto_id=documento.projeto_id,
+            rota=_rota(documento.id),
+            chave_dedup=f"documento_contratual:{documento.id}:contrato_confirmado:{uuid4()}",
+        )
+
+
+def documento_pronto_para_revisao_interna(db: Session, documento) -> None:
+    """⭐ 2026-09-22 — a pedido: rascunho gerado, documento entrou em revisão
+    interna — avisa quem tem a caixa de aprovar internamente (Jurídico)."""
+    tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
+    titulo = f'Documento pendente de revisão interna — "{tipo}" do projeto "{nome_do_projeto(documento)}".'
+    for usuario in usuarios_com_permissao(db, "pode_aprovar_contrato_internamente"):
+        registrar(
+            db,
+            usuario_id=usuario.id,
+            tipo="documento_contratual_pronto_para_revisao_interna",
+            titulo=titulo,
+            projeto_id=documento.projeto_id,
+            rota=_rota(documento.id),
+            chave_dedup=f"documento_contratual:{documento.id}:pronto_para_revisao_interna:{uuid4()}",
+        )
+
+
 def documento_aprovado_internamente(db: Session, documento) -> None:
-    """Jurídico aprovou por dentro — avisa quem vai mandar ao cliente."""
+    """Jurídico aprovou por dentro — avisa quem vai mandar ao cliente e quem
+    elaborou (confirmou o preenchimento)."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     titulo = f'Documento aprovado internamente — já pode mandar ao cliente: "{tipo}" do projeto "{nome_do_projeto(documento)}".'
-    for usuario in _destinatarios_envio(db, documento):
+    destinatarios = {u.id: u for u in _destinatarios_envio(db, documento)}
+    if documento.confirmado_por:
+        elaborador = UsuarioRepository(db).get_by_id(documento.confirmado_por)
+        if elaborador:
+            destinatarios[elaborador.id] = elaborador
+    for usuario in destinatarios.values():
         registrar(
             db,
             usuario_id=usuario.id,

@@ -73,6 +73,7 @@ def montar_confirmar(doc, monkeypatch):
     # cobre — vira no-op, mesmo padrão de `test_entrada_solicitacao.py` pra
     # não exigir um banco de verdade só pra montar destinatários.
     monkeypatch.setattr(confirmar_preenchimento_mod, "documento_pronto_para_gerar", lambda *a, **k: None)
+    monkeypatch.setattr(confirmar_preenchimento_mod, "documento_contrato_confirmado", lambda *a, **k: None)
     uc = ConfirmarPreenchimentoDocumentoContratualUseCase.__new__(
         ConfirmarPreenchimentoDocumentoContratualUseCase
     )
@@ -132,7 +133,7 @@ class TestConfirmarPreenchimento:
         doc = documento(dados=dados_nda_completos())
         uc = montar_confirmar(doc, monkeypatch)
 
-        confirmado = uc.execute(1)
+        confirmado = uc.execute(1, confirmado_por=99)
 
         assert confirmado.confirmado is True
 
@@ -141,18 +142,18 @@ class TestConfirmarPreenchimento:
         uc = montar_confirmar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="Faltam campos obrigatórios"):
-            uc.execute(1)
+            uc.execute(1, confirmado_por=99)
 
     def test_nao_confirma_duas_vezes(self, monkeypatch):
         doc = documento(confirmado=True)
         uc = montar_confirmar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="já foi confirmado"):
-            uc.execute(1)
+            uc.execute(1, confirmado_por=99)
 
     def test_nao_confirma_fora_de_aguardando_preenchimento(self, monkeypatch):
         doc = documento(status="em_revisao_interna")
         uc = montar_confirmar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="aguardando preenchimento"):
-            uc.execute(1)
+            uc.execute(1, confirmado_por=99)

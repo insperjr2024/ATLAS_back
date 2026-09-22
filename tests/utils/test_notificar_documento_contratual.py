@@ -8,6 +8,7 @@ Mesmo idioma dos vizinhos: dublês à mão, com as classes de repositório e
 from types import SimpleNamespace
 
 import src.utils.notificar_documento_contratual as mod
+import src.utils.notificar_projeto as notificar_projeto_mod
 
 
 def usuario(id):
@@ -18,21 +19,33 @@ VENDEDOR = usuario(10)
 DIRETOR = usuario(20)
 COORDENADOR = usuario(30)
 CRIADOR = usuario(40)
+GERENTE = usuario(50)
+JURIDICO = usuario(60)
 
 
-def documento(tipo, projeto_id=7, criado_por=CRIADOR.id):
+def documento(tipo, projeto_id=7, criado_por=CRIADOR.id, confirmado_por=None):
     projeto = SimpleNamespace(id=projeto_id, nome="Projeto X", criado_por=criado_por)
-    return SimpleNamespace(id=1, tipo=tipo, projeto_id=projeto_id, projeto=projeto)
+    return SimpleNamespace(
+        id=1, tipo=tipo, projeto_id=projeto_id, projeto=projeto, confirmado_por=confirmado_por
+    )
 
 
-def montar(monkeypatch, vendedores=(), diretores=(), membros=()):
+def montar(monkeypatch, vendedores=(), diretores=(), membros=(), gerentes=(), juridicos=()):
+    todos = {
+        VENDEDOR.id: VENDEDOR, DIRETOR.id: DIRETOR, COORDENADOR.id: COORDENADOR,
+        CRIADOR.id: CRIADOR, GERENTE.id: GERENTE, JURIDICO.id: JURIDICO,
+    }
+
     class UsuarioFake:
         def __init__(self, db): pass
         def get_by_id(self, uid):
-            todos = {VENDEDOR.id: VENDEDOR, DIRETOR.id: DIRETOR, COORDENADOR.id: COORDENADOR, CRIADOR.id: CRIADOR}
             return todos.get(uid)
         def get_por_posicao(self, posicao):
-            return list(diretores) if posicao == "diretor_projetos" else []
+            if posicao == "diretor_projetos":
+                return list(diretores)
+            if posicao == "gerente":
+                return list(gerentes)
+            return []
 
     class VendedorFake:
         def __init__(self, db): pass
@@ -47,6 +60,12 @@ def montar(monkeypatch, vendedores=(), diretores=(), membros=()):
     monkeypatch.setattr(mod, "UsuarioRepository", UsuarioFake)
     monkeypatch.setattr(mod, "ProjetoVendedorRepository", VendedorFake)
     monkeypatch.setattr(mod, "ProjetoMembroRepository", MembroFake)
+    # `diretoria_e_gerentes` mora em `notificar_projeto.py` — patcheia lá,
+    # não aqui, senão o `mod.UsuarioRepository` não vale pra ela.
+    monkeypatch.setattr(notificar_projeto_mod, "UsuarioRepository", UsuarioFake)
+    monkeypatch.setattr(
+        mod, "usuarios_com_permissao", lambda db, campo: list(juridicos) if campo == "pode_aprovar_contrato_internamente" else []
+    )
 
 
 class TestDestinatariosEnvio:
@@ -91,6 +110,18 @@ class TestDisparosUsamDestinatariosEnvio:
 
         assert chamadas == [VENDEDOR.id]
 
+    def test_aprovado_internamente_notifica_tambem_quem_elaborou(self, monkeypatch):
+        montar(monkeypatch, vendedores=[VENDEDOR])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        # COORDENADOR aqui só representa "quem elaborou" (confirmou o
+        # preenchimento) — nada a ver com coordenação de projeto neste teste.
+        doc = documento("contrato", confirmado_por=COORDENADOR.id)
+        mod.documento_aprovado_internamente(None, doc)
+
+        assert set(chamadas) == {VENDEDOR.id, COORDENADOR.id}
+
     def test_liberado_para_cliente_notifica_quem_manda_nao_o_criador(self, monkeypatch):
         membros = [SimpleNamespace(usuario_id=COORDENADOR.id, papel="coordenador")]
         montar(monkeypatch, diretores=[DIRETOR], membros=membros)
@@ -100,3 +131,25 @@ class TestDisparosUsamDestinatariosEnvio:
         mod.documento_liberado_para_cliente(None, documento("tep", criado_por=CRIADOR.id))
 
         assert set(chamadas) == {DIRETOR.id, COORDENADOR.id}
+
+
+class TestDocumentoContratoConfirmado:
+    def test_notifica_diretoria_gerentes_e_vendedor(self, monkeypatch):
+        montar(monkeypatch, vendedores=[VENDEDOR], diretores=[DIRETOR], gerentes=[GERENTE])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.documento_contrato_confirmado(None, documento("contrato"))
+
+        assert set(chamadas) == {DIRETOR.id, GERENTE.id, VENDEDOR.id}
+
+
+class TestDocumentoProntoParaRevisaoInterna:
+    def test_notifica_quem_pode_aprovar_internamente(self, monkeypatch):
+        montar(monkeypatch, juridicos=[JURIDICO])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.documento_pronto_para_revisao_interna(None, documento("contrato"))
+
+        assert chamadas == [JURIDICO.id]

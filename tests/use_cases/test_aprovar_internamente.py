@@ -48,26 +48,28 @@ class TestExecute:
         doc = documento()
         uc = montar(doc, monkeypatch)
 
-        aprovado = uc.execute(1)
+        aprovado = uc.execute(1, aprovado_por=99)
 
         assert aprovado.status == "aprovado_internamente"
+        assert aprovado.aprovado_internamente_por == 99
+        assert aprovado.aprovado_internamente_em is not None
 
     def test_recusa_fora_de_em_revisao_interna(self, monkeypatch):
         doc = documento(status="aguardando_preenchimento")
         uc = montar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="aguardando_preenchimento"):
-            uc.execute(1)
+            uc.execute(1, aprovado_por=99)
 
     def test_recusa_aprovar_duas_vezes(self, monkeypatch):
         doc = documento(status="aprovado_internamente")
         uc = montar(doc, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="aprovado_internamente"):
-            uc.execute(1)
+            uc.execute(1, aprovado_por=99)
 
     def test_recusa_documento_inexistente(self, monkeypatch):
         uc = montar(None, monkeypatch)
 
         with pytest.raises(RegraDeNegocioError, match="não encontrado"):
-            uc.execute(1)
+            uc.execute(1, aprovado_por=99)

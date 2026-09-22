@@ -70,6 +70,15 @@ class DocumentoContratualModel(Base):
     #: edita/cancela. Depois: só quem tem `pode_editar_documento_juridico`.
     #: Só importa enquanto o status é "aguardando_preenchimento".
     confirmado = Column(Boolean, nullable=False, default=False)
+    #: ⭐ 2026-09-22 — a pedido: quem confirmou o preenchimento ("quem
+    #: elaborou o contrato") — usado pra notificar essa pessoa quando o
+    #: documento for aprovado internamente depois.
+    confirmado_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
+    #: ⭐ 2026-09-22 — a pedido: registro de auditoria de quem aprovou
+    #: internamente e quando — mostrado na tela ("Aprovado por Fulana às
+    #: 14h32"), não só uma notificação que desaparece do sino.
+    aprovado_internamente_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
+    aprovado_internamente_em = Column(DateTime, nullable=True)
     #: Preenchido no arquivamento, calculado pela data em que ESTE documento
     #: foi assinado — dois documentos do mesmo projeto podem ter gestões
     #: diferentes.

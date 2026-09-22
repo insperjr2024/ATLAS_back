@@ -22,7 +22,7 @@ def _rota(projeto_id: int) -> str:
     return f"/projetos/{projeto_id}"
 
 
-def _diretoria_e_gerentes(db: Session) -> dict:
+def diretoria_e_gerentes(db: Session) -> dict:
     usuarios = UsuarioRepository(db)
     destinatarios = {u.id: u for u in usuarios.get_por_posicao("diretor_projetos")}
     destinatarios.update({u.id: u for u in usuarios.get_por_posicao("gerente")})
@@ -33,7 +33,7 @@ def projeto_criado(db: Session, projeto) -> None:
     """Nasceu em "Contrato em elaboração" — avisa diretoria, gerentes e
     quem vendeu (se já tiver vendedor definido na criação)."""
     titulo = f'Novo projeto em contrato: "{projeto.nome}".'
-    destinatarios = _diretoria_e_gerentes(db)
+    destinatarios = diretoria_e_gerentes(db)
     vendedores = ProjetoVendedorRepository(db).get_by_projeto(projeto.id)
     usuarios = UsuarioRepository(db)
     for vendedor in vendedores:
@@ -57,7 +57,7 @@ def projeto_vendido(db: Session, projeto) -> None:
     """Contrato de Prestação assinado, projeto virou "Vendido" — avisa
     diretoria e gerentes."""
     titulo = f'Contrato assinado — "{projeto.nome}" agora é Vendido.'
-    for usuario in _diretoria_e_gerentes(db).values():
+    for usuario in diretoria_e_gerentes(db).values():
         registrar(
             db,
             usuario_id=usuario.id,

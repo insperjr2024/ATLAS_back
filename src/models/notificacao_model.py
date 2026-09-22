@@ -75,6 +75,7 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     # calado (`registrar()` engole a exceção de propósito), então nenhuma
     # notificação de Contratos jamais chegou a existir de fato.
     "documento_contratual_pronto_para_gerar",
+    "documento_contratual_pronto_para_revisao_interna",
     "documento_contratual_aprovado_internamente",
     "documento_contratual_liberado",
     "documento_contratual_cliente_aprovou",

@@ -36,6 +36,8 @@ from src.repositories.documento_contratual_versao_repository import (
 from src.repositories.identidade_institucional_repository import IdentidadeInstitucionalRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.identidade_institucional import identidade_de_configuracao
+from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
+from src.utils.notificar_documento_contratual import documento_pronto_para_revisao_interna
 from src.utils.pdf import converter_docx_para_pdf
 from src.utils.status_documento_contratual import STATUS_GERACAO_PERMITIDA
 from src.utils.validar_dados_documento_contratual import campos_faltando, erro_campos_faltando
@@ -84,5 +86,14 @@ class GerarDocumentoContratualUseCase:
             pdf_conteudo=pdf_conteudo,
         )
 
-        self.documentos.update(documento_id, status="em_revisao_interna")
+        atualizado = self.documentos.update(documento_id, status="em_revisao_interna")
+        documento_pronto_para_revisao_interna(self.db, atualizado)
+
+        # 🤖 2026-09-22 — a pedido: gerar o rascunho do TEP já move o projeto
+        # sozinho pra "Envio do TEP" — antes só a última banca aprovada
+        # fazia isso (`aprovar_banca.py`); agora as duas coisas levam lá,
+        # sem depender uma da outra.
+        if documento.tipo == "tep" and documento.projeto_id:
+            mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "envio_tep")
+
         return versao_criada
