@@ -163,12 +163,26 @@ class SolicitacaoProjetoUseCase:
         )
 
     def listar_vagas(self, current_user) -> dict:
-        """Os projetos que ainda cabem gente, do ponto de vista de quem olha.
+        """Os projetos com declaração de interesse ABERTA, do ponto de vista
+        de quem olha.
 
-        Devolve TODOS os projetos abertos, marcando cada um com o motivo de
-        não poder pedir (`impedimento`), em vez de esconder. Sumir da lista
-        sem explicação é o tipo de coisa que gera "por que não aparece o
-        projeto X?" — e ninguém sabe responder.
+        ⭐ 2026-09-22 — a pedido, mudança de filosofia: até aqui devolvia
+        TODOS os projetos com vaga NUMÉRICA (`max_consultores - alocados`
+        > 0), marcando cada um com o motivo de não poder pedir
+        (`impedimento`) em vez de esconder — um projeto que roda de
+        propósito com menos gente que o teto (decisão da diretoria, não
+        vaga real) aparecia como "tem vaga", o que é falso. Agora só entra
+        na lista quem tem `vagas_abertas=True` (interruptor explícito, ver
+        `ProjetoModel`) — projeto fechado nem aparece, pra ninguém, sem
+        impedimento pra explicar (é a mesma régua de "não existe pra este
+        fim", igual `STATUS_FECHADOS`). Pra quem PEDE (consultor), soma-se
+        outro corte: só projeto com frente em comum — pedir pra entrar num
+        projeto de frente totalmente diferente da sua deixou de fazer
+        sentido (antes era de propósito global, ver o histórico da
+        migration `d3f8a2c6e951`). O que sobra como `impedimento` explicado
+        são só os motivos que dependem da PESSOA (já está no time, pedido
+        pendente, time completo) — a régua de `_ids_visiveis` pra gestão
+        continua intocada, ela decide alocação em qualquer frente.
 
         Leva também as três flags que decidem o que a página mostra:
         `pode_solicitar` (só consultor), `pode_responder` (quem monta equipe)
@@ -184,8 +198,17 @@ class SolicitacaoProjetoUseCase:
         projetos = [
             p
             for p in self.repository.get_all()
-            if not p.arquivado_em and p.status not in STATUS_FECHADOS
+            if not p.arquivado_em and p.status not in STATUS_FECHADOS and p.vagas_abertas
         ]
+
+        if pode_solicitar:
+            minhas_frentes_solicitante = set(frentes_do_usuario(current_user, self.db))
+            frente_ids_por_projeto_solicitante = self._frente_ids_por_projeto([p.id for p in projetos])
+            projetos = [
+                p
+                for p in projetos
+                if minhas_frentes_solicitante & set(frente_ids_por_projeto_solicitante.get(p.id, []))
+            ]
 
         # Para a GESTÃO a lista é operacional — é dela que sai o projeto onde
         # se vai alocar alguém —, então respeita o §3: o gerente só enxerga as
@@ -254,25 +277,13 @@ class SolicitacaoProjetoUseCase:
 
         # ⭐ 2026-09-05, a pedido: o selo "N vagas abertas" (fora desta tela,
         # em `/projetos`) contava `len(projetos)` — o número de PROJETOS com
-        # vaga, não a SOMA de vagas de verdade, e ainda somava vaga de
-        # qualquer frente pra qualquer um ("não adianta parecer que tem 1
-        # vaga de Direito pra um cara de Tech"). Aqui já é a soma certa
+        # vaga, não a SOMA de vagas de verdade. Aqui já é a soma certa
         # (`vagas`, que é `max(0, max_consultores - alocados)` — projeto
-        # cheio contribui 0 sozinho) e, pra quem pede (`pode_solicitar`),
-        # recortada pelas frentes do próprio usuário — um projeto sinérgico
-        # que inclui a frente dele conta, pela mesma interseção que
-        # `aplicar_recorte_visao` já usa pro gerente. Gestão continua vendo o
-        # total: ela decide alocação em qualquer frente, não só na dela.
-        if pode_solicitar:
-            minhas_frentes = set(frentes_do_usuario(current_user, self.db))
-            frente_ids_por_projeto = self._frente_ids_por_projeto([p.id for p in projetos])
-            vagas_disponiveis = sum(
-                item["vagas"]
-                for item in saida
-                if minhas_frentes & set(frente_ids_por_projeto.get(item["id"], []))
-            )
-        else:
-            vagas_disponiveis = sum(item["vagas"] for item in saida)
+        # cheio contribui 0 sozinho). ⭐ 2026-09-22 — o recorte por frente pra
+        # quem pede (`pode_solicitar`) já aconteceu mais acima, em `projetos`
+        # — `saida` só tem projeto com frente em comum, então a soma é
+        # direta pros dois lados agora.
+        vagas_disponiveis = sum(item["vagas"] for item in saida)
 
         return {
             "projetos": saida,
@@ -503,8 +514,16 @@ class SolicitacaoProjetoUseCase:
         projeto = self.repository.get_by_id(request.projeto_id)
         if not projeto:
             raise RegraDeNegocioError("Projeto não encontrado")
-        if projeto.arquivado_em or projeto.status in STATUS_FECHADOS:
+        if projeto.arquivado_em or projeto.status in STATUS_FECHADOS or not projeto.vagas_abertas:
             raise RegraDeNegocioError("Este projeto não está aceitando gente nova.")
+
+        # ⭐ 2026-09-22 — a pedido: só quem é de alguma frente do projeto pede
+        # pra entrar — antes era global de propósito (ver o histórico desta
+        # checagem em `listar_vagas`), a diretoria pediu pra restringir.
+        minhas_frentes = set(frentes_do_usuario(usuario, self.db))
+        frentes_do_projeto = set(self._frente_ids_por_projeto([projeto.id]).get(projeto.id, []))
+        if not (minhas_frentes & frentes_do_projeto):
+            raise RegraDeNegocioError("Você não é de nenhuma frente deste projeto.")
 
         vinculos = self.membro_repository.get_by_projeto(projeto.id, apenas_atuais=True)
         if any(v.usuario_id == usuario_id for v in vinculos):

@@ -87,6 +87,8 @@ from src.use_cases.projeto.update_configuracoes import (
     UpdateFrentesUseCase,
     UpdateMaxConsultoresRequest,
     UpdateMaxConsultoresUseCase,
+    UpdateVagasAbertasRequest,
+    UpdateVagasAbertasUseCase,
 )
 from src.use_cases.projeto.excluir_justificativa_atraso import ExcluirJustificativaAtrasoUseCase
 from src.use_cases.projeto.excluir_remarcacao_banca import ExcluirRemarcacaoBancaUseCase
@@ -282,6 +284,23 @@ def update_max_consultores(projeto_id: int, request: UpdateMaxConsultoresRequest
         result = UpdateMaxConsultoresUseCase(db).execute(projeto_id, request)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
+@router.patch("/projetos/{projeto_id}/vagas-abertas")
+def update_vagas_abertas(
+    projeto_id: int,
+    request: UpdateVagasAbertasRequest,
+    current_user=Depends(require_lideranca),
+    db: Session = Depends(get_db),
+):
+    """Abrir/fechar manualmente a declaração de interesse — `require_lideranca`
+    (diretor_projetos, gerente, coordenador) bate com "diretores e gerentes e
+    coords" do pedido."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateVagasAbertasUseCase(db).execute(projeto_id, request)
     if not result:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     return result

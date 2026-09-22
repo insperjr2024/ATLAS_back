@@ -69,10 +69,24 @@ class ProjetoModel(Base):
     #: pra não poluir os números de quem acompanha entrega de verdade.
     institucional = Column(Boolean, nullable=False, default=False)
     dias_ambientacao = Column(Integer, nullable=False, default=5, server_default="5")
-    #: Teto de consultores do projeto — o que decide se ele ainda tem vaga na
-    #: tela de declaração de interesse. Não conta o coordenador: ele entra pelo
-    #: papel, não por vaga.
+    #: Teto de consultores do projeto — não conta o coordenador: ele entra
+    #: pelo papel, não por vaga.
     max_consultores = Column(Integer, nullable=False, default=3, server_default="3")
+    #: ⭐ 2026-09-22 — a pedido: interruptor explícito de "declaração de
+    #: interesse aberta" em Vagas em Projetos. Antes, "ter vaga" era 100%
+    #: calculado (`max_consultores - alocados`) — mas um projeto que roda de
+    #: propósito com menos gente que o teto (decisão da diretoria, não vaga
+    #: real) aparecia como "tem vaga", o que é falso. Agora um projeto só
+    #: aparece em Vagas em Projetos com este campo `True` — `max_consultores`
+    #: continua decidindo QUANTAS vagas aparecem, não SE aparecem.
+    #:
+    #: Abre sozinho quando o Contrato de Prestação de Serviços é assinado
+    #: (`marcar_assinado.py`, só nesse momento; TEP não abre vaga nenhuma).
+    #: Fecha/abre manualmente por quem lidera o projeto (diretoria de
+    #: projetos, gerente, coordenador — `require_lideranca`), sem
+    #: fechamento automático ao bater no teto. Todo projeto que já existia
+    #: antes desta coluna nasce fechado (o `server_default` cobre isso).
+    vagas_abertas = Column(Boolean, nullable=False, default=False, server_default="0")
     data_kickoff = Column(Date, nullable=True)
     #: ⭐ Quando NÃO nulo, substitui `data_kickoff` como início da janela de
     #: ambientação (ver `utils/ambientacao.py`). `None` (o padrão) é o caso

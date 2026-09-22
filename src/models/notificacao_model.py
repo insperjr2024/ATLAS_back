@@ -82,6 +82,10 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     "documento_contratual_cliente_pediu_alteracao",
     "projeto_criado_em_contrato",
     "projeto_vendido",
+    #: ⭐ 2026-09-22 — a pedido: Contrato de PS assinado abre a declaração de
+    #: interesse do projeto em Vagas em Projetos — avisa os consultores das
+    #: frentes dele, não quem já recebe `projeto_vendido` (diretoria/gerentes).
+    "vagas_abertas",
     name="tipo_notificacao",
 )
 
@@ -112,6 +116,7 @@ TIPOS_NOTIFICACAO_OPCIONAIS = frozenset(
         # mesma categoria de `alocado_em_projeto`, não pedido nem prazo.
         "projeto_criado_em_contrato",
         "projeto_vendido",
+        "vagas_abertas",
     }
 )
 

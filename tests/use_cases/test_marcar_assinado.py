@@ -29,10 +29,16 @@ def _mudanca_de_status_automatica(monkeypatch):
         "mudar_status_projeto_automaticamente",
         lambda db, projeto_id, status_novo: chamadas.append((projeto_id, status_novo)),
     )
-    # Idem pra notificação de "virou vendido" — tem teste próprio em
-    # test_notificar_projeto.py.
+    # Idem pra notificação de "virou vendido"/"vagas abertas" — têm teste
+    # próprio em test_notificar_projeto.py.
     monkeypatch.setattr(marcar_assinado_mod, "projeto_vendido", lambda *a, **k: None)
+    monkeypatch.setattr(marcar_assinado_mod, "vagas_abertas", lambda *a, **k: None)
     return chamadas
+
+
+class FakeDb:
+    def commit(self):
+        pass
 
 
 class FakeDocumentoRepo:
@@ -74,10 +80,11 @@ class FakeSemestreRepo:
         return self._semestre
 
 
-def documento(tipo="contrato", status="aprovado_pelo_cliente", atualizado_em=None):
+def documento(tipo="contrato", status="aprovado_pelo_cliente", atualizado_em=None, dados=None):
     return SimpleNamespace(
         id=1, projeto_id=7, tipo=tipo, status=status, atualizado_em=atualizado_em or datetime.now(),
-        projeto=SimpleNamespace(id=7, nome="Projeto Alfa"),
+        dados=dados,
+        projeto=SimpleNamespace(id=7, nome="Projeto Alfa", max_consultores=3, vagas_abertas=False),
     )
 
 
@@ -86,7 +93,7 @@ _PADRAO = object()
 
 def montar(doc, versao=_PADRAO, semestre=_PADRAO):
     uc = MarcarAssinadoDocumentoContratualUseCase.__new__(MarcarAssinadoDocumentoContratualUseCase)
-    uc.db = None
+    uc.db = FakeDb()
     uc.documentos = FakeDocumentoRepo(doc)
     uc.versoes = FakeVersaoRepo(SimpleNamespace(id=9) if versao is _PADRAO else versao)
     uc.semestres = FakeSemestreRepo(SimpleNamespace(id=5) if semestre is _PADRAO else semestre)
@@ -119,6 +126,40 @@ class TestExecute:
         uc.execute(1)
 
         assert _mudanca_de_status_automatica == [(7, "periodo_ajustes")]
+
+    def test_contrato_assinado_abre_vagas_e_usa_num_consultores_do_contrato(self):
+        doc = documento(tipo="contrato", dados={"projeto": {"num_consultores": 5}})
+        uc = montar(doc)
+
+        uc.execute(1)
+
+        assert doc.projeto.vagas_abertas is True
+        assert doc.projeto.max_consultores == 5
+
+    def test_contrato_sem_num_consultores_mantem_max_consultores_atual(self):
+        doc = documento(tipo="contrato", dados={"projeto": {}})
+        uc = montar(doc)
+
+        uc.execute(1)
+
+        assert doc.projeto.vagas_abertas is True
+        assert doc.projeto.max_consultores == 3
+
+    def test_contrato_sem_dados_nao_quebra(self):
+        doc = documento(tipo="contrato", dados=None)
+        uc = montar(doc)
+
+        uc.execute(1)
+
+        assert doc.projeto.vagas_abertas is True
+
+    def test_tep_nao_abre_vagas(self):
+        doc = documento(tipo="tep")
+        uc = montar(doc)
+
+        uc.execute(1)
+
+        assert doc.projeto.vagas_abertas is False
 
     def test_outros_tipos_nao_movem_o_projeto(self, _mudanca_de_status_automatica):
         for tipo in ("nda", "uso_imagem", "aditivo"):

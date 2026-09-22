@@ -68,6 +68,9 @@ def serializar_projeto_resumo(
         "vendedor_ids": [v.usuario_id for v in vendedores],
         # Teto de consultores: a tela de vagas compara com quantos já entraram.
         "max_consultores": projeto.max_consultores,
+        # ⭐ 2026-09-22 — a pedido: se a declaração de interesse deste projeto
+        # está aberta em Vagas em Projetos (independente do teto acima).
+        "vagas_abertas": projeto.vagas_abertas,
         "data_kickoff": projeto.data_kickoff,
         # ⭐ 2026-09-21 — a pedido: kickoff só é "pendente" depois de VENDIDO —
         # antes disso (`contrato_em_elaboracao`) nem tem venda de verdade

@@ -24,7 +24,7 @@ from src.repositories.documento_contratual_versao_repository import (
 from src.repositories.semestre_repository import SemestreRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
-from src.utils.notificar_projeto import projeto_vendido
+from src.utils.notificar_projeto import projeto_vendido, vagas_abertas
 from src.utils.status_documento_contratual import PRAZO_ACEITE_TACITO_TEP_DIAS
 
 
@@ -103,9 +103,21 @@ class MarcarAssinadoDocumentoContratualUseCase:
         # fato torna a venda real — antes disso o projeto só existe como
         # "contrato em elaboração" (`create_projeto.py`). Institucional
         # (`projeto_id` nulo) não tem projeto pra virar "Vendido" nenhum.
+        #
+        # ⭐ 2026-09-22 — a pedido: o MESMO momento abre Vagas em Projetos —
+        # não confundir com TEP (regra própria, acima, não toca vagas). O
+        # teto de consultores vem do próprio contrato (`dados.projeto.
+        # num_consultores`) — só sobrescreve quando é um inteiro > 0, pra não
+        # zerar por engano um dado incompleto/institucional.
         if documento.tipo == "contrato" and documento.projeto_id:
             mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "vendido")
+            num_consultores = ((documento.dados or {}).get("projeto") or {}).get("num_consultores")
+            if isinstance(num_consultores, int) and num_consultores > 0:
+                documento.projeto.max_consultores = num_consultores
+            documento.projeto.vagas_abertas = True
+            self.db.commit()
             projeto_vendido(self.db, documento.projeto)
+            vagas_abertas(self.db, documento.projeto)
 
         return atualizado
 
