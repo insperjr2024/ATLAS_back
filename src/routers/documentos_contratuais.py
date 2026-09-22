@@ -75,7 +75,6 @@ from src.use_cases.documento_contratual.identidade_institucional import (
 )
 from src.use_cases.documento_contratual.painel import PainelContratualUseCase
 from src.use_cases.documento_contratual.sugerir_dias_excecao import SugerirDiasExcecaoUseCase
-from src.use_cases.documento_contratual.repositorio import ListarRepositorioContratualUseCase
 from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
     ListDocumentosContratuaisPorProjetoUseCase,
@@ -758,15 +757,3 @@ def get_painel_contratual(
     # vazia, não 403. Um 403 exigiria refazer a mesma conta só pra decidir
     # se deixa passar, e a resposta seria a mesma (nada pra ver).
     return {"itens": PainelContratualUseCase(db).execute(usuario)}
-
-
-@router.get("/repositorio-contratual")
-def get_repositorio(
-    gestao_id: int | None = None,
-    busca: str | None = None,
-    usuario=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if not eh_diretoria_de_projetos(usuario):
-        raise HTTPException(status_code=403, detail="Sem permissão para ver o repositório.")
-    return {"itens": ListarRepositorioContratualUseCase(db).execute(gestao_id=gestao_id, busca=busca)}

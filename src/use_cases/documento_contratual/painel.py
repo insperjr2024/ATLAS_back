@@ -1,11 +1,11 @@
 """A aba Contratos: painel cross-projeto de documentos jurídicos em andamento
 (§ Contratos, 2026-09-21).
 
-⭐ Diferente do Repositório (`repositorio.py`, só arquivado) — aqui é fila de
-trabalho: quem tem contrato em andamento, o que espera aprovação da
-Valentina (Jurídico), o que já foi mandado pro cliente. Cada linha ainda
-abre a tela de documento que já existe; este painel é só o ponto de entrada
-cross-projeto, não duplica nada da tela em si.
+⭐ 2026-09-22 — o Repositório de Contratos (tela separada, só arquivado) foi
+removido: esta Kanban já cobre tudo, incluindo a coluna "Assinado e
+Arquivado". Cada linha ainda abre a tela de documento que já existe; este
+painel é só o ponto de entrada cross-projeto, não duplica nada da tela em
+si.
 
 ⚠ O recorte de QUEM VÊ O QUÊ mora aqui, não no router — depende de LINHA
 (vendedor/coordenador DESTE projeto), não só de permissão global. Mesmo
