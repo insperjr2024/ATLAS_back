@@ -21,6 +21,12 @@ def slugificar(nome: str) -> str:
 
 class CreatePosicaoPermissaoRequest(BaseModel):
     nome: str = Field(min_length=1, max_length=100)
+    #: ⭐ 2026-09-22 — a pedido: perguntado na hora de criar o cargo, não
+    #: depois. Se este cargo pode ser o `cargo_extra` de qualquer pessoa —
+    #: uma segunda posição somada à principal (ver `usuario_model.py`).
+    #: Exemplo dado pela diretoria: "consultor" não seria sobreponível (é
+    #: sempre posição base); "bdr"/"adm jurídico" seriam.
+    sobreponivel: bool
 
 
 class CreatePosicaoPermissaoUseCase:
@@ -30,7 +36,9 @@ class CreatePosicaoPermissaoUseCase:
     marca o que quiser depois, em "Editar" — igual o cargo padrão nasceria se
     pudesse ser criado do zero. Não entra em nenhuma lista de identidade
     hardcoded (mentor, composição de banca, portfólio inteiro); isso é
-    escopo de fora desta ação, de propósito.
+    escopo de fora desta ação, de propósito. A única exceção é `sobreponivel`
+    (⭐ 2026-09-22): decidida já na criação, porque é sobre COMO o cargo se
+    combina com outros, não uma permissão de ação.
     """
 
     def __init__(self, db: Session):
@@ -48,5 +56,7 @@ class CreatePosicaoPermissaoUseCase:
         if self.repository.get_by_posicao(posicao):
             raise RegraDeNegocioError("Já existe um cargo com esse nome")
 
-        registro = self.repository.create(posicao=posicao, nome=nome, e_padrao=False)
+        registro = self.repository.create(
+            posicao=posicao, nome=nome, e_padrao=False, sobreponivel=request.sobreponivel
+        )
         return serializar_posicao_permissao(registro)

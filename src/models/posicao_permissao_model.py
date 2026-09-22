@@ -52,6 +52,16 @@ class PosicaoPermissaoModel(Base):
     #: Os 6 cargos que a plataforma sempre teve. `False` para todo cargo
     #: criado pela tela — só eles podem ser apagados por `DELETE`.
     e_padrao = Column(Boolean, default=False, nullable=False, server_default="0")
+    #: ⭐ 2026-09-22 — a pedido: decidido na hora de CRIAR o cargo (a pergunta
+    #: fica no próprio modal "Novo cargo", não em conversa). Se `True`, este
+    #: cargo pode ser escolhido como `usuario.cargo_extra` de QUALQUER
+    #: pessoa, além da posição principal dela — soma permissões (ver
+    #: `usuario_tem_permissao`), não substitui. Exemplo dado pela diretoria:
+    #: "consultor" não é sobreponível (é sempre posição base, nunca extra);
+    #: "bdr"/"adm jurídico" são (podem ser a segunda posição de alguém).
+    #: Generaliza o que antes era hardcoded só para "bdr" em cima de
+    #: "consultor" (`update_usuario.py`).
+    sobreponivel = Column(Boolean, default=False, nullable=False, server_default="0")
 
     # 1. Criar projeto e alocar equipe
     pode_criar_projeto = Column(Boolean, default=False, nullable=False)

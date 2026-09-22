@@ -14,6 +14,9 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     #: pode ser renomeado. O SLUG (`posicao`, a chave que `usuario.posicao` e
     #: `usuario.cargo_extra` referenciam) nunca muda aqui, só o rótulo.
     nome: Optional[str] = None
+    #: ⭐ 2026-09-22 — a pedido: pode ser ajustado depois de criado, não só
+    #: perguntado na criação. Ver `posicao_permissao_model.py`.
+    sobreponivel: Optional[bool] = None
     pode_criar_projeto: Optional[bool] = None
     pode_editar_equipe: Optional[bool] = None
     pode_gerir_membros: Optional[bool] = None
