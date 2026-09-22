@@ -37,7 +37,6 @@ from src.use_cases.banca.local_e_entrega import (
     RemoverEntregaBancaUseCase,
 )
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
-from src.repositories.banca_repository import BancaRepository
 from src.use_cases.banca.excecao_choque import (
     DecidirExcecaoChoqueRequest,
     DecidirExcecaoChoqueUseCase,

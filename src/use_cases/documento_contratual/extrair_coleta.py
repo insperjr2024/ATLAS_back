@@ -6,8 +6,6 @@ aplicar no formulário (a pessoa ainda revisa e confirma, como qualquer
 preenchimento manual).
 """
 
-from typing import List, Optional
-
 from src.documentos_contratuais.extrair_coleta import extrair_dados_coleta_detalhado
 from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.adaptar_coleta_para_tipo import adaptar_coleta_para_tipo
