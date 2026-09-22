@@ -257,8 +257,8 @@ class RegistrarAprovacaoBancaUseCase:
 
         # 🤖 2026-09-21 — a pedido: quando a última banca pendente do projeto
         # é aprovada, o projeto já vai pra "Envio do TEP" sozinho — o TEP em
-        # si continua sendo aberto e preenchido por uma pessoa
-        # (`pode_solicitar_tep`), isto só move o status, não elabora nada.
+        # si continua sendo aberto e preenchido por uma pessoa, isto só move
+        # o status, não elabora nada.
         if request.aprovado:
             projeto_id = projeto_da_banca(self.db, banca_id)
             if projeto_id and _validacao_tecnica_completa(self.db, projeto_id):

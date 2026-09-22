@@ -37,7 +37,6 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_aprovar_contrato_internamente": registro.pode_aprovar_contrato_internamente,
         "pode_marcar_documento_assinado": registro.pode_marcar_documento_assinado,
         "pode_importar_documento_antigo": registro.pode_importar_documento_antigo,
-        "pode_solicitar_tep": registro.pode_solicitar_tep,
         "pode_editar_identidade_institucional": registro.pode_editar_identidade_institucional,
         "pode_elaborar_contratos_proprios": registro.pode_elaborar_contratos_proprios,
         "pode_elaborar_qualquer_contrato": registro.pode_elaborar_qualquer_contrato,

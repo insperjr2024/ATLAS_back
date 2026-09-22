@@ -8,11 +8,13 @@ marcar como assinado e arquivar.
 
 ⚠ Permissão de ABRIR um documento é por TIPO, não uma caixa só: o Contrato
 de Prestação usa a mesma permissão de criar projeto (é a venda que traz os
-dados dele); TEP tem caixa própria (`pode_solicitar_tep`); NDA/Uso de
-Imagem/Aditivo usam `pode_responsavel_por_vendas` (BDR, Coordenador/Diretor
-de Vendas, Diretora de Projetos — quem já pode "vender"/tocar comercial do
-projeto). Diretoria de projetos e quem tem `pode_editar_documento_juridico`
-(o Jurídico) sempre podem, qualquer tipo.
+dados dele); NDA/Uso de Imagem/Aditivo usam `pode_responsavel_por_vendas`
+(BDR, Coordenador/Diretor de Vendas, Diretora de Projetos — quem já pode
+"vender"/tocar comercial do projeto). Diretoria de projetos, quem tem
+`pode_editar_documento_juridico` (o Jurídico) e quem tem `pode_elaborar_
+contratos_proprios`/`pode_elaborar_qualquer_contrato` sempre podem, qualquer
+tipo — inclusive TEP (⭐ 2026-09-22, a pedido: `pode_solicitar_tep` foi
+removida, essas caixas já cobriam o mesmo caso).
 """
 
 import os
@@ -138,8 +140,6 @@ def _pode_abrir_documento(usuario, db: Session, tipo: str, projeto_id: Optional[
         return True
     if tipo == "contrato":
         return usuario_tem_permissao(usuario, db, "pode_criar_projeto")
-    if tipo == "tep":
-        return usuario_tem_permissao(usuario, db, "pode_solicitar_tep")
     if tipo in ("nda", "uso_imagem", "aditivo"):
         return usuario_tem_permissao(usuario, db, "pode_responsavel_por_vendas")
     return False

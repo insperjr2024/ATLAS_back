@@ -44,8 +44,7 @@ class AbrirDocumentoContratualUseCase:
           aqui é só o que se OFERECE pra abrir);
         - o TEP não depende do Contrato de Prestação existir — projetos cujo
           PS foi tratado fora da plataforma também precisam ser encerrados
-          com TEP. Quem pode de fato solicitar é controlado pela permissão
-          `pode_solicitar_tep`, checada no router, não aqui.
+          com TEP. Quem pode de fato abrir é checado no router, não aqui.
         """
         existentes = {d.tipo for d in self.documentos.list_by_projeto(projeto_id)}
 
