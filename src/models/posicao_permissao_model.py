@@ -163,3 +163,17 @@ class PosicaoPermissaoModel(Base):
     #: Abrir o TEP dentro de um projeto que já tem Contrato de Prestação —
     #: quem acompanha a ENTREGA, não a venda.
     pode_solicitar_tep = Column(Boolean, default=False, nullable=False)
+    #: ⭐ 2026-09-21 — a pedido: quem assina PELA Insper Jr era só diretoria
+    #: de projetos, hardcoded (`eh_diretoria_de_projetos`). Vira delegável.
+    pode_editar_identidade_institucional = Column(Boolean, default=False, nullable=False)
+    #: Acessar a aba Contratos (vê TODOS os documentos, igual `pode_ver_
+    #: painel_contratos`) e elaborar (abrir, preencher, confirmar, gerar) os
+    #: documentos jurídicos dos projetos em que a PRÓPRIA pessoa consta como
+    #: vendedora — não qualquer projeto. `+ Novo Contrato` também só oferece,
+    #: pra quem só tem esta caixa, os projetos em que ela vendeu (mesma régua
+    #: de `aplicar_recorte_visao`, que já mostra pro vendedor os projetos que
+    #: vendeu).
+    pode_elaborar_contratos_proprios = Column(Boolean, default=False, nullable=False)
+    #: Mesma coisa, sem o recorte por vendedor — abre e elabora o documento
+    #: jurídico de QUALQUER projeto, igual diretoria/Jurídico.
+    pode_elaborar_qualquer_contrato = Column(Boolean, default=False, nullable=False)

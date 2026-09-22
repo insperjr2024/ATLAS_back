@@ -34,6 +34,7 @@ from src.middlewares.validate_user_auth_token import get_current_user
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
+from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.solicitacao_alteracao_contratual_repository import (
@@ -108,10 +109,34 @@ class AtualizarIdentidadeRequest(BaseModel):
     dados: Dict[str, Any]
 
 
-def _pode_abrir_documento(usuario, db: Session, tipo: str) -> bool:
+def _e_vendedor_do_projeto(usuario, db: Session, projeto_id: Optional[int]) -> bool:
+    if not projeto_id:
+        return False
+    vendedores = ProjetoVendedorRepository(db).get_by_projeto(projeto_id)
+    return any(v.usuario_id == usuario.id for v in vendedores)
+
+
+def _pode_elaborar_por_caixa_nova(usuario, db: Session, projeto_id: Optional[int]) -> bool:
+    """⭐ 2026-09-22 — a pedido: duas caixas novas pra quem não é diretoria/
+    Jurídico mas precisa abrir/preencher/confirmar/gerar um documento
+    jurídico. `pode_elaborar_qualquer_contrato` é irrestrita; `pode_
+    elaborar_contratos_proprios` só vale nos projetos em que a PRÓPRIA
+    pessoa é vendedora."""
+    if usuario_tem_permissao(usuario, db, "pode_elaborar_qualquer_contrato"):
+        return True
+    if usuario_tem_permissao(usuario, db, "pode_elaborar_contratos_proprios") and _e_vendedor_do_projeto(
+        usuario, db, projeto_id
+    ):
+        return True
+    return False
+
+
+def _pode_abrir_documento(usuario, db: Session, tipo: str, projeto_id: Optional[int] = None) -> bool:
     if eh_diretoria_de_projetos(usuario):
         return True
     if usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico"):
+        return True
+    if _pode_elaborar_por_caixa_nova(usuario, db, projeto_id):
         return True
     if tipo == "contrato":
         return usuario_tem_permissao(usuario, db, "pode_criar_projeto")
@@ -137,9 +162,11 @@ def _pode_aprovar_internamente(usuario, db: Session) -> bool:
     return usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico")
 
 
-def _pode_gerar_documento(usuario, db: Session) -> bool:
-    return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
-        usuario, db, "pode_gerar_documento_juridico"
+def _pode_gerar_documento(usuario, db: Session, projeto_id: Optional[int] = None) -> bool:
+    return (
+        eh_diretoria_de_projetos(usuario)
+        or usuario_tem_permissao(usuario, db, "pode_gerar_documento_juridico")
+        or _pode_elaborar_por_caixa_nova(usuario, db, projeto_id)
     )
 
 
@@ -160,16 +187,17 @@ def _pode_enviar_ao_cliente(usuario, db: Session, documento: dict) -> bool:
         return True
     if usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico"):
         return True
+    if usuario_tem_permissao(usuario, db, "pode_elaborar_qualquer_contrato"):
+        return True
     projeto_id = documento["projeto_id"]
     if documento["tipo"] == "contrato":
-        vendedores = ProjetoVendedorRepository(db).get_by_projeto(projeto_id)
-        return any(v.usuario_id == usuario.id for v in vendedores)
+        return _e_vendedor_do_projeto(usuario, db, projeto_id)
     if documento["tipo"] == "tep":
         membro = ProjetoMembroRepository(db).get_atual_do_usuario_no_projeto(projeto_id, usuario.id)
         return bool(membro and membro.papel == "coordenador")
     # NDA/Uso de Imagem/Aditivo: sem pedido específico ainda, mantém o
-    # comportamento de antes (Jurídico/diretoria).
-    return _pode_gerar_documento(usuario, db)
+    # comportamento de antes (Jurídico/diretoria/elaboração própria).
+    return _pode_gerar_documento(usuario, db, projeto_id)
 
 
 def _projeto_visivel_ou_404(projeto_id: Optional[int], usuario, db: Session) -> None:
@@ -194,7 +222,7 @@ def get_tipos_disponiveis(
     # Só oferece o que a pessoa também tem permissão de abrir — a rota de
     # abrir cobra de novo (nunca confia só no que a tela escondeu), mas
     # listar tipo que ela não pode escolher seria um botão morto.
-    return {"tipos": [t for t in tipos if _pode_abrir_documento(usuario, db, t)]}
+    return {"tipos": [t for t in tipos if _pode_abrir_documento(usuario, db, t, projeto_id)]}
 
 
 @router.get("/projetos/{projeto_id}/documentos-contratuais")
@@ -273,7 +301,7 @@ async def extrair_coleta(
     db: Session = Depends(get_db),
 ):
     _projeto_visivel_ou_404(projeto_id, usuario, db)
-    if not _pode_abrir_documento(usuario, db, tipo):
+    if not _pode_abrir_documento(usuario, db, tipo, projeto_id):
         raise HTTPException(status_code=403, detail="Sem permissão para preencher este tipo de documento.")
 
     conteudo = await arquivo.read()
@@ -291,7 +319,7 @@ def abrir_documento(
     db: Session = Depends(get_db),
 ):
     _projeto_visivel_ou_404(projeto_id, usuario, db)
-    if not _pode_abrir_documento(usuario, db, request.tipo):
+    if not _pode_abrir_documento(usuario, db, request.tipo, projeto_id):
         raise HTTPException(
             status_code=403, detail="Sem permissão para adicionar este tipo de documento."
         )
@@ -300,7 +328,8 @@ def abrir_documento(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    return serializar_documento_contratual(documento, ultima_versao=0)
+    frente_ids = [f.frente_id for f in ProjetoFrenteRepository(db).get_by_projeto(projeto_id)]
+    return serializar_documento_contratual(documento, ultima_versao=0, frente_ids=frente_ids)
 
 
 @router.get("/documentos-contratuais/{documento_id}")
@@ -365,7 +394,9 @@ def atualizar_dados(
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
 
     pode_editar_livre = _pode_editar_livre(usuario, db)
-    if not pode_editar_livre and not _pode_abrir_documento(usuario, db, documento["tipo"]):
+    if not pode_editar_livre and not _pode_abrir_documento(
+        usuario, db, documento["tipo"], documento["projeto_id"]
+    ):
         raise HTTPException(status_code=403, detail="Sem permissão para esta ação.")
 
     try:
@@ -375,7 +406,7 @@ def atualizar_dados(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    return serializar_documento_contratual(atualizado)
+    return serializar_documento_contratual(atualizado, frente_ids=documento["frente_ids"])
 
 
 @router.post("/documentos-contratuais/{documento_id}/confirmar")
@@ -389,7 +420,7 @@ def confirmar_preenchimento(
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
     if not _pode_editar_livre(usuario, db) and not _pode_abrir_documento(
-        usuario, db, documento["tipo"]
+        usuario, db, documento["tipo"], documento["projeto_id"]
     ):
         raise HTTPException(status_code=403, detail="Sem permissão para confirmar este documento.")
 
@@ -398,7 +429,7 @@ def confirmar_preenchimento(
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
 
-    return serializar_documento_contratual(confirmado)
+    return serializar_documento_contratual(confirmado, frente_ids=documento["frente_ids"])
 
 
 @router.post("/documentos-contratuais/{documento_id}/gerar")
@@ -411,7 +442,7 @@ def gerar_documento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_gerar_documento(usuario, db):
+    if not _pode_gerar_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para gerar documentos jurídicos.")
 
     try:
@@ -445,7 +476,7 @@ def aprovar_internamente(
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
     ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
-    return serializar_documento_contratual(aprovado, ultima_versao=ultima_versao)
+    return serializar_documento_contratual(aprovado, ultima_versao=ultima_versao, frente_ids=documento["frente_ids"])
 
 
 @router.post("/documentos-contratuais/{documento_id}/exportar-aprovacao")
@@ -504,7 +535,7 @@ def marcar_assinado(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
     ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
-    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao)
+    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao, frente_ids=documento["frente_ids"])
 
 
 @router.post("/documentos-contratuais/{documento_id}/considerar-aceito-por-prazo")
@@ -527,7 +558,7 @@ def considerar_aceito_por_prazo(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
     ultima_versao = DocumentoContratualVersaoRepository(db).ultima_versao(documento_id)
-    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao)
+    return serializar_documento_contratual(atualizado, ultima_versao=ultima_versao, frente_ids=documento["frente_ids"])
 
 
 @router.get("/documentos-contratuais/{documento_id}/solicitacoes-alteracao")
@@ -663,7 +694,7 @@ def deletar_documento(
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
     if not _pode_editar_livre(usuario, db) and not _pode_abrir_documento(
-        usuario, db, documento["tipo"]
+        usuario, db, documento["tipo"], documento["projeto_id"]
     ):
         raise HTTPException(status_code=403, detail="Sem permissão para apagar este documento.")
 
@@ -678,7 +709,9 @@ def get_identidade_institucional(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not eh_diretoria_de_projetos(usuario):
+    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
+        usuario, db, "pode_editar_identidade_institucional"
+    ):
         raise HTTPException(status_code=403, detail="Sem permissão para ver a identidade institucional.")
     identidade = GetIdentidadeInstitucionalUseCase(db).execute()
     if not identidade:
@@ -692,7 +725,9 @@ def atualizar_identidade_institucional(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not eh_diretoria_de_projetos(usuario):
+    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
+        usuario, db, "pode_editar_identidade_institucional"
+    ):
         raise HTTPException(status_code=403, detail="Sem permissão para editar a identidade institucional.")
     try:
         atualizado = AtualizarIdentidadeInstitucionalUseCase(db).execute(request.dados)
