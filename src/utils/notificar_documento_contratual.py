@@ -28,7 +28,7 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.registrar_notificacao import registrar
-from src.utils.status_documento_contratual import ROTULO_TIPO
+from src.utils.status_documento_contratual import ROTULO_TIPO, nome_do_projeto
 from src.utils.usuarios_com_permissao import usuarios_com_permissao
 
 
@@ -42,7 +42,7 @@ def _rota(documento_id: int) -> str:
 def documento_pronto_para_gerar(db: Session, documento) -> None:
     """Confirmado pela venda — avisa o Jurídico que já pode gerar."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
-    titulo = f'Documento pronto para geração — "{tipo}" do projeto "{documento.projeto.nome}".'
+    titulo = f'Documento pronto para geração — "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     for usuario in usuarios_com_permissao(db, "pode_editar_documento_juridico"):
         registrar(
             db,
@@ -58,7 +58,7 @@ def documento_pronto_para_gerar(db: Session, documento) -> None:
 def documento_aprovado_internamente(db: Session, documento) -> None:
     """Jurídico aprovou por dentro — avisa quem vai mandar ao cliente."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
-    titulo = f'Documento aprovado internamente — já pode mandar ao cliente: "{tipo}" do projeto "{documento.projeto.nome}".'
+    titulo = f'Documento aprovado internamente — já pode mandar ao cliente: "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     for usuario in _destinatarios_envio(db, documento):
         registrar(
             db,
@@ -74,7 +74,7 @@ def documento_aprovado_internamente(db: Session, documento) -> None:
 def documento_liberado_para_cliente(db: Session, documento) -> None:
     """Gerado/exportado — avisa quem vai mandar ao cliente que o link já está pronto."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
-    titulo = f'Documento pronto para enviar ao cliente — "{tipo}" do projeto "{documento.projeto.nome}".'
+    titulo = f'Documento pronto para enviar ao cliente — "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     for usuario in _destinatarios_envio(db, documento):
         registrar(
             db,
@@ -91,9 +91,9 @@ def cliente_respondeu(db: Session, documento, aprovado: bool, motivo: str = None
     """Cliente aprovou ou pediu alteração — avisa quem ia mandar + Jurídico."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     if aprovado:
-        titulo = f'O cliente aprovou o documento "{tipo}" do projeto "{documento.projeto.nome}".'
+        titulo = f'O cliente aprovou o documento "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     else:
-        titulo = f'O cliente pediu alteração no documento "{tipo}" do projeto "{documento.projeto.nome}".'
+        titulo = f'O cliente pediu alteração no documento "{tipo}" do projeto "{nome_do_projeto(documento)}".'
         if motivo:
             titulo += f' Pedido: "{motivo}"'
 

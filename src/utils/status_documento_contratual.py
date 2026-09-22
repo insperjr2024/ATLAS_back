@@ -141,3 +141,10 @@ def ordenar_por_tipo(tipos):
     """Ordena tipos pela ORDEM_TIPOS; desconhecidos vão pro fim."""
     indice = {t.value: i for i, t in enumerate(ORDEM_TIPOS)}
     return sorted(tipos, key=lambda t: indice.get(str(t), len(indice)))
+
+
+def nome_do_projeto(documento) -> str:
+    """O nome pra mostrar em título/notificação/mensagem — do `ProjetoModel`
+    de verdade, ou do texto digitado no próprio documento quando é
+    institucional (`projeto_id` nulo, sem projeto de entrega)."""
+    return documento.projeto.nome if documento.projeto_id else documento.nome_projeto_externo

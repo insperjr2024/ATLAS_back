@@ -19,9 +19,11 @@ def serializar_documento_contratual(
         # ⭐ 2026-09-21 — a pedido: a página do documento virou standalone
         # (fora da aba do projeto), então precisa trazer o nome/cliente do
         # projeto junto — antes vinha só do contexto do `ProjetoPage` que
-        # não existe mais aqui.
-        "projeto_nome": documento.projeto.nome,
-        "projeto_cliente": documento.projeto.cliente,
+        # não existe mais aqui. Institucional (`projeto_id` nulo) não tem
+        # projeto de verdade — o nome/cliente são os campos digitados no
+        # próprio documento (`nome_projeto_externo`/`cliente_externo`).
+        "projeto_nome": documento.projeto.nome if documento.projeto_id else documento.nome_projeto_externo,
+        "projeto_cliente": documento.projeto.cliente if documento.projeto_id else documento.cliente_externo,
         "tipo": documento.tipo,
         "status": documento.status,
         "dados": documento.dados,

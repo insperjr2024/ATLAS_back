@@ -1,6 +1,6 @@
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from src.database.database import Base
 
@@ -28,12 +28,34 @@ class DocumentoContratualModel(Base):
     __tablename__ = "documento_contratual"
     # Um documento de cada tipo por projeto: uma revisão gera nova VERSÃO
     # (DocumentoContratualVersaoModel), não um novo documento jurídico.
+    #
+    # Postgres não aceita `WHERE` numa UNIQUE CONSTRAINT — só num ÍNDICE
+    # único, daí `Index` em vez de `UniqueConstraint` aqui. A condição é
+    # redundante na prática (dois NULLs já contam como distintos pro
+    # Postgres), mas deixa a intenção explícita: a regra "um documento de
+    # cada tipo por projeto" só existe pra quem TEM projeto — institucional
+    # (`projeto_id` nulo) pode ter quantos quiser do mesmo tipo.
     __table_args__ = (
-        UniqueConstraint("projeto_id", "tipo", name="uq_documento_contratual_projeto_tipo"),
+        Index(
+            "uq_documento_contratual_projeto_tipo",
+            "projeto_id",
+            "tipo",
+            unique=True,
+            postgresql_where=text("projeto_id IS NOT NULL"),
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    projeto_id = Column(Integer, ForeignKey("projeto.id"), nullable=False, index=True)
+    #: ⭐ 2026-09-21 — nullable: contrato institucional (Agro etc.) não tem
+    #: projeto de entrega nenhum por trás — não faz sentido poluir a tabela
+    #: `projeto` só pra pendurar um documento jurídico avulso. Quando NULO,
+    #: `nome_projeto_externo`/`cliente_externo` (abaixo) é que identificam o
+    #: documento nas telas — ver `criar_documento_institucional.py`.
+    projeto_id = Column(Integer, ForeignKey("projeto.id"), nullable=True, index=True)
+    #: Só preenchidos quando `projeto_id` é nulo — o nome/cliente digitados
+    #: como TEXTO no formulário do documento, não um cadastro de projeto.
+    nome_projeto_externo = Column(String(150), nullable=True)
+    cliente_externo = Column(String(150), nullable=True)
     #: contrato | tep | nda | uso_imagem | aditivo | outro — ver
     #: `utils/status_documento_contratual.py`.
     tipo = Column(String(20), nullable=False)

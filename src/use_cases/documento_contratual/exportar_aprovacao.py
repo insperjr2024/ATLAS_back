@@ -25,7 +25,11 @@ from src.repositories.token_aprovacao_contratual_repository import (
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
 from src.utils.notificar_documento_contratual import documento_liberado_para_cliente
-from src.utils.status_documento_contratual import STATUS_EXPORTACAO_PERMITIDA, TipoDocumentoContratual
+from src.utils.status_documento_contratual import (
+    STATUS_EXPORTACAO_PERMITIDA,
+    TipoDocumentoContratual,
+    nome_do_projeto,
+)
 from src.utils.wa_link_contratual import mensagem_aprovacao
 
 
@@ -83,7 +87,7 @@ class ExportarAprovacaoDocumentoContratualUseCase:
         # cadastrado pode estar errado, ou o WhatsApp certo pra isso é de
         # outra pessoa) — o back só entrega o texto pronto, o número e o
         # link de wa.me são montados no front (`montarLinkWhatsapp`).
-        mensagem_whatsapp = mensagem_aprovacao(documento.projeto.nome, link_aprovacao)
+        mensagem_whatsapp = mensagem_aprovacao(nome_do_projeto(documento), link_aprovacao)
 
         return {
             "token": token,

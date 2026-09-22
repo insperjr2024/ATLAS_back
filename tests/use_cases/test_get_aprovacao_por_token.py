@@ -31,7 +31,10 @@ def montar(token, documento, versao):
 
 def test_devolve_so_o_que_a_tela_publica_precisa():
     projeto = SimpleNamespace(nome="Projeto Alfa")
-    documento = SimpleNamespace(tipo="contrato", status="aguardando_aprovacao_cliente", projeto=projeto)
+    documento = SimpleNamespace(
+        tipo="contrato", status="aguardando_aprovacao_cliente", projeto=projeto, projeto_id=1,
+        nome_projeto_externo=None,
+    )
     versao = SimpleNamespace(pdf_conteudo=b"%PDF-1.4 conteudo")
     tok = SimpleNamespace(usado=False, documento_id=1, versao_id=9)
     uc = montar(tok, documento, versao)

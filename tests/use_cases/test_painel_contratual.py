@@ -24,7 +24,14 @@ NINGUEM = usuario(5)
 def documento(id, projeto_id, tipo, nome_projeto="Projeto X"):
     projeto = SimpleNamespace(nome=nome_projeto, cliente="Cliente Y")
     return SimpleNamespace(id=id, projeto_id=projeto_id, tipo=tipo, status="em_revisao_interna",
-                            confirmado=True, dados=None, criado_em=None, atualizado_em=None, projeto=projeto)
+                            confirmado=True, dados=None, criado_em=None, atualizado_em=None, projeto=projeto,
+                            nome_projeto_externo=None, cliente_externo=None)
+
+
+def documento_institucional(id, tipo, nome, cliente=None):
+    return SimpleNamespace(id=id, projeto_id=None, tipo=tipo, status="em_revisao_interna",
+                            confirmado=True, dados=None, criado_em=None, atualizado_em=None, projeto=None,
+                            nome_projeto_externo=nome, cliente_externo=cliente)
 
 
 def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridico=(), permissoes_painel=()):
@@ -137,3 +144,22 @@ class TestVisibilidade:
         resultado = uc.execute(NINGUEM)
 
         assert resultado == []
+
+
+class TestDocumentoInstitucional:
+    def test_diretoria_ve_institucional_com_nome_externo(self, monkeypatch):
+        docs = [documento_institucional(1, "nda", "Parceria Agro Insper", "Agro Ltda")]
+        uc = montar(monkeypatch, docs)
+
+        resultado = uc.execute(DIRETOR)
+
+        assert resultado[0]["projeto_id"] is None
+        assert resultado[0]["projeto_nome"] == "Parceria Agro Insper"
+        assert resultado[0]["cliente"] == "Agro Ltda"
+        assert resultado[0]["frente_ids"] == []
+
+    def test_vendedor_sem_vinculo_nao_ve_institucional(self, monkeypatch):
+        docs = [documento_institucional(1, "contrato", "Parceria Agro Insper")]
+        uc = montar(monkeypatch, docs)
+
+        assert uc.execute(VENDEDOR) == []

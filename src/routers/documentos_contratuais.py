@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.database.database import get_db
 from src.middlewares.authorization import (
@@ -48,6 +48,10 @@ from src.use_cases.documento_contratual.aprovar_internamente import (
 )
 from src.use_cases.documento_contratual.atualizar_dados import (
     AtualizarDadosDocumentoContratualUseCase,
+)
+from src.use_cases.documento_contratual.criar_institucional import (
+    CriarDocumentoInstitucionalRequest,
+    CriarDocumentoInstitucionalUseCase,
 )
 from src.use_cases.documento_contratual.confirmar_preenchimento import (
     ConfirmarPreenchimentoDocumentoContratualUseCase,
@@ -168,7 +172,13 @@ def _pode_enviar_ao_cliente(usuario, db: Session, documento: dict) -> bool:
     return _pode_gerar_documento(usuario, db)
 
 
-def _projeto_visivel_ou_404(projeto_id: int, usuario, db: Session) -> None:
+def _projeto_visivel_ou_404(projeto_id: Optional[int], usuario, db: Session) -> None:
+    # ⭐ 2026-09-21 — institucional (`projeto_id` nulo, sem projeto de
+    # entrega por trás) não tem projeto pra checar visibilidade contra — a
+    # permissão de cada ação (gerar, aprovar, exportar...) já é quem decide
+    # quem pode mexer nesse documento, aqui não há nada a mais a validar.
+    if projeto_id is None:
+        return
     if not pode_ver_projeto(projeto_id, usuario, db):
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
 
@@ -195,6 +205,24 @@ def listar_documentos_do_projeto(
 ):
     _projeto_visivel_ou_404(projeto_id, usuario, db)
     return {"documentos": ListDocumentosContratuaisPorProjetoUseCase(db).execute(projeto_id)}
+
+
+@router.post("/documentos-contratuais/institucional")
+def criar_documento_institucional(
+    request: CriarDocumentoInstitucionalRequest,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Contrato institucional (Agro etc.) — mesma permissão de abrir aquele
+    TIPO de documento num projeto normal; aqui não há projeto pra checar
+    `pode_ver_projeto` contra."""
+    if not _pode_abrir_documento(usuario, db, request.tipo):
+        raise HTTPException(status_code=403, detail="Sem permissão para abrir este tipo de documento.")
+    try:
+        documento = CriarDocumentoInstitucionalUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    return serializar_documento_contratual(documento, ultima_versao=None)
 
 
 @router.get("/projetos/{projeto_id}/documentos-contratuais/sugerir-dias-excecao")

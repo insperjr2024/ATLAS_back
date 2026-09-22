@@ -45,8 +45,9 @@ class PainelContratualUseCase:
 
         # Em lote — a Kanban filtra por frente, e uma consulta por card
         # (potencialmente centenas) seria o mesmo N+1 que `serializar_
-        # projeto_resumo` evita em lote pro Kanban de projetos.
-        projeto_ids = list({d.projeto_id for d in visiveis})
+        # projeto_resumo` evita em lote pro Kanban de projetos. Institucional
+        # (`projeto_id` nulo) fica de fora — não tem frente pra buscar.
+        projeto_ids = list({d.projeto_id for d in visiveis if d.projeto_id})
         frentes_por_projeto: dict = {pid: [] for pid in projeto_ids}
         for frente in self.frentes.get_by_projetos(projeto_ids):
             frentes_por_projeto[frente.projeto_id].append(frente.frente_id)
@@ -64,7 +65,7 @@ class PainelContratualUseCase:
         if self._ve_tudo(usuario):
             return documentos
 
-        projeto_ids = list({d.projeto_id for d in documentos})
+        projeto_ids = list({d.projeto_id for d in documentos if d.projeto_id})
         vendedor_de = {
             v.projeto_id
             for v in self.vendedores.get_by_projetos(projeto_ids)
@@ -87,8 +88,10 @@ class PainelContratualUseCase:
         return {
             "id": documento.id,
             "projeto_id": documento.projeto_id,
-            "projeto_nome": documento.projeto.nome,
-            "cliente": documento.projeto.cliente,
+            # Institucional (`projeto_id` nulo): nome/cliente são os campos
+            # digitados no próprio documento, não um projeto de verdade.
+            "projeto_nome": documento.projeto.nome if documento.projeto_id else documento.nome_projeto_externo,
+            "cliente": documento.projeto.cliente if documento.projeto_id else documento.cliente_externo,
             "frente_ids": frente_ids,
             "tipo": documento.tipo,
             "tipo_rotulo": ROTULO_TIPO.get(documento.tipo, "Documento"),

@@ -101,8 +101,9 @@ class MarcarAssinadoDocumentoContratualUseCase:
 
         # 🤖 2026-09-21 — a pedido: Contrato de Prestação assinado é o que de
         # fato torna a venda real — antes disso o projeto só existe como
-        # "contrato em elaboração" (`create_projeto.py`).
-        if documento.tipo == "contrato":
+        # "contrato em elaboração" (`create_projeto.py`). Institucional
+        # (`projeto_id` nulo) não tem projeto pra virar "Vendido" nenhum.
+        if documento.tipo == "contrato" and documento.projeto_id:
             mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "vendido")
             projeto_vendido(self.db, documento.projeto)
 

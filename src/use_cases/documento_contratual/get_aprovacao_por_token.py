@@ -15,6 +15,7 @@ from src.repositories.token_aprovacao_contratual_repository import (
     TokenAprovacaoContratualRepository,
 )
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.status_documento_contratual import nome_do_projeto
 
 
 class GetAprovacaoPorTokenUseCase:
@@ -34,7 +35,7 @@ class GetAprovacaoPorTokenUseCase:
 
         return {
             "usado": registro.usado,
-            "nome_projeto": documento.projeto.nome,
+            "nome_projeto": nome_do_projeto(documento),
             "tipo_documento": documento.tipo,
             "status": documento.status,
         }
