@@ -32,8 +32,11 @@ from src.utils.status_documento_contratual import ROTULO_TIPO
 from src.utils.usuarios_com_permissao import usuarios_com_permissao
 
 
-def _rota(projeto_id: int) -> str:
-    return f"/projetos/{projeto_id}?aba=contratos"
+def _rota(documento_id: int) -> str:
+    # ⭐ 2026-09-21 — a página do documento virou standalone (`/contratos/
+    # :documentoId`), não mais uma aba dentro do projeto — o formato antigo
+    # (`/projetos/:id?aba=contratos`) nem existe mais desde a Kanban.
+    return f"/contratos/{documento_id}"
 
 
 def documento_pronto_para_gerar(db: Session, documento) -> None:
@@ -47,7 +50,7 @@ def documento_pronto_para_gerar(db: Session, documento) -> None:
             tipo="documento_contratual_pronto_para_gerar",
             titulo=titulo,
             projeto_id=documento.projeto_id,
-            rota=_rota(documento.projeto_id),
+            rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:pronto_para_gerar:{uuid4()}",
         )
 
@@ -63,7 +66,7 @@ def documento_aprovado_internamente(db: Session, documento) -> None:
             tipo="documento_contratual_aprovado_internamente",
             titulo=titulo,
             projeto_id=documento.projeto_id,
-            rota=_rota(documento.projeto_id),
+            rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:aprovado_internamente:{uuid4()}",
         )
 
@@ -79,7 +82,7 @@ def documento_liberado_para_cliente(db: Session, documento) -> None:
             tipo="documento_contratual_liberado",
             titulo=titulo,
             projeto_id=documento.projeto_id,
-            rota=_rota(documento.projeto_id),
+            rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:liberado:{uuid4()}",
         )
 
@@ -106,7 +109,7 @@ def cliente_respondeu(db: Session, documento, aprovado: bool, motivo: str = None
             tipo=f"documento_contratual_{evento}",
             titulo=titulo,
             projeto_id=documento.projeto_id,
-            rota=_rota(documento.projeto_id),
+            rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:{evento}:{uuid4()}",
         )
 

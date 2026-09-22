@@ -16,6 +16,12 @@ def serializar_documento_contratual(
     return {
         "id": documento.id,
         "projeto_id": documento.projeto_id,
+        # ⭐ 2026-09-21 — a pedido: a página do documento virou standalone
+        # (fora da aba do projeto), então precisa trazer o nome/cliente do
+        # projeto junto — antes vinha só do contexto do `ProjetoPage` que
+        # não existe mais aqui.
+        "projeto_nome": documento.projeto.nome,
+        "projeto_cliente": documento.projeto.cliente,
         "tipo": documento.tipo,
         "status": documento.status,
         "dados": documento.dados,
