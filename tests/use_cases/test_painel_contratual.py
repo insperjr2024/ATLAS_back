@@ -34,7 +34,7 @@ def documento_institucional(id, tipo, nome, cliente=None):
                             nome_projeto_externo=nome, cliente_externo=cliente)
 
 
-def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridico=(), permissoes_painel=()):
+def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridico=(), permissoes_qualquer_contrato=()):
     class DocumentoFake:
         def __init__(self, db): pass
         def list_para_painel(self):
@@ -71,7 +71,7 @@ def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridi
         "usuario_tem_permissao",
         lambda u, db, campo: (
             (campo == "pode_editar_documento_juridico" and u.id in permissoes_juridico)
-            or (campo == "pode_ver_painel_contratos" and u.id in permissoes_painel)
+            or (campo == "pode_elaborar_qualquer_contrato" and u.id in permissoes_qualquer_contrato)
         ),
     )
     return PainelContratualUseCase(db=None)
@@ -94,9 +94,9 @@ class TestVisibilidade:
 
         assert {r["id"] for r in resultado} == {1, 2}
 
-    def test_caixa_pode_ver_painel_contratos_ve_tudo(self, monkeypatch):
+    def test_caixa_pode_elaborar_qualquer_contrato_ve_tudo(self, monkeypatch):
         docs = [documento(1, 100, "contrato"), documento(2, 200, "tep")]
-        uc = montar(monkeypatch, docs, permissoes_painel={NINGUEM.id})
+        uc = montar(monkeypatch, docs, permissoes_qualquer_contrato={NINGUEM.id})
 
         resultado = uc.execute(NINGUEM)
 

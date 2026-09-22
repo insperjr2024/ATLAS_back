@@ -55,14 +55,13 @@ class PainelContratualUseCase:
         return [self._serializar(d, frentes_por_projeto.get(d.projeto_id, [])) for d in visiveis]
 
     def _ve_tudo(self, usuario) -> bool:
-        # ⭐ 2026-09-22 — a pedido: as duas caixas novas de "elaborar
-        # contrato" também abrem a aba inteira (vê tudo) — a restrição delas
-        # é só na hora de EDITAR (endpoints de ação em `documentos_
-        # contratuais.py`), não na listagem.
+        # ⭐ 2026-09-22 — a pedido: as duas caixas de "elaborar contrato"
+        # também abrem a aba inteira (vê tudo) — a restrição delas é só na
+        # hora de EDITAR (endpoints de ação em `documentos_contratuais.py`),
+        # não na listagem.
         return (
             eh_diretoria_de_projetos(usuario)
             or usuario_tem_permissao(usuario, self.db, "pode_editar_documento_juridico")
-            or usuario_tem_permissao(usuario, self.db, "pode_ver_painel_contratos")
             or usuario_tem_permissao(usuario, self.db, "pode_elaborar_contratos_proprios")
             or usuario_tem_permissao(usuario, self.db, "pode_elaborar_qualquer_contrato")
         )

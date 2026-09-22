@@ -135,28 +135,22 @@ class PosicaoPermissaoModel(Base):
     #: vendas)`, agora por permissão em vez de nome de posição fixo.
     pode_coordenar_vendas = Column(Boolean, default=False, nullable=False)
 
-    #: ⭐ 2026-09-16 — as seis caixas da integração com a Contratos
+    #: ⭐ 2026-09-16 — as caixas da integração com a Contratos
     #: (`documento_contratual`). "Criar documento"/"enviar ao cliente" não
     #: viram caixa nova: reaproveitam `pode_criar_projeto` e `pode_
     #: responsavel_por_vendas`, que já existem e significam a mesma coisa.
     #:
-    #: Gerar o rascunho (.docx → PDF) e exportar o link de aprovação.
-    pode_gerar_documento_juridico = Column(Boolean, default=False, nullable=False)
     #: Editar o texto do rascunho e regerar depois de confirmado — a partir
     #: daqui a palavra sobre o documento passa a ser de quem tem esta caixa,
     #: não mais de quem preencheu.
     pode_editar_documento_juridico = Column(Boolean, default=False, nullable=False)
+    #: ⭐ 2026-09-22 — a pedido: separado de `pode_editar_documento_juridico`.
+    #: A aprovação jurídica de verdade (fecha a revisão interna e libera
+    #: exportar pro cliente) — antes morava dentro da caixa de editar, agora
+    #: é a sua própria caixa.
+    pode_aprovar_contrato_internamente = Column(Boolean, default=False, nullable=False)
     #: Fechar o ciclo: marcar como assinado (fora da plataforma) e arquivar.
     pode_marcar_documento_assinado = Column(Boolean, default=False, nullable=False)
-    #: Ver o Repositório — todo documento final assinado, de todo projeto,
-    #: organizado por gestão.
-    pode_ver_repositorio_contratos = Column(Boolean, default=False, nullable=False)
-    #: ⭐ 2026-09-21 — a aba "Contratos" (painel cross-projeto de documentos
-    #: EM ANDAMENTO, não arquivados — diferente do Repositório acima). O
-    #: "ajuste" pedido: dá acesso à aba pra alguém fora da régua padrão
-    #: (diretoria/Jurídico/vendedor/coordenador do projeto), como um
-    #: consultor alocado dentro do Jurídico.
-    pode_ver_painel_contratos = Column(Boolean, default=False, nullable=False)
     #: Cadastrar documento já assinado fora do fluxo normal (gestão anterior,
     #: por exemplo) — só guarda o arquivo e arquiva direto na gestão informada.
     pode_importar_documento_antigo = Column(Boolean, default=False, nullable=False)

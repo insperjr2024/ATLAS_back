@@ -154,20 +154,15 @@ def _pode_editar_livre(usuario, db: Session) -> bool:
 
 
 def _pode_aprovar_internamente(usuario, db: Session) -> bool:
-    """⭐ 2026-09-21 — a pedido: diferente de `_pode_editar_livre` (que também
-    libera diretoria), aprovar internamente é a revisão jurídica de verdade —
-    fica só com quem tem `pode_editar_documento_juridico`. Diretoria continua
-    podendo editar o texto do documento, só não "assina" a aprovação jurídica
-    por ela."""
-    return usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico")
+    """⭐ 2026-09-22 — a pedido: caixa própria, separada de `pode_editar_
+    documento_juridico` (que continua sendo edição de texto pós-confirmação).
+    Aprovar internamente é a revisão jurídica de verdade — fecha a etapa e
+    libera exportar pro cliente."""
+    return usuario_tem_permissao(usuario, db, "pode_aprovar_contrato_internamente")
 
 
 def _pode_gerar_documento(usuario, db: Session, projeto_id: Optional[int] = None) -> bool:
-    return (
-        eh_diretoria_de_projetos(usuario)
-        or usuario_tem_permissao(usuario, db, "pode_gerar_documento_juridico")
-        or _pode_elaborar_por_caixa_nova(usuario, db, projeto_id)
-    )
+    return eh_diretoria_de_projetos(usuario) or _pode_elaborar_por_caixa_nova(usuario, db, projeto_id)
 
 
 def _pode_marcar_assinado(usuario, db: Session) -> bool:
@@ -772,8 +767,6 @@ def get_repositorio(
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
-        usuario, db, "pode_ver_repositorio_contratos"
-    ):
+    if not eh_diretoria_de_projetos(usuario):
         raise HTTPException(status_code=403, detail="Sem permissão para ver o repositório.")
     return {"itens": ListarRepositorioContratualUseCase(db).execute(gestao_id=gestao_id, busca=busca)}
