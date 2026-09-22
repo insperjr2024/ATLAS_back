@@ -62,7 +62,13 @@ def _quem_gere_documento(db: Session, documento) -> list:
 
 
 def documento_pronto_para_gerar(db: Session, documento) -> None:
-    """Confirmado pela venda — avisa quem pode gerir o documento e gerar."""
+    """Confirmado pela venda — avisa quem pode gerir o documento e gerar.
+
+    ⭐ 2026-09-22 — a pedido: só sino, sem e-mail. É um aviso de "próximo
+    passo" pra quem já está de olho no documento (o mesmo grupo que acabou
+    de confirmar ou está gerenciando o contrato), não um evento que precisa
+    tirar alguém do que está fazendo.
+    """
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     titulo = f'Documento pronto para geração — "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     for usuario in _quem_gere_documento(db, documento):
@@ -74,6 +80,7 @@ def documento_pronto_para_gerar(db: Session, documento) -> None:
             projeto_id=documento.projeto_id,
             rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:pronto_para_gerar:{uuid4()}",
+            enviar_email=False,
         )
 
 
