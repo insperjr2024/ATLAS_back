@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, Text
 from src.database.database import Base
 
 
@@ -62,13 +62,11 @@ class BancaModel(Base):
     #: Aparece nas informações da banca pra qualquer um logado.
     local = Column(Text, nullable=True)
 
-    #: ⭐ A entrega da banca: LINK ou ARQUIVO, nunca os dois (`entrega_link` é
-    #: zerado quando sobe arquivo, e vice-versa). Consultores e coordenação do
-    #: projeto anexam a qualquer momento, pra consultar antes ou depois.
-    #: Conteúdo no banco, não em disco — mesmo motivo do anexo de proposta.
+    #: ⭐ A entrega da banca: um link. Consultores e coordenação do projeto
+    #: anexam a qualquer momento, pra consultar antes ou depois. ⭐ 2026-09-22
+    #: — a pedido: era link OU arquivo (upload); arquivo foi removido, sem
+    #: dado real anexado até então.
     entrega_link = Column(Text, nullable=True)
-    entrega_arquivo_nome = Column(String(255), nullable=True)
-    entrega_arquivo_conteudo = Column(LargeBinary, nullable=True)
 
     #: ⭐ 2026-09-16, a pedido. O rodízio de alocação (§8) passa a rodar UMA
     #: VEZ só por banca — assim que ela entra na janela de 7 dias, não em

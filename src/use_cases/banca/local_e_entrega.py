@@ -7,13 +7,13 @@ trava de desalocação, do pedido de remarcação, etc.). Os avaliadores
 escalados NÃO entram: eles julgam, não organizam.
 
 - **Local**: texto livre, editável até 1h antes da banca. Depois tranca.
-- **Entrega**: link OU arquivo, a qualquer momento (antes ou depois).
+- **Entrega**: link, a qualquer momento (antes ou depois). ⭐ 2026-09-22 — a
+  pedido: upload de arquivo removido, só link agora.
 """
 
 from datetime import timedelta
 from typing import Set
 
-from fastapi import UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -37,9 +37,6 @@ class LocalBancaRequest(BaseModel):
 
 class EntregaLinkBancaRequest(BaseModel):
     link: str
-
-#: Teto do arquivo da entrega — mesmo do anexo de proposta.
-LIMITE_ARQUIVO_BYTES = 10 * 1024 * 1024
 
 
 def pessoas_do_projeto_da_banca(db: Session, banca) -> Set[int]:
@@ -142,39 +139,8 @@ class RegistrarEntregaLinkBancaUseCase:
         if len(url) > 1000:
             raise RegraDeNegocioError("O link é longo demais.")
 
-        # Link E arquivo não convivem — o novo link apaga o arquivo anterior.
-        self.repository.update(
-            banca_id,
-            entrega_link=url,
-            entrega_arquivo_nome=None,
-            entrega_arquivo_conteudo=None,
-        )
-        return {"id": banca_id, "entrega_link": url, "entrega_arquivo_nome": None}
-
-
-class SubirEntregaArquivoBancaUseCase:
-    def __init__(self, db: Session):
-        self.db = db
-        self.repository = BancaRepository(db)
-
-    def execute(self, banca_id: int, arquivo: UploadFile, current_user) -> dict:
-        banca = _banca_ou_erro(self.db, banca_id)
-        _exigir_pode_mexer(self.db, banca, current_user)
-
-        conteudo = arquivo.file.read()
-        if not conteudo:
-            raise RegraDeNegocioError("O arquivo está vazio.")
-        if len(conteudo) > LIMITE_ARQUIVO_BYTES:
-            raise RegraDeNegocioError("O arquivo passa de 10 MB.")
-
-        nome = (arquivo.filename or "entrega").strip()[:255]
-        self.repository.update(
-            banca_id,
-            entrega_arquivo_nome=nome,
-            entrega_arquivo_conteudo=conteudo,
-            entrega_link=None,
-        )
-        return {"id": banca_id, "entrega_arquivo_nome": nome, "entrega_link": None}
+        self.repository.update(banca_id, entrega_link=url)
+        return {"id": banca_id, "entrega_link": url}
 
 
 class RemoverEntregaBancaUseCase:
@@ -185,9 +151,4 @@ class RemoverEntregaBancaUseCase:
     def execute(self, banca_id: int, current_user) -> None:
         banca = _banca_ou_erro(self.db, banca_id)
         _exigir_pode_mexer(self.db, banca, current_user)
-        self.repository.update(
-            banca_id,
-            entrega_link=None,
-            entrega_arquivo_nome=None,
-            entrega_arquivo_conteudo=None,
-        )
+        self.repository.update(banca_id, entrega_link=None)
