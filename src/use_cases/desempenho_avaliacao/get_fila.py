@@ -50,7 +50,7 @@ class GetFilaUsuarioUseCase:
                 continue
 
             membros = self.membro_repo.get_by_projetos(projeto_ids, apenas_atuais=True)
-            agregados = deduplicar_pares(calcular_pares_lote(membros))
+            agregados = deduplicar_pares(calcular_pares_lote(membros, lote.criado_em))
             lote_aberto = esta_aberto(lote.override_manual, lote.data_inicio, lote.data_fim)
 
             # ⭐ Avaliação do Escopo (2026-09-09): item de fila ADITIVO, um por

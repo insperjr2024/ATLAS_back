@@ -37,6 +37,15 @@ from src.use_cases.banca.local_e_entrega import (
     RemoverEntregaBancaUseCase,
 )
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
+from src.repositories.banca_repository import BancaRepository
+from src.use_cases.banca.entrada_solicitacao import (
+    DecidirEntradaBancaRequest,
+    DecidirEntradaBancaUseCase,
+    ListarEntradaBancaPendentesUseCase,
+    ListarMinhasEntradaBancaUseCase,
+    SolicitarEntradaBancaRequest,
+    SolicitarEntradaBancaUseCase,
+)
 from src.use_cases.banca.excecao_choque import (
     DecidirExcecaoChoqueRequest,
     DecidirExcecaoChoqueUseCase,
@@ -136,8 +145,8 @@ def create_banca(request: CreateBancaRequest, current_user=Depends(require_pode_
 
 
 @router.get("/bancas")
-def list_bancas(db: Session = Depends(get_db)):
-    return ListBancasUseCase(db).execute()
+def list_bancas(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return ListBancasUseCase(db).execute(current_user_id=current_user.id)
 
 
 # ⚠️ Precisa vir ANTES de /bancas/{banca_id}, senão o FastAPI casa
@@ -584,7 +593,67 @@ def create_candidatura(request: CreateCandidaturaRequest, current_user=Depends(g
             request, usuario_id=alvo, eh_gestao=eh_diretoria_de_projetos(current_user)
         )
     except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise erro_de_regra(e)
+
+
+@router.post("/bancas/entrada")
+def solicitar_entrada_banca(
+    request: SolicitarEntradaBancaRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """⭐ Pedir para entrar numa banca sem vaga livre pra quem pede (2026-09-18).
+
+    Sempre a PRÓPRIA pessoa — quem quer entrar pede por si, como a
+    autoinscrição. Se a vaga na verdade estava livre (recusa por outro
+    motivo que não capacidade, ou nenhuma recusa), a resposta já diz —
+    `alocado_direto` quando a autoinscrição normal deu certo sem precisar
+    de aprovação nenhuma.
+    """
+    try:
+        result = SolicitarEntradaBancaUseCase(db).execute(
+            request, solicitado_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    if not result:
+        raise HTTPException(status_code=404, detail="Banca não encontrada")
+    return result
+
+
+@router.get("/bancas/entrada/pendentes")
+def listar_entrada_banca_pendentes(_=Depends(require_pode_aprovar_pedidos), db: Session = Depends(get_db)):
+    """A fila da aba Aprovações."""
+    return ListarEntradaBancaPendentesUseCase(db).execute()
+
+
+@router.get("/bancas/entrada/minhas")
+def listar_minhas_entrada_banca(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """⭐ 2026-09-18: o que EU pedi e ainda espera decisão — pra `/bancas`
+    trocar "Solicitar entrada" por "Aguardando aprovação" nas bancas que já
+    pedi. Qualquer autenticado vê a própria fila; a justificativa de quem
+    pede não é assunto de quem só está olhando a lista de bancas."""
+    return ListarMinhasEntradaBancaUseCase(db).execute(current_user.id)
+
+
+@router.patch("/bancas/entrada/{pedido_id}")
+def decidir_entrada_banca(
+    pedido_id: int,
+    request: DecidirEntradaBancaRequest,
+    current_user=Depends(require_pode_aprovar_pedidos),
+    db: Session = Depends(get_db),
+):
+    """Entrar numa banca sem vaga é decisão da diretoria — aqui ela é tomada.
+    Aprovar cria a candidatura, acima do teto normal."""
+    try:
+        result = DecidirEntradaBancaUseCase(db).execute(
+            pedido_id, request, respondido_por=current_user.id
+        )
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+    if not result:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return result
 
 
 @router.get("/candidaturas")

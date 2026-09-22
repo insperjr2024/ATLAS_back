@@ -27,7 +27,7 @@ class GetPendenciasLoteUseCase:
 
         projeto_ids = self.lote_projeto_repo.get_projeto_ids(lote_id)
         membros = self.membro_repo.get_by_projetos(projeto_ids, apenas_atuais=True)
-        agregados = deduplicar_pares(calcular_pares_lote(membros))
+        agregados = deduplicar_pares(calcular_pares_lote(membros, lote.criado_em))
 
         usuario_ids = {uid for par in agregados for uid in par}
         nomes = {u.id: u.nome for u in self.usuario_repo.get_all() if u.id in usuario_ids}

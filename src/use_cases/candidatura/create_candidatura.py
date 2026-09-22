@@ -17,7 +17,7 @@ from src.utils.banca_status import aceita_inscricao, calcular_status_banca
 from src.utils.teto_banca import calcular_vagas_banca
 from src.utils.composicao_banca import ComposicaoBancaChecker
 from src.utils.equipe_banca import membros_da_banca
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import CODIGO_BANCA_LOTADA, RegraDeNegocioError
 
 
 def _descrever_pendencias(status) -> str:
@@ -138,7 +138,10 @@ class CreateCandidaturaUseCase:
         # pra repor) — sem isto, a diretoria fica de mãos atadas exatamente
         # no caso que mais precisa dela.
         if len(candidaturas_existentes) >= vagas and not eh_gestao:
-            raise RegraDeNegocioError("Não é possível se candidatar: banca lotada")
+            # ⚠ `codigo` (2026-09-18): é a recusa que `SolicitarEntradaBancaUseCase`
+            # reconhece pra virar pedido em vez de erro sem saída — ver
+            # `use_cases/banca/entrada_solicitacao.py`.
+            raise RegraDeNegocioError("Não é possível se candidatar: banca lotada", codigo=CODIGO_BANCA_LOTADA)
 
         # ⭐ As últimas vagas ficam RESERVADAS para os pisos por frente ainda
         # não cobertos (2026-09-04, a pedido): se falta 1 liderança de Business
@@ -175,10 +178,14 @@ class CreateCandidaturaUseCase:
             )
             vagas_livres_depois = vagas - (len(candidaturas_existentes) + 1)
             if vagas_livres_depois < falta_depois:
+                # ⚠ Mesmo `codigo` do teto cheio acima — as duas recusas são
+                # "não há vaga PRA VOCÊ agora", e a interface reage às duas
+                # do mesmo jeito (oferece "Solicitar entrada").
                 raise RegraDeNegocioError(
                     "Esta vaga está reservada para completar a composição: "
                     f"falta {_descrever_pendencias(status_depois)}. Só quem cobre "
-                    "essa cota pode se inscrever agora."
+                    "essa cota pode se inscrever agora.",
+                    codigo=CODIGO_BANCA_LOTADA,
                 )
 
         # ⚠ 2026-09-16, a pedido: quem a gestão adiciona numa banca JÁ

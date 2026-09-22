@@ -57,6 +57,7 @@ from src.repositories.projeto_justificativa_atraso_repository import (
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.banca.aprovar_banca import montar_situacao_aprovacao
+from src.use_cases.banca.entrada_solicitacao import ListarEntradaBancaPendentesUseCase
 from src.use_cases.banca.excecao_choque import ListarExcecoesChoquePendentesUseCase
 from src.use_cases.banca.fora_janela import ListarForaJanelaPendentesUseCase
 from src.use_cases.banca.remarcacao_solicitacao import ListarRemarcacoesPendentesUseCase
@@ -197,6 +198,13 @@ class ListarAprovacoesPendentesUseCase:
         # livre — quem não é da diretoria pede, e esta fila é onde ela decide.
         # Aprovar já remarca a banca.
         remarcacoes = ListarRemarcacoesPendentesUseCase(self.db).execute()
+        # ⭐ 2026-09-18, a pedido: a autoinscrição recusa quando a banca está
+        # no teto ou a última vaga é reservada pro piso por frente que quem
+        # pede não cobre. Quem quer entrar mesmo assim pede aqui, e a
+        # aprovação cria a candidatura acima do teto normal. Não confundir
+        # com `solicitacoes_de_entrada` (entrar num PROJETO, via Vagas) —
+        # esta é sobre entrar como avaliador numa BANCA já marcada.
+        entradas_em_banca = ListarEntradaBancaPendentesUseCase(self.db).execute()
 
         # ⚠ Havia aqui uma quinta fila, `entregas_sem_classificacao`: as
         # entregas atrasadas ainda não marcadas como atraso interno ou por
@@ -212,6 +220,7 @@ class ListarAprovacoesPendentesUseCase:
             "excecoes_de_choque": choques,
             "bancas_fora_da_janela": fora_janela,
             "remarcacoes_de_banca": remarcacoes,
+            "entradas_em_banca": entradas_em_banca,
             # O total é servido pronto porque o badge da aba precisa dele antes
             # de qualquer render — somar no front daria a mesma conta em dois
             # lugares, e é a que sai errada quando nasce uma fila nova.
@@ -223,6 +232,7 @@ class ListarAprovacoesPendentesUseCase:
                 + len(choques)
                 + len(fora_janela)
                 + len(remarcacoes)
+                + len(entradas_em_banca)
             ),
         }
 

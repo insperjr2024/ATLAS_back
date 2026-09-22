@@ -72,7 +72,7 @@ class CreateDesempenhoAvaliacaoUseCase:
             form_type = FORM_TYPE_ESCOPO
         else:
             # Regra 2.3: o par precisa estar na fila esperada do lote.
-            agregados = deduplicar_pares(calcular_pares_lote(membros))
+            agregados = deduplicar_pares(calcular_pares_lote(membros, lote.criado_em))
             chave = (avaliador_id, request.avaliado_id)
             if chave not in agregados:
                 raise RegraDeNegocioError(

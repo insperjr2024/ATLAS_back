@@ -62,3 +62,11 @@ CODIGO_CHOQUE_DE_HORARIO = "choque_de_horario"
 #: o arrasto das tarefas que a pessoa não pode mover — precisa distinguir este
 #: 403 de um 422 de validação qualquer.
 CODIGO_TAREFA_SEM_PERMISSAO = "tarefa_sem_permissao"
+
+
+#: Autoinscrição recusada por falta de vaga — banca no teto, OU a(s) última(s)
+#: vaga(s) reservada(s) pro piso por frente que esta pessoa não cobre (2026-09-18).
+#: A interface REAGE: em vez de só mostrar a recusa, oferece "Solicitar
+#: entrada" — um pedido que vai para a fila da diretoria em vez de alocar
+#: direto (ver `use_cases/banca/entrada_solicitacao.py`).
+CODIGO_BANCA_LOTADA = "banca_lotada"
