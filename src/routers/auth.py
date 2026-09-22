@@ -142,6 +142,11 @@ def get_me(current_user=Depends(get_current_user_em_definicao_de_senha)):
         # caixas de permissão (`GET /posicoes-permissoes`) — desde
         # 2026-08-07 é a única dimensão, não há mais `cargo_id` separado.
         "posicao": current_user.posicao,
+        # As permissões do `cargo_extra` somam às da posição base (ver
+        # `usuario_tem_permissao`) — o front precisa dele aqui pra montar as
+        # mesmas 14 caixas do lado de cá, senão uma caixa que só existe no
+        # cargo extra nunca chega na sessão.
+        "cargo_extra": current_user.cargo_extra,
         "status": current_user.status,
         "ativo": current_user.ativo,
         # ⭐ Verdadeiro = a senha atual é a provisória do e-mail de cadastro.

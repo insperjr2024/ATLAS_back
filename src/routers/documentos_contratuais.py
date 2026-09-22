@@ -80,6 +80,9 @@ from src.use_cases.documento_contratual.identidade_institucional import (
     GetIdentidadeInstitucionalUseCase,
 )
 from src.use_cases.documento_contratual.painel import PainelContratualUseCase
+from src.use_cases.documento_contratual.projetos_disponiveis import (
+    ProjetosDisponiveisParaDocumentoUseCase,
+)
 from src.use_cases.documento_contratual.sugerir_dias_excecao import SugerirDiasExcecaoUseCase
 from src.use_cases.documento_contratual.get_documento import (
     GetDocumentoContratualUseCase,
@@ -194,8 +197,32 @@ def _projeto_visivel_ou_404(projeto_id: Optional[int], usuario, db: Session) -> 
     # quem pode mexer nesse documento, aqui não há nada a mais a validar.
     if projeto_id is None:
         return
+    # ⭐ 2026-09-22 — a pedido: `pode_ver_projeto` é o recorte GERAL de
+    # projeto (§3), que só se abre pra `pode_ver_todos_projetos` — não pra
+    # nenhuma das caixas de Contratos. Sem isto, quem tem `pode_elaborar_
+    # qualquer_contrato` mas não é diretoria/gerente/membro do projeto (ex.:
+    # um jurídico que não integra nenhuma equipe) via 404 ao tentar abrir um
+    # documento num projeto que a própria caixa diz que ela pode elaborar —
+    # a exceção é só aqui, no escopo de Contratos, não no recorte geral.
+    if usuario_tem_permissao(usuario, db, "pode_elaborar_qualquer_contrato"):
+        return
     if not pode_ver_projeto(projeto_id, usuario, db):
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
+
+
+@router.get("/documentos-contratuais/projetos-disponiveis")
+def get_projetos_disponiveis_para_documento(
+    tipo: str,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # A lista do passo "escolher projeto" do assistente de Novo Contrato —
+    # ⚠ não usa `GET /projetos`, ver o docstring de `ProjetosDisponiveisPara
+    # DocumentoUseCase`. ⚠ Tem que vir ANTES de `/documentos-contratuais/
+    # {documento_id}` abaixo — senão o FastAPI casa "projetos-disponiveis"
+    # como se fosse o `int` do path param (foi exatamente o que aconteceu:
+    # 422 "unable to parse string as an integer").
+    return {"projetos": ProjetosDisponiveisParaDocumentoUseCase(db).execute(usuario, tipo)}
 
 
 @router.get("/projetos/{projeto_id}/documentos-contratuais/tipos-disponiveis")
