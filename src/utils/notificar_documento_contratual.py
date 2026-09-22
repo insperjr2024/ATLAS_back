@@ -7,10 +7,11 @@ nunca derruba quem chamou) e do sino.
 
 Eventos do fluxo de documento (o de projeto — criado/vendido — mora em
 `notificar_projeto.py`, é sobre o PROJETO, não um documento):
-  - confirmado pela venda, pronto pro Jurídico gerar  -> quem tem `pode_editar_documento_juridico`
+  - confirmado pela venda, pronto pra gerar            -> quem pode gerir o documento (ver
+                                                           `_quem_gere_documento`)
   - aprovado internamente / liberado ao cliente        -> quem vai mandar (vendedor no Contrato de
                                                            Prestação; diretoria + coordenadores no TEP)
-  - cliente respondeu (aprovou ou pediu alteração)     -> os mesmos + Jurídico
+  - cliente respondeu (aprovou ou pediu alteração)     -> os mesmos + quem pode gerir o documento
 
 ⭐ 2026-09-21 — os dois primeiros disparos abaixo notificavam
 `projeto.criado_por` (quem criou o PROJETO), não necessariamente quem vai de
@@ -24,6 +25,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from src.middlewares.authorization import usuario_tem_permissao
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
 from src.repositories.usuario_repository import UsuarioRepository
@@ -40,11 +42,30 @@ def _rota(documento_id: int) -> str:
     return f"/contratos/{documento_id}"
 
 
+def _quem_gere_documento(db: Session, documento) -> list:
+    """⭐ 2026-09-22 — a pedido: mesma régua de `_pode_gerir_documento`
+    (`routers/documentos_contratuais.py` — diretoria ou `pode_elaborar_
+    contratos_proprios`/`pode_elaborar_qualquer_contrato`), devolvendo a
+    lista de gente em vez de validar uma pessoa só. Substitui `pode_editar_
+    documento_juridico`, removida."""
+    usuarios_repo = UsuarioRepository(db)
+    destinatarios = {u.id: u for u in usuarios_repo.get_por_posicao("diretor_projetos")}
+    for usuario in usuarios_com_permissao(db, "pode_elaborar_qualquer_contrato"):
+        destinatarios[usuario.id] = usuario
+    if documento.projeto_id:
+        vendedor_ids = [v.usuario_id for v in ProjetoVendedorRepository(db).get_by_projeto(documento.projeto_id)]
+        for uid in vendedor_ids:
+            usuario = usuarios_repo.get_by_id(uid)
+            if usuario and usuario_tem_permissao(usuario, db, "pode_elaborar_contratos_proprios"):
+                destinatarios[usuario.id] = usuario
+    return list(destinatarios.values())
+
+
 def documento_pronto_para_gerar(db: Session, documento) -> None:
-    """Confirmado pela venda — avisa o Jurídico que já pode gerar."""
+    """Confirmado pela venda — avisa quem pode gerir o documento e gerar."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     titulo = f'Documento pronto para geração — "{tipo}" do projeto "{nome_do_projeto(documento)}".'
-    for usuario in usuarios_com_permissao(db, "pode_editar_documento_juridico"):
+    for usuario in _quem_gere_documento(db, documento):
         registrar(
             db,
             usuario_id=usuario.id,
@@ -138,7 +159,8 @@ def documento_liberado_para_cliente(db: Session, documento) -> None:
 
 
 def cliente_respondeu(db: Session, documento, aprovado: bool, motivo: str = None) -> None:
-    """Cliente aprovou ou pediu alteração — avisa quem ia mandar + Jurídico."""
+    """Cliente aprovou ou pediu alteração — avisa quem ia mandar + quem
+    pode gerir o documento."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     if aprovado:
         titulo = f'O cliente aprovou o documento "{tipo}" do projeto "{nome_do_projeto(documento)}".'
@@ -148,7 +170,7 @@ def cliente_respondeu(db: Session, documento, aprovado: bool, motivo: str = None
             titulo += f' Pedido: "{motivo}"'
 
     destinatarios = {u.id: u for u in _destinatarios_envio(db, documento)}
-    for usuario in usuarios_com_permissao(db, "pode_editar_documento_juridico"):
+    for usuario in _quem_gere_documento(db, documento):
         destinatarios[usuario.id] = usuario
 
     evento = "cliente_aprovou" if aprovado else "cliente_pediu_alteracao"

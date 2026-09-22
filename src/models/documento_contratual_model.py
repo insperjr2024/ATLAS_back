@@ -64,10 +64,11 @@ class DocumentoContratualModel(Base):
     #: gerador correspondente em `src/documentos_contratuais/`.
     dados = Column(JSON, nullable=True)
     #: Quem preencheu (venda, Diretora de Projetos etc.) confirma
-    #: explicitamente antes de o documento seguir pro Jurídico — dá uma
+    #: explicitamente antes de o documento seguir pra geração — dá uma
     #: chance de corrigir um dado errado ou cancelar um pedido feito por
     #: engano antes do envio. Antes de confirmado: só quem preencheu
-    #: edita/cancela. Depois: só quem tem `pode_editar_documento_juridico`.
+    #: edita/cancela. Depois: só quem pode gerir o contrato (ver `_pode_
+    #: gerir_documento` em `routers/documentos_contratuais.py`).
     #: Só importa enquanto o status é "aguardando_preenchimento".
     confirmado = Column(Boolean, nullable=False, default=False)
     #: ⭐ 2026-09-22 — a pedido: quem confirmou o preenchimento ("quem

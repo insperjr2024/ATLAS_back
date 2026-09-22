@@ -221,19 +221,9 @@ require_pode_gerir_calendarios_base = _dependencia_permissao(
 
 # ---------------------------------------------------------------- § Contratos
 
-require_pode_editar_documento_juridico = _dependencia_permissao(
-    "pode_editar_documento_juridico",
-    "Você não tem permissão para editar documentos jurídicos já confirmados",
-)
-
 require_pode_aprovar_contrato_internamente = _dependencia_permissao(
     "pode_aprovar_contrato_internamente",
     "Você não tem permissão para aprovar contratos internamente",
-)
-
-require_pode_marcar_documento_assinado = _dependencia_permissao(
-    "pode_marcar_documento_assinado",
-    "Você não tem permissão para marcar um documento como assinado",
 )
 
 require_pode_importar_documento_antigo = _dependencia_permissao(

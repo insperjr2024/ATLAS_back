@@ -6,15 +6,15 @@
 Vendas, Diretor de Vendas, Diretora de Projetos — depende do tipo) só corrige
 a própria digitação enquanto o documento ainda está "aguardando
 preenchimento" e NÃO foi confirmado. Confirmado, a edição vira função de
-quem tem `pode_editar_documento_juridico` (o Jurídico), que pode mexer em
-qualquer status até o cliente aprovar — é o caminho normal de corrigir algo
-depois de um "pedido de alteração".
+quem pode gerir o contrato (diretoria ou `pode_elaborar_contratos_proprios`/
+`pode_elaborar_qualquer_contrato`, ver `_pode_gerir_documento` no router),
+que pode mexer em qualquer status até o cliente aprovar — é o caminho normal
+de corrigir algo depois de um "pedido de alteração".
 
-`pode_editar_livre` é quem o ROUTER decidiu que É essa segunda pessoa
-(checou `pode_editar_documento_juridico`) — mesmo padrão de `eh_gestao` em
-`create_candidatura.py`: a permissão fina por tipo/posse de projeto mora no
-router, que é onde se sabe quem está chamando; aqui só a MÁQUINA DE ESTADOS
-importa.
+`pode_editar_livre` é quem o ROUTER decidiu que É essa segunda pessoa —
+mesmo padrão de `eh_gestao` em `create_candidatura.py`: a permissão fina por
+tipo/posse de projeto mora no router, que é onde se sabe quem está chamando;
+aqui só a MÁQUINA DE ESTADOS importa.
 """
 
 from typing import Any, Dict

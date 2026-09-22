@@ -140,17 +140,15 @@ class PosicaoPermissaoModel(Base):
     #: viram caixa nova: reaproveitam `pode_criar_projeto` e `pode_
     #: responsavel_por_vendas`, que já existem e significam a mesma coisa.
     #:
-    #: Editar o texto do rascunho e regerar depois de confirmado — a partir
-    #: daqui a palavra sobre o documento passa a ser de quem tem esta caixa,
-    #: não mais de quem preencheu.
-    pode_editar_documento_juridico = Column(Boolean, default=False, nullable=False)
-    #: ⭐ 2026-09-22 — a pedido: separado de `pode_editar_documento_juridico`.
-    #: A aprovação jurídica de verdade (fecha a revisão interna e libera
-    #: exportar pro cliente) — antes morava dentro da caixa de editar, agora
-    #: é a sua própria caixa.
+    #: ⭐ 2026-09-22 — a pedido: caixa própria da aprovação jurídica de
+    #: verdade (fecha a revisão interna e libera exportar pro cliente).
+    #: Antes morava dentro de `pode_editar_documento_juridico`; essa caixa e
+    #: `pode_marcar_documento_assinado` foram removidas no mesmo pedido —
+    #: quem tem `pode_elaborar_contratos_proprios`/`pode_elaborar_qualquer_
+    #: contrato` (ou é diretoria) já pode gerar, editar o texto livre pós-
+    #: confirmação/regerar E marcar como assinado — não precisava de caixa
+    #: à parte pra cada uma dessas ações.
     pode_aprovar_contrato_internamente = Column(Boolean, default=False, nullable=False)
-    #: Fechar o ciclo: marcar como assinado (fora da plataforma) e arquivar.
-    pode_marcar_documento_assinado = Column(Boolean, default=False, nullable=False)
     #: Cadastrar documento já assinado fora do fluxo normal (gestão anterior,
     #: por exemplo) — só guarda o arquivo e arquiva direto na gestão informada.
     pode_importar_documento_antigo = Column(Boolean, default=False, nullable=False)

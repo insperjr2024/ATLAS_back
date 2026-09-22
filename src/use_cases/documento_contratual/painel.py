@@ -61,7 +61,6 @@ class PainelContratualUseCase:
         # não na listagem.
         return (
             eh_diretoria_de_projetos(usuario)
-            or usuario_tem_permissao(usuario, self.db, "pode_editar_documento_juridico")
             or usuario_tem_permissao(usuario, self.db, "pode_elaborar_contratos_proprios")
             or usuario_tem_permissao(usuario, self.db, "pode_elaborar_qualquer_contrato")
         )

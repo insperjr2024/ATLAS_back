@@ -1,12 +1,12 @@
 """Confirmar que os dados de um documento jurídico estão certos (§ Contratos).
 
 ⭐ 2026-09-16 — porta de `POST /contratos/{id}/confirmar`. Quem preencheu
-confirma e manda pro Jurídico — até aqui dava pra editar ou desistir à
-vontade; depois desta chamada, a edição vira função de quem tem
-`pode_editar_documento_juridico` (ver `atualizar_dados.py`).
+confirma e manda pra geração — até aqui dava pra editar ou desistir à
+vontade; depois desta chamada, a edição vira função de quem pode gerir o
+contrato (ver `atualizar_dados.py`).
 
-⭐ 2026-09-18 — avisa quem tem `pode_editar_documento_juridico` que já pode
-gerar (porta `NotificacaoService.documento_pronto_para_gerar`).
+⭐ 2026-09-18 — avisa quem pode gerir o contrato que já pode gerar (porta
+`NotificacaoService.documento_pronto_para_gerar`).
 
 ⭐ 2026-09-20 — a pedido: recusa confirmar com campo obrigatório vazio (CNPJ,
 nome do representante etc.) — antes dava pra confirmar e até gerar um

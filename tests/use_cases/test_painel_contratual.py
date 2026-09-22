@@ -15,7 +15,6 @@ def usuario(id, posicao="consultor"):
 
 
 DIRETOR = usuario(1, "diretor_projetos")
-JURIDICO = usuario(2)
 VENDEDOR = usuario(3)
 COORDENADOR = usuario(4)
 NINGUEM = usuario(5)
@@ -34,7 +33,7 @@ def documento_institucional(id, tipo, nome, cliente=None):
                             nome_projeto_externo=nome, cliente_externo=cliente)
 
 
-def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridico=(), permissoes_qualquer_contrato=()):
+def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_qualquer_contrato=()):
     class DocumentoFake:
         def __init__(self, db): pass
         def list_para_painel(self):
@@ -70,8 +69,7 @@ def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridi
         mod,
         "usuario_tem_permissao",
         lambda u, db, campo: (
-            (campo == "pode_editar_documento_juridico" and u.id in permissoes_juridico)
-            or (campo == "pode_elaborar_qualquer_contrato" and u.id in permissoes_qualquer_contrato)
+            campo == "pode_elaborar_qualquer_contrato" and u.id in permissoes_qualquer_contrato
         ),
     )
     return PainelContratualUseCase(db=None)
@@ -83,14 +81,6 @@ class TestVisibilidade:
         uc = montar(monkeypatch, docs)
 
         resultado = uc.execute(DIRETOR)
-
-        assert {r["id"] for r in resultado} == {1, 2}
-
-    def test_juridico_ve_tudo(self, monkeypatch):
-        docs = [documento(1, 100, "contrato"), documento(2, 200, "tep")]
-        uc = montar(monkeypatch, docs, permissoes_juridico={JURIDICO.id})
-
-        resultado = uc.execute(JURIDICO)
 
         assert {r["id"] for r in resultado} == {1, 2}
 

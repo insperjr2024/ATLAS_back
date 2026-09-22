@@ -10,11 +10,16 @@ marcar como assinado e arquivar.
 de Prestação usa a mesma permissão de criar projeto (é a venda que traz os
 dados dele); NDA/Uso de Imagem/Aditivo usam `pode_responsavel_por_vendas`
 (BDR, Coordenador/Diretor de Vendas, Diretora de Projetos — quem já pode
-"vender"/tocar comercial do projeto). Diretoria de projetos, quem tem
-`pode_editar_documento_juridico` (o Jurídico) e quem tem `pode_elaborar_
-contratos_proprios`/`pode_elaborar_qualquer_contrato` sempre podem, qualquer
-tipo — inclusive TEP (⭐ 2026-09-22, a pedido: `pode_solicitar_tep` foi
-removida, essas caixas já cobriam o mesmo caso).
+"vender"/tocar comercial do projeto). Diretoria de projetos e quem tem
+`pode_elaborar_contratos_proprios`/`pode_elaborar_qualquer_contrato` sempre
+podem, qualquer tipo — inclusive TEP (⭐ 2026-09-22, a pedido: `pode_
+solicitar_tep` foi removida, essas caixas já cobriam o mesmo caso).
+
+⭐ 2026-09-22 — a pedido: `pode_editar_documento_juridico` e `pode_marcar_
+documento_assinado` foram removidas — quem elabora/gerencia o contrato
+(diretoria ou `pode_elaborar_*`, ver `_pode_gerir_documento`) já podia gerar;
+agora também edita o texto livre pós-confirmação e marca como assinado, sem
+precisar de uma caixa "Jurídico" à parte.
 """
 
 import os
@@ -132,11 +137,7 @@ def _pode_elaborar_por_caixa_nova(usuario, db: Session, projeto_id: Optional[int
 
 
 def _pode_abrir_documento(usuario, db: Session, tipo: str, projeto_id: Optional[int] = None) -> bool:
-    if eh_diretoria_de_projetos(usuario):
-        return True
-    if usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico"):
-        return True
-    if _pode_elaborar_por_caixa_nova(usuario, db, projeto_id):
+    if _pode_gerir_documento(usuario, db, projeto_id):
         return True
     if tipo == "contrato":
         return usuario_tem_permissao(usuario, db, "pode_criar_projeto")
@@ -145,40 +146,33 @@ def _pode_abrir_documento(usuario, db: Session, tipo: str, projeto_id: Optional[
     return False
 
 
-def _pode_editar_livre(usuario, db: Session) -> bool:
-    return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
-        usuario, db, "pode_editar_documento_juridico"
-    )
-
-
-def _pode_aprovar_internamente(usuario, db: Session) -> bool:
-    """⭐ 2026-09-22 — a pedido: caixa própria, separada de `pode_editar_
-    documento_juridico` (que continua sendo edição de texto pós-confirmação).
-    Aprovar internamente é a revisão jurídica de verdade — fecha a etapa e
-    libera exportar pro cliente."""
-    return usuario_tem_permissao(usuario, db, "pode_aprovar_contrato_internamente")
-
-
-def _pode_gerar_documento(usuario, db: Session, projeto_id: Optional[int] = None) -> bool:
+def _pode_gerir_documento(usuario, db: Session, projeto_id: Optional[int] = None) -> bool:
+    """⭐ 2026-09-22 — a pedido: caixa única pra quem elabora/gerencia o
+    contrato — diretoria ou `pode_elaborar_contratos_proprios`/`pode_
+    elaborar_qualquer_contrato`. Cobre gerar rascunho, editar o texto livre
+    pós-confirmação e regerar, e marcar como assinado/arquivar — antes
+    espalhado em `pode_editar_documento_juridico`/`pode_marcar_documento_
+    assinado`, removidas por serem a mesma coisa: quem pode elaborar o
+    contrato já pode fazer tudo isso."""
     return eh_diretoria_de_projetos(usuario) or _pode_elaborar_por_caixa_nova(usuario, db, projeto_id)
 
 
-def _pode_marcar_assinado(usuario, db: Session) -> bool:
-    return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
-        usuario, db, "pode_marcar_documento_assinado"
-    )
+def _pode_aprovar_internamente(usuario, db: Session) -> bool:
+    """⭐ 2026-09-22 — a pedido: caixa própria, separada de `_pode_gerir_
+    documento`. Aprovar internamente é a revisão jurídica de verdade — fecha
+    a etapa e libera exportar pro cliente — continua distinta de quem
+    elabora/gerencia o contrato no dia a dia."""
+    return usuario_tem_permissao(usuario, db, "pode_aprovar_contrato_internamente")
 
 
 def _pode_enviar_ao_cliente(usuario, db: Session, documento: dict) -> bool:
-    """⭐ 2026-09-21 — a pedido: separado de `_pode_gerar_documento`. Quem
+    """⭐ 2026-09-21 — a pedido: separado de `_pode_gerir_documento`. Quem
     manda pro cliente depende do TIPO do documento — o vendedor do projeto
     no Contrato de Prestação (ele que negociou, ele que sabe o WhatsApp
     certo), diretoria de projetos ou coordenador do projeto no TEP. Continua
     exigindo que o documento já esteja `aprovado_internamente`
     (`STATUS_EXPORTACAO_PERMITIDA`) — isto só decide QUEM, não QUANDO."""
     if eh_diretoria_de_projetos(usuario):
-        return True
-    if usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico"):
         return True
     if usuario_tem_permissao(usuario, db, "pode_elaborar_qualquer_contrato"):
         return True
@@ -189,8 +183,8 @@ def _pode_enviar_ao_cliente(usuario, db: Session, documento: dict) -> bool:
         membro = ProjetoMembroRepository(db).get_atual_do_usuario_no_projeto(projeto_id, usuario.id)
         return bool(membro and membro.papel == "coordenador")
     # NDA/Uso de Imagem/Aditivo: sem pedido específico ainda, mantém o
-    # comportamento de antes (Jurídico/diretoria/elaboração própria).
-    return _pode_gerar_documento(usuario, db, projeto_id)
+    # comportamento de antes (diretoria/elaboração própria).
+    return _pode_gerir_documento(usuario, db, projeto_id)
 
 
 def _projeto_visivel_ou_404(projeto_id: Optional[int], usuario, db: Session) -> None:
@@ -385,7 +379,7 @@ def atualizar_dados(
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
 
-    pode_editar_livre = _pode_editar_livre(usuario, db)
+    pode_editar_livre = _pode_gerir_documento(usuario, db, documento["projeto_id"])
     if not pode_editar_livre and not _pode_abrir_documento(
         usuario, db, documento["tipo"], documento["projeto_id"]
     ):
@@ -411,7 +405,7 @@ def confirmar_preenchimento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db) and not _pode_abrir_documento(
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]) and not _pode_abrir_documento(
         usuario, db, documento["tipo"], documento["projeto_id"]
     ):
         raise HTTPException(status_code=403, detail="Sem permissão para confirmar este documento.")
@@ -436,7 +430,7 @@ def gerar_documento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_gerar_documento(usuario, db, documento["projeto_id"]):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para gerar documentos jurídicos.")
 
     try:
@@ -523,7 +517,7 @@ def marcar_assinado(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_marcar_assinado(usuario, db):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para marcar documentos como assinados.")
 
     try:
@@ -544,7 +538,7 @@ def considerar_aceito_por_prazo(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_marcar_assinado(usuario, db):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para marcar documentos como assinados.")
 
     try:
@@ -598,7 +592,7 @@ def analisar_solicitacao(
     if not documento:
         raise HTTPException(status_code=404, detail="Solicitação não encontrada")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para analisar esta solicitação.")
 
     try:
@@ -622,7 +616,7 @@ def get_paragrafos_editaveis(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para editar este documento.")
 
     try:
@@ -642,7 +636,7 @@ def editar_texto(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para editar este documento.")
 
     try:
@@ -662,7 +656,7 @@ async def reanexar_documento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db):
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]):
         raise HTTPException(status_code=403, detail="Sem permissão para editar este documento.")
 
     docx_bytes = await arquivo.read()
@@ -689,7 +683,7 @@ def deletar_documento(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db) and not _pode_abrir_documento(
+    if not _pode_gerir_documento(usuario, db, documento["projeto_id"]) and not _pode_abrir_documento(
         usuario, db, documento["tipo"], documento["projeto_id"]
     ):
         raise HTTPException(status_code=403, detail="Sem permissão para apagar este documento.")

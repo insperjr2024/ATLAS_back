@@ -17,10 +17,10 @@ um arquivo real, então um diretório temporário existe só durante esta
 chamada — nada sobrevive nele depois do `with`.
 
 ⭐ 2026-09-20 — a pedido: recusa gerar com campo obrigatório vazio. É a
-segunda trava (a primeira é `confirmar_preenchimento.py`) — o Jurídico
-também não deve conseguir gerar um documento incompleto, mesmo que o
-confirmado tenha, por algum motivo, ficado incompleto (dado editado depois
-por quem tem `pode_editar_documento_juridico`, que pula a confirmação).
+segunda trava (a primeira é `confirmar_preenchimento.py`) — quem gere o
+contrato também não deve conseguir gerar um documento incompleto, mesmo que
+o confirmado tenha, por algum motivo, ficado incompleto (dado editado depois
+da confirmação, que pula essa trava).
 """
 
 import os
