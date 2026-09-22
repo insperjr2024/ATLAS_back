@@ -19,13 +19,20 @@ class DocumentoContratualRepository(BaseRepository[DocumentoContratualModel]):
     def get_by_projeto_e_tipo(self, projeto_id: int, tipo: str) -> Optional[DocumentoContratualModel]:
         return self.first_by(projeto_id=projeto_id, tipo=tipo)
 
-    def list_nao_arquivados(self) -> List[DocumentoContratualModel]:
-        """A aba Contratos: todo documento jurídico ainda EM ANDAMENTO, de
-        todo projeto — o oposto do Repositório (`list_arquivados`). O
-        recorte de quem vê o quê é do use case (`painel.py`), não daqui."""
+    def list_para_painel(self) -> List[DocumentoContratualModel]:
+        """A aba Contratos: TODO documento jurídico, de todo projeto — a
+        Kanban tem 7 colunas, a última ("Assinado e Arquivado") é justamente
+        quem terminou o ciclo. Diferente do Repositório (`list_arquivados`,
+        só o que já terminou); aqui é o inverso, tudo, do primeiro rascunho
+        ao arquivado. O recorte de quem vê o quê é do use case (`painel.py`),
+        não daqui.
+
+        ⚠ Chamava-se `list_nao_arquivados` e EXCLUÍA `assinado_e_arquivado`
+        — certo pra quando a Kanban só tinha 6 colunas (documento "sumia" da
+        tela ao ser assinado), errado agora que a 7ª coluna existe pra
+        mostrar justamente isso."""
         return (
             self.db.query(DocumentoContratualModel)
-            .filter(DocumentoContratualModel.status != "assinado_e_arquivado")
             .order_by(DocumentoContratualModel.criado_em.desc())
             .all()
         )

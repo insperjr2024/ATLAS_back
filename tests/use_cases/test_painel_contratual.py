@@ -30,7 +30,7 @@ def documento(id, projeto_id, tipo, nome_projeto="Projeto X"):
 def montar(monkeypatch, documentos, vendedores=(), membros=(), permissoes_juridico=(), permissoes_painel=()):
     class DocumentoFake:
         def __init__(self, db): pass
-        def list_nao_arquivados(self):
+        def list_para_painel(self):
             return documentos
 
     class VersaoFake:

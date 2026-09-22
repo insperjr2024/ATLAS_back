@@ -69,7 +69,11 @@ def serializar_projeto_resumo(
         # Teto de consultores: a tela de vagas compara com quantos já entraram.
         "max_consultores": projeto.max_consultores,
         "data_kickoff": projeto.data_kickoff,
-        "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
+        # ⭐ 2026-09-21 — a pedido: kickoff só é "pendente" depois de VENDIDO —
+        # antes disso (`contrato_em_elaboracao`) nem tem venda de verdade
+        # ainda pra combinar data nenhuma com o cliente.
+        "kickoff_pendente": projeto.data_kickoff is None
+        and projeto.status not in ("finalizado", "contrato_em_elaboracao"),
         # `None` = ambientação começa no kickoff, o caso normal. Só não-nulo
         # quando o coordenador corrigiu que ela começou antes dele.
         "data_inicio_ambientacao": projeto.data_inicio_ambientacao,

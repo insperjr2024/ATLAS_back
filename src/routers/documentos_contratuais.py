@@ -122,6 +122,15 @@ def _pode_editar_livre(usuario, db: Session) -> bool:
     )
 
 
+def _pode_aprovar_internamente(usuario, db: Session) -> bool:
+    """⭐ 2026-09-21 — a pedido: diferente de `_pode_editar_livre` (que também
+    libera diretoria), aprovar internamente é a revisão jurídica de verdade —
+    fica só com quem tem `pode_editar_documento_juridico`. Diretoria continua
+    podendo editar o texto do documento, só não "assina" a aprovação jurídica
+    por ela."""
+    return usuario_tem_permissao(usuario, db, "pode_editar_documento_juridico")
+
+
 def _pode_gerar_documento(usuario, db: Session) -> bool:
     return eh_diretoria_de_projetos(usuario) or usuario_tem_permissao(
         usuario, db, "pode_gerar_documento_juridico"
@@ -379,7 +388,7 @@ def aprovar_internamente(
     if not documento:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
-    if not _pode_editar_livre(usuario, db):
+    if not _pode_aprovar_internamente(usuario, db):
         raise HTTPException(status_code=403, detail="Sem permissão para aprovar documentos jurídicos.")
 
     try:

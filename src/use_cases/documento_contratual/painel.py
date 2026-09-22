@@ -40,7 +40,7 @@ class PainelContratualUseCase:
         self.frentes = ProjetoFrenteRepository(db)
 
     def execute(self, usuario) -> List[dict]:
-        documentos = self.documentos.list_nao_arquivados()
+        documentos = self.documentos.list_para_painel()
         visiveis = self._filtrar_visiveis(usuario, documentos)
 
         # Em lote — a Kanban filtra por frente, e uma consulta por card
