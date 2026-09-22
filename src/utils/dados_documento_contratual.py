@@ -20,7 +20,7 @@ from src.documentos_contratuais.common import MESES
 def _contratante_em_branco() -> dict:
     representante = {
         "nome": "", "nacionalidade": "", "estado_civil": "", "profissao": "",
-        "cargo": "", "rg_numero": "", "rg_orgao_emissor": "", "cpf": "",
+        "cargo": "", "rg": "", "cpf": "",
         "endereco": "", "email": "", "telefone": "",
     }
     return {

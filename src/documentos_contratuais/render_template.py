@@ -24,6 +24,7 @@ import os
 from docxtpl import DocxTemplate
 
 from src.documentos_contratuais import common as C
+from src.documentos_contratuais.extrair_coleta import formatar_rg, separar_rg
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
@@ -125,6 +126,15 @@ def _normalizar_qualificacao(pessoa: dict) -> dict:
 def _contexto_base(tipo: str, dados: dict, identidade: dict) -> dict:
     contratante = dados.get("contratante") or {}
     rep = _normalizar_qualificacao(contratante.get("representante") or {})
+    # ⭐ 2026-09-22 — a pedido: o formulário voltou a pedir RG e órgão emissor
+    # num campo só ("2.027.163 SSP/SC", como a Coleta de Dados também pede e
+    # como a pessoa escreve naturalmente) — os templates continuam com os
+    # dois merge fields separados (`rep.rg_numero`/`rep.rg_orgao_emissor`,
+    # pro texto "RG nº. X, órgão emissor Y"), então a separação acontece
+    # aqui, na hora de gerar. `formatar_rg` primeiro agrupa o número (mesmo
+    # pra quem digitou sem pontuação nenhuma), `separar_rg` só então quebra
+    # o resultado já bonito em duas partes.
+    rep["rg_numero"], rep["rg_orgao_emissor"] = separar_rg(formatar_rg(rep.get("rg") or ""))
     assinatura = dados.get("assinatura") or {}
     presidente = _normalizar_qualificacao(identidade.get("presidente") or {})
 

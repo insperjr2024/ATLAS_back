@@ -60,8 +60,7 @@ CAMPOS_CONTRATANTE: List[Campo] = [
     ("contratante.representante.estado_civil", "Estado civil do representante"),
     ("contratante.representante.profissao", "Profissão do representante"),
     ("contratante.representante.cargo", "Cargo do representante"),
-    ("contratante.representante.rg_numero", "Número do RG do representante"),
-    ("contratante.representante.rg_orgao_emissor", "Órgão emissor do RG do representante"),
+    ("contratante.representante.rg", "RG do representante"),
     ("contratante.representante.cpf", "CPF do representante"),
     ("contratante.representante.endereco", "Endereço do representante"),
 ]

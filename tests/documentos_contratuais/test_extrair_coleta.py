@@ -155,7 +155,7 @@ class TestExtrairDadosColeta:
         assert dados["contratante"]["cnpj"] == "11.222.333/0001-81"
         assert dados["contratante"]["representante"]["nome"] == "João da Silva"
         assert dados["contratante"]["representante"]["cpf"] == "111.444.777-35"
-        assert dados["contratante"]["representante"]["rg_numero"] == "2027163 SSP/SC"
+        assert dados["contratante"]["representante"]["rg"] == "2027163 SSP/SC"
         assert dados["contratante"]["email_cobranca"] == "joao@exemplo.com"
         assert dados["projeto"]["num_consultores"] == 3
         assert dados["projeto"]["escopos"] == [
