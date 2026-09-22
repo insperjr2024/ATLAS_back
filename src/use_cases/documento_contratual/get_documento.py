@@ -7,11 +7,14 @@ from src.repositories.documento_contratual_repository import DocumentoContratual
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
+from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.use_cases.documento_contratual.marcar_assinado import dias_restantes_aceite_tacito
 
 
 def serializar_documento_contratual(
-    documento: DocumentoContratualModel, ultima_versao: Optional[int] = None
+    documento: DocumentoContratualModel,
+    ultima_versao: Optional[int] = None,
+    frente_ids: Optional[List[int]] = None,
 ) -> dict:
     return {
         "id": documento.id,
@@ -24,6 +27,9 @@ def serializar_documento_contratual(
         # próprio documento (`nome_projeto_externo`/`cliente_externo`).
         "projeto_nome": documento.projeto.nome if documento.projeto_id else documento.nome_projeto_externo,
         "projeto_cliente": documento.projeto.cliente if documento.projeto_id else documento.cliente_externo,
+        # Pro destaque de frente no cabeçalho da página — institucional
+        # (sem projeto) nunca tem frente nenhuma.
+        "frente_ids": frente_ids or [],
         "tipo": documento.tipo,
         "status": documento.status,
         "dados": documento.dados,
@@ -42,13 +48,19 @@ class GetDocumentoContratualUseCase:
     def __init__(self, db: Session):
         self.documentos = DocumentoContratualRepository(db)
         self.versoes = DocumentoContratualVersaoRepository(db)
+        self.frentes = ProjetoFrenteRepository(db)
 
     def execute(self, documento_id: int) -> Optional[dict]:
         documento = self.documentos.get_by_id(documento_id)
         if not documento:
             return None
         ultima_versao = self.versoes.ultima_versao(documento_id)
-        return serializar_documento_contratual(documento, ultima_versao or None)
+        frente_ids = (
+            [f.frente_id for f in self.frentes.get_by_projeto(documento.projeto_id)]
+            if documento.projeto_id
+            else []
+        )
+        return serializar_documento_contratual(documento, ultima_versao or None, frente_ids)
 
 
 class ListDocumentosContratuaisPorProjetoUseCase:
