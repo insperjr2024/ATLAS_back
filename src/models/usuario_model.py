@@ -52,17 +52,17 @@ class UsuarioModel(Base):
     #: vendas` ligadas) — não precisa mais de campo nenhum aqui, é só a
     #: `posicao` normal da pessoa.
     #:
-    #: O que sobra é o BDR: a ÚNICA situação da plataforma em que a pessoa
-    #: tem DUAS posições ao mesmo tempo — a principal (`posicao`, sempre
-    #: "consultor" na prática) e esta, opcional. As permissões efetivas são a
+    #: O que sobra é a pessoa acumular DUAS posições ao mesmo tempo — a
+    #: principal (`posicao`) e esta, opcional. As permissões efetivas são a
     #: UNIÃO das duas linhas de `PosicaoPermissaoModel` (ver
     #: `usuario_tem_permissao`). Vazio pra quase todo mundo.
     #:
-    #: ⚠ Validado no use case, não em CHECK: hoje só aceita "bdr", e só
-    #: quando `posicao == "consultor"` — a regra de negócio é estreita de
-    #: propósito ("o único cargo que dá pra ter mais de um é consultor e
-    #: bdr"), não um sistema de multi-cargo genérico. Generalizar isso é
-    #: decisão futura, não abrir a porta agora pra qualquer combinação.
+    #: ⚠ Validado no use case, não em CHECK: só aceita um cargo marcado
+    #: `sobreponivel=True` (`posicao_permissao_model.py`, decidido na hora
+    #: de criar o cargo — ver `create_posicao_permissao.py`), diferente da
+    #: posição principal. ⭐ 2026-09-22 — a pedido: antes só aceitava "bdr"
+    #: em cima de "consultor", hardcoded; generalizado pra qualquer par
+    #: base/extra que o próprio catálogo de cargos autorizar.
     cargo_extra = Column(String(50), ForeignKey("posicao_permissao.posicao"), nullable=True)
     # 1º a 8º semestre da graduação — nullable porque diretoria/gerência não
     # necessariamente são alunos de graduação em curso.

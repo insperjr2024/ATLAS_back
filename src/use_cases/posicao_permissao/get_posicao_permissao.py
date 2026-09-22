@@ -10,6 +10,7 @@ def serializar_posicao_permissao(registro) -> dict:
         "posicao": registro.posicao,
         "nome": registro.nome,
         "e_padrao": registro.e_padrao,
+        "sobreponivel": registro.sobreponivel,
         "pode_criar_projeto": registro.pode_criar_projeto,
         "pode_editar_equipe": registro.pode_editar_equipe,
         "pode_gerir_membros": registro.pode_gerir_membros,
@@ -33,6 +34,10 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_gerir_calendarios_base": registro.pode_gerir_calendarios_base,
         "pode_responsavel_por_vendas": registro.pode_responsavel_por_vendas,
         "pode_coordenar_vendas": registro.pode_coordenar_vendas,
+        "pode_aprovar_contrato_internamente": registro.pode_aprovar_contrato_internamente,
+        "pode_editar_identidade_institucional": registro.pode_editar_identidade_institucional,
+        "pode_elaborar_contratos_proprios": registro.pode_elaborar_contratos_proprios,
+        "pode_elaborar_qualquer_contrato": registro.pode_elaborar_qualquer_contrato,
     }
 
 

@@ -179,9 +179,10 @@ def prazo_pelo_kickoff(
 
     - **o projeto não tem ambientação** (sem kickoff, ou zero dias): não existe
       "último dia" de coisa nenhuma para servir de prazo;
-    - **o projeto ainda está Vendido**: antes da ambientação não há equipe em
-      campo para descobrir que os dias não fecham, e o próprio kickoff ainda
-      pode mudar de lugar. O STATUS decide a entrada e a DATA segura a saída —
+    - **o projeto ainda está Contrato em elaboração ou Vendido**: antes da
+      ambientação não há equipe em campo para descobrir que os dias não
+      fecham, e o próprio kickoff ainda pode mudar de lugar. O STATUS decide
+      a entrada e a DATA segura a saída —
       a mesma convenção de `ambientacao_em_curso`, e o motivo pelo qual um
       status atrasado (a virada automática que ainda não rodou) não reabre o
       prazo.
@@ -190,7 +191,7 @@ def prazo_pelo_kickoff(
     `EncerrarAmbientacaoUseCase`: a ambientação é do projeto inteiro, e um
     recesso de uma frente só não pode esticá-la para as outras.
     """
-    if status_projeto == "vendido":
+    if status_projeto in ("contrato_em_elaboracao", "vendido"):
         return None
     return fim_da_ambientacao(
         inicio_da_ambientacao, dias_ambientacao, dias_nao_letivos_globais

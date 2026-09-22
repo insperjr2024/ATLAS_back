@@ -95,6 +95,27 @@ class UpdateMaxConsultoresUseCase:
         return {"id": atualizado.id, "max_consultores": atualizado.max_consultores}
 
 
+class UpdateVagasAbertasRequest(BaseModel):
+    vagas_abertas: bool
+
+
+class UpdateVagasAbertasUseCase:
+    """⭐ 2026-09-22 — a pedido: abrir/fechar manualmente a declaração de
+    interesse em Vagas em Projetos. Abre sozinho quando o Contrato de PS é
+    assinado (`marcar_assinado.py`); esta rota é o botão pra abrir de novo
+    depois de fechado, ou fechar antes da hora — sem regra de fechamento
+    automático ao bater no teto de consultores."""
+
+    def __init__(self, db: Session):
+        self.repository = ProjetoRepository(db)
+
+    def execute(self, projeto_id: int, request: UpdateVagasAbertasRequest):
+        atualizado = self.repository.update(projeto_id, vagas_abertas=request.vagas_abertas)
+        if not atualizado:
+            return None
+        return {"id": atualizado.id, "vagas_abertas": atualizado.vagas_abertas}
+
+
 # ⚠ `UpdateCalendarioRequest`/`UpdateCalendarioUseCase` saíram daqui na
 # `e5c1a9f37b64`. O calendário acadêmico deixou de ser um override do PROJETO e
 # virou a BASE de cada ESCOPO: quem o escolhe é o cadastro do escopo vendido, e

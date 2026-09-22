@@ -48,6 +48,11 @@ def serializar_projeto_resumo(
         "cliente": projeto.cliente,
         "criado_em": projeto.criado_em,
         "status": projeto.status,
+        # ⭐ 2026-09-21 — contrato institucional (Agro etc.): sem frente/
+        # equipe/escopo, só existe pra pendurar um documento jurídico. O
+        # front usa isto pra tirar da lista/Kanban geral pra sempre, não só
+        # enquanto "contrato em elaboração".
+        "institucional": projeto.institucional,
         "frente_ids": [f.frente_id for f in frentes],
         "sinergico": len(frentes) > 1,
         # ⚠ `coordenador_id` (singular) é o PRIMEIRO da lista, mantido só
@@ -63,8 +68,15 @@ def serializar_projeto_resumo(
         "vendedor_ids": [v.usuario_id for v in vendedores],
         # Teto de consultores: a tela de vagas compara com quantos já entraram.
         "max_consultores": projeto.max_consultores,
+        # ⭐ 2026-09-22 — a pedido: se a declaração de interesse deste projeto
+        # está aberta em Vagas em Projetos (independente do teto acima).
+        "vagas_abertas": projeto.vagas_abertas,
         "data_kickoff": projeto.data_kickoff,
-        "kickoff_pendente": projeto.data_kickoff is None and projeto.status not in ("finalizado",),
+        # ⭐ 2026-09-21 — a pedido: kickoff só é "pendente" depois de VENDIDO —
+        # antes disso (`contrato_em_elaboracao`) nem tem venda de verdade
+        # ainda pra combinar data nenhuma com o cliente.
+        "kickoff_pendente": projeto.data_kickoff is None
+        and projeto.status not in ("finalizado", "contrato_em_elaboracao"),
         # `None` = ambientação começa no kickoff, o caso normal. Só não-nulo
         # quando o coordenador corrigiu que ela começou antes dele.
         "data_inicio_ambientacao": projeto.data_inicio_ambientacao,
@@ -201,7 +213,14 @@ class ListProjetosUseCase:
         banca_por_escopo = self.banca_repository.mapa_por_escopo(list(projeto_por_escopo))
         proxima_por_projeto = {}
         for escopo_id, banca in banca_por_escopo.items():
-            if banca.data_hora is None or banca.realizado_em is not None:
+            # ⭐ 2026-09-22 — a pedido: banca cancelada não é "próxima banca"
+            # de ninguém — ficava sobrevivendo no card do Kanban do projeto
+            # com a data antiga, mesmo depois de cancelada.
+            if (
+                banca.data_hora is None
+                or banca.realizado_em is not None
+                or getattr(banca, "cancelada_em", None) is not None
+            ):
                 continue
             projeto_id = projeto_por_escopo.get(escopo_id)
             atual = proxima_por_projeto.get(projeto_id)

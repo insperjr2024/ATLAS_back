@@ -1,5 +1,7 @@
 from typing import List, Optional
 
+import sqlalchemy as sa
+
 from src.models.usuario_model import UsuarioModel
 from src.repositories.base_repository import BaseRepository
 
@@ -31,3 +33,21 @@ class UsuarioRepository(BaseRepository[UsuarioModel]):
 
     def get_ativos(self) -> List[UsuarioModel]:
         return self.filter_by(status="ativo")
+
+    def get_ativos_por_posicoes_ou_cargo_extra(self, posicoes) -> List[UsuarioModel]:
+        """Quem TEM uma das posições, na base OU no `cargo_extra` — o mesmo
+        OU de `usuario_tem_permissao` (`authorization.py`), só que pra achar
+        as PESSOAS em vez de responder sim/não pra UMA pessoa. Usado por quem
+        precisa notificar "todo mundo com a caixa X" (ex.: Jurídico em
+        Contratos), não só checar quem está logado agora."""
+        posicoes = set(posicoes)
+        if not posicoes:
+            return []
+        return (
+            self.db.query(self.model)
+            .filter(
+                self.model.status == "ativo",
+                sa.or_(self.model.posicao.in_(posicoes), self.model.cargo_extra.in_(posicoes)),
+            )
+            .all()
+        )

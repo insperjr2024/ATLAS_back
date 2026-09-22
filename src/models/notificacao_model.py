@@ -67,6 +67,25 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     "banca_nao_marcada",
     "projeto_sem_reuniao",
     "banca_hoje",
+    # ⚠ 2026-09-21 — mesmo buraco de `descricao_coordenador_pendente`
+    # (`e4b1d7c9a052`): emitidos por `notificar_documento_contratual.py`/
+    # `notificar_projeto.py` desde a Fase 2 da Contratos, mas nunca
+    # declarados aqui nem no Postgres (ver migration `ALTER TYPE` que
+    # acompanha este commit) — todo INSERT desses tipos vinha falhando
+    # calado (`registrar()` engole a exceção de propósito), então nenhuma
+    # notificação de Contratos jamais chegou a existir de fato.
+    "documento_contratual_pronto_para_gerar",
+    "documento_contratual_pronto_para_revisao_interna",
+    "documento_contratual_aprovado_internamente",
+    "documento_contratual_liberado",
+    "documento_contratual_cliente_aprovou",
+    "documento_contratual_cliente_pediu_alteracao",
+    "projeto_criado_em_contrato",
+    "projeto_vendido",
+    #: ⭐ 2026-09-22 — a pedido: Contrato de PS assinado abre a declaração de
+    #: interesse do projeto em Vagas em Projetos — avisa os consultores das
+    #: frentes dele, não quem já recebe `projeto_vendido` (diretoria/gerentes).
+    "vagas_abertas",
     name="tipo_notificacao",
 )
 
@@ -93,6 +112,11 @@ TIPOS_NOTIFICACAO_OPCIONAIS = frozenset(
         "kickoff_pendente",
         "banca_nao_marcada",
         "projeto_sem_reuniao",
+        # Informativo — "um projeto entrou/saiu de contrato em elaboração",
+        # mesma categoria de `alocado_em_projeto`, não pedido nem prazo.
+        "projeto_criado_em_contrato",
+        "projeto_vendido",
+        "vagas_abertas",
     }
 )
 

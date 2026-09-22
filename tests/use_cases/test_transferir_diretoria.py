@@ -1,6 +1,8 @@
 """A passagem de bastão da diretoria e a trava que impede a plataforma de
 ficar sem ninguém capaz de administrá-la."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.use_cases.usuario.transferir_diretoria import (
@@ -55,10 +57,12 @@ class SemestreRepositoryFake:
 class PosicaoRepositoryFake:
     """Qualquer posição existe — estes testes cobrem a trava do último
     diretor, não validação de cargo (ver `UpdateUsuarioUseCase.execute`,
-    migration `a9cae5c30c6d`)."""
+    migration `a9cae5c30c6d`). `sobreponivel` só é `True` pra "bdr", mesmo
+    dado real da migration `c2a9d5e8b731` — é o único caso que os testes de
+    `cargo_extra` (`TestMarcaBdr`) precisam distinguir."""
 
     def get_by_posicao(self, posicao):
-        return object()
+        return SimpleNamespace(posicao=posicao, sobreponivel=posicao == "bdr")
 
     def get_posicoes_com_permissao(self, campo):
         return set()
@@ -243,9 +247,13 @@ class TestTravaDoUltimoDiretor:
 
 class TestMarcaBdr:
     """BDR: consultor que também vende. 2026-09-16: virou `cargo_extra`
-    ("bdr"), não mais o booleano solto — a ÚNICA situação em que a pessoa
-    acumula duas posições, e só em cima de "consultor" (ver
-    `usuario_model.py`)."""
+    ("bdr"), não mais o booleano solto — a pessoa acumula duas posições.
+
+    ⭐ 2026-09-22 — generalizado: antes só aceitava "bdr" em cima de
+    "consultor", hardcoded. Agora aceita qualquer cargo marcado
+    `sobreponivel=True` (ver `posicao_permissao_model.py`), em cima de
+    qualquer posição base — `PosicaoRepositoryFake` só marca "bdr" como
+    sobreponível, mesmo dado real da migration `c2a9d5e8b731`."""
 
     def test_grava_a_marca_no_consultor(self):
         edu = UsuarioFake(1, "Edu Prado", "consultor")
@@ -268,21 +276,36 @@ class TestMarcaBdr:
         uc.execute(1, UpdateUsuarioRequest(nome="Eduardo Prado"))
         assert edu.cargo_extra == "bdr"
 
-    def test_recusa_cargo_extra_diferente_de_bdr(self):
+    def test_recusa_cargo_extra_nao_sobreponivel(self):
         edu = UsuarioFake(1, "Edu Prado", "consultor")
         uc = montar_update(edu)
-        with pytest.raises(RegraDeNegocioError, match="bdr"):
+        with pytest.raises(RegraDeNegocioError, match="vendas"):
             uc.execute(1, UpdateUsuarioRequest(cargo_extra="vendas"))
 
-    def test_recusa_bdr_em_quem_nao_e_consultor(self):
+    def test_bdr_agora_e_aceito_em_qualquer_posicao_base(self):
+        """A restrição de precisar ser "consultor" foi removida — qualquer
+        posição base aceita um cargo extra sobreponível."""
         ana = UsuarioFake(1, "Ana Souza", "coordenador")
         uc = montar_update(ana)
-        with pytest.raises(RegraDeNegocioError, match="consultor"):
+        uc.execute(1, UpdateUsuarioRequest(cargo_extra="bdr"))
+        assert ana.cargo_extra == "bdr"
+
+    def test_recusa_cargo_extra_igual_a_posicao_principal(self):
+        edu = UsuarioFake(1, "Edu Prado", "bdr")
+        uc = montar_update(edu)
+        with pytest.raises(RegraDeNegocioError, match="igual"):
             uc.execute(1, UpdateUsuarioRequest(cargo_extra="bdr"))
 
-    def test_virar_outra_posicao_limpa_o_cargo_extra(self):
+    def test_virar_outra_posicao_nao_limpa_cargo_extra_diferente(self):
         edu = UsuarioFake(1, "Edu Prado", "consultor")
         edu.cargo_extra = "bdr"
         uc = montar_update(edu)
         uc.execute(1, UpdateUsuarioRequest(posicao="gerente"))
+        assert edu.cargo_extra == "bdr"
+
+    def test_virar_a_mesma_posicao_do_cargo_extra_limpa(self):
+        edu = UsuarioFake(1, "Edu Prado", "consultor")
+        edu.cargo_extra = "bdr"
+        uc = montar_update(edu)
+        uc.execute(1, UpdateUsuarioRequest(posicao="bdr"))
         assert edu.cargo_extra is None

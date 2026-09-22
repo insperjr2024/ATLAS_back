@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
@@ -35,7 +35,6 @@ from src.use_cases.banca.local_e_entrega import (
     RegistrarEntregaLinkBancaUseCase,
     RegistrarLocalBancaUseCase,
     RemoverEntregaBancaUseCase,
-    SubirEntregaArquivoBancaUseCase,
 )
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.repositories.banca_repository import BancaRepository
@@ -243,19 +242,6 @@ def registrar_entrega_link_banca(
         raise HTTPException(status_code=422, detail=str(e))
 
 
-@router.post("/bancas/{banca_id}/entrega-arquivo")
-def subir_entrega_arquivo_banca(
-    banca_id: int,
-    arquivo: UploadFile = File(...),
-    current_user=Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    try:
-        return SubirEntregaArquivoBancaUseCase(db).execute(banca_id, arquivo, current_user)
-    except RegraDeNegocioError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-
 @router.delete("/bancas/{banca_id}/entrega", status_code=204)
 def remover_entrega_banca(
     banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
@@ -265,23 +251,6 @@ def remover_entrega_banca(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return None
-
-
-@router.get("/bancas/{banca_id}/entrega-arquivo")
-def baixar_entrega_arquivo_banca(
-    banca_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
-):
-    """Qualquer pessoa logada baixa — a entrega aparece nas informações da
-    banca pra todo mundo (§ mesma régua do `local`)."""
-    banca = BancaRepository(db).get_by_id(banca_id)
-    if not banca or not getattr(banca, "entrega_arquivo_conteudo", None):
-        raise HTTPException(status_code=404, detail="Sem arquivo de entrega nesta banca")
-    nome = banca.entrega_arquivo_nome or "entrega"
-    return Response(
-        content=banca.entrega_arquivo_conteudo,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
-    )
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")

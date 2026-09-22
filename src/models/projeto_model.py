@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -38,6 +39,13 @@ class ProjetoModel(Base):
     anexo_proposta_nome = Column(String(255), nullable=True)
     status = Column(
         Enum(
+            # ⭐ 2026-09-16 — integração com a Contratos: o projeto nasce
+            # aqui assim que alguém abre o Contrato de Prestação de Serviços
+            # na aba Contratos, ANTES de existir venda de verdade. Vira
+            # "vendido" sozinho quando esse documento é assinado (ver
+            # `use_cases/documento_contratual/marcar_assinado.py`) — é a
+            # única transição automática de/para este status.
+            "contrato_em_elaboracao",
             "vendido",
             "ambientacao",
             "em_andamento",
@@ -49,14 +57,36 @@ class ProjetoModel(Base):
             name="status_projeto",
         ),
         nullable=False,
-        default="vendido",
-        server_default="vendido",
+        default="contrato_em_elaboracao",
+        server_default="contrato_em_elaboracao",
     )
+    #: ⭐ 2026-09-21 — contrato institucional (Agro etc.): criado só com nome,
+    #: sem frente/equipe/escopo, pra pendurar um documento jurídico que
+    #: precisa de um `ProjetoModel` de verdade (a FK exige), mas não é
+    #: entrega de consultoria nenhuma — ver `create_projeto_institucional.py`.
+    #: Fica fora do Kanban/lista geral de projetos e das métricas de
+    #: Monitoramento pra sempre (não só enquanto "contrato em elaboração"),
+    #: pra não poluir os números de quem acompanha entrega de verdade.
+    institucional = Column(Boolean, nullable=False, default=False)
     dias_ambientacao = Column(Integer, nullable=False, default=5, server_default="5")
-    #: Teto de consultores do projeto — o que decide se ele ainda tem vaga na
-    #: tela de declaração de interesse. Não conta o coordenador: ele entra pelo
-    #: papel, não por vaga.
+    #: Teto de consultores do projeto — não conta o coordenador: ele entra
+    #: pelo papel, não por vaga.
     max_consultores = Column(Integer, nullable=False, default=3, server_default="3")
+    #: ⭐ 2026-09-22 — a pedido: interruptor explícito de "declaração de
+    #: interesse aberta" em Vagas em Projetos. Antes, "ter vaga" era 100%
+    #: calculado (`max_consultores - alocados`) — mas um projeto que roda de
+    #: propósito com menos gente que o teto (decisão da diretoria, não vaga
+    #: real) aparecia como "tem vaga", o que é falso. Agora um projeto só
+    #: aparece em Vagas em Projetos com este campo `True` — `max_consultores`
+    #: continua decidindo QUANTAS vagas aparecem, não SE aparecem.
+    #:
+    #: Abre sozinho quando o Contrato de Prestação de Serviços é assinado
+    #: (`marcar_assinado.py`, só nesse momento; TEP não abre vaga nenhuma).
+    #: Fecha/abre manualmente por quem lidera o projeto (diretoria de
+    #: projetos, gerente, coordenador — `require_lideranca`), sem
+    #: fechamento automático ao bater no teto. Todo projeto que já existia
+    #: antes desta coluna nasce fechado (o `server_default` cobre isso).
+    vagas_abertas = Column(Boolean, nullable=False, default=False, server_default="0")
     data_kickoff = Column(Date, nullable=True)
     #: ⭐ Quando NÃO nulo, substitui `data_kickoff` como início da janela de
     #: ambientação (ver `utils/ambientacao.py`). `None` (o padrão) é o caso

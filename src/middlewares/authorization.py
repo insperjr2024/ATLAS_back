@@ -219,6 +219,13 @@ require_pode_gerir_calendarios_base = _dependencia_permissao(
     "Você não tem permissão para gerir os calendários base",
 )
 
+# ---------------------------------------------------------------- § Contratos
+
+require_pode_aprovar_contrato_internamente = _dependencia_permissao(
+    "pode_aprovar_contrato_internamente",
+    "Você não tem permissão para aprovar contratos internamente",
+)
+
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):

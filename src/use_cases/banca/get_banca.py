@@ -148,7 +148,6 @@ class GetBancaUseCase:
             "cancelada_em": getattr(banca, "cancelada_em", None),
             "local": getattr(banca, "local", None),
             "entrega_link": getattr(banca, "entrega_link", None),
-            "entrega_arquivo_nome": getattr(banca, "entrega_arquivo_nome", None),
             "resultado": banca.resultado,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
             "vagas": vagas,
@@ -261,7 +260,6 @@ class ListBancasUseCase:
                 "cancelada_em": getattr(b, "cancelada_em", None),
                 "local": getattr(b, "local", None),
                 "entrega_link": getattr(b, "entrega_link", None),
-                "entrega_arquivo_nome": getattr(b, "entrega_arquivo_nome", None),
                 "resultado": b.resultado,
                 "status": calcular_status_banca(b.data_hora, b.realizado_em, cancelada_em=getattr(b, "cancelada_em", None)),
                 # O teto da combinação desta banca — o resolver acima já

@@ -87,6 +87,8 @@ from src.use_cases.projeto.update_configuracoes import (
     UpdateFrentesUseCase,
     UpdateMaxConsultoresRequest,
     UpdateMaxConsultoresUseCase,
+    UpdateVagasAbertasRequest,
+    UpdateVagasAbertasUseCase,
 )
 from src.use_cases.projeto.excluir_justificativa_atraso import ExcluirJustificativaAtrasoUseCase
 from src.use_cases.projeto.excluir_remarcacao_banca import ExcluirRemarcacaoBancaUseCase
@@ -287,6 +289,23 @@ def update_max_consultores(projeto_id: int, request: UpdateMaxConsultoresRequest
     return result
 
 
+@router.patch("/projetos/{projeto_id}/vagas-abertas")
+def update_vagas_abertas(
+    projeto_id: int,
+    request: UpdateVagasAbertasRequest,
+    current_user=Depends(require_lideranca),
+    db: Session = Depends(get_db),
+):
+    """Abrir/fechar manualmente a declaração de interesse — `require_lideranca`
+    (diretor_projetos, gerente, coordenador) bate com "diretores e gerentes e
+    coords" do pedido."""
+    exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    result = UpdateVagasAbertasUseCase(db).execute(projeto_id, request)
+    if not result:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    return result
+
+
 @router.patch("/projetos/{projeto_id}/frentes")
 def update_frentes(projeto_id: int, request: UpdateFrentesRequest, current_user=Depends(require_pode_editar_equipe), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
@@ -302,6 +321,21 @@ def update_frentes(projeto_id: int, request: UpdateFrentesRequest, current_user=
 @router.patch("/projetos/{projeto_id}/status")
 def update_status(projeto_id: int, request: UpdateStatusRequest, current_user=Depends(require_lideranca), db: Session = Depends(get_db)):
     exigir_acesso_ao_projeto(projeto_id, current_user, db)
+    # ⚠ 2026-09-21 — "Contrato em elaboração" → "Vendido" manual é escape de
+    # diretoria (contrato fechado fora da plataforma), não uma etapa comum
+    # que coordenador/gerente também decide — os demais destinos continuam
+    # liberados pra quem tem `require_lideranca`, só este é mais restrito.
+    if request.status_novo == "vendido":
+        projeto_atual = ProjetoRepository(db).get_by_id(projeto_id)
+        if (
+            projeto_atual
+            and projeto_atual.status == "contrato_em_elaboracao"
+            and not eh_diretoria_de_projetos(current_user)
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Só a diretoria de projetos pode forçar 'Vendido' sem o Contrato de Prestação assinado.",
+            )
     try:
         result = UpdateStatusUseCase(db).execute(projeto_id, request, alterado_por=current_user.id)
     except RegraDeNegocioError as e:

@@ -52,6 +52,16 @@ class PosicaoPermissaoModel(Base):
     #: Os 6 cargos que a plataforma sempre teve. `False` para todo cargo
     #: criado pela tela — só eles podem ser apagados por `DELETE`.
     e_padrao = Column(Boolean, default=False, nullable=False, server_default="0")
+    #: ⭐ 2026-09-22 — a pedido: decidido na hora de CRIAR o cargo (a pergunta
+    #: fica no próprio modal "Novo cargo", não em conversa). Se `True`, este
+    #: cargo pode ser escolhido como `usuario.cargo_extra` de QUALQUER
+    #: pessoa, além da posição principal dela — soma permissões (ver
+    #: `usuario_tem_permissao`), não substitui. Exemplo dado pela diretoria:
+    #: "consultor" não é sobreponível (é sempre posição base, nunca extra);
+    #: "bdr"/"adm jurídico" são (podem ser a segunda posição de alguém).
+    #: Generaliza o que antes era hardcoded só para "bdr" em cima de
+    #: "consultor" (`update_usuario.py`).
+    sobreponivel = Column(Boolean, default=False, nullable=False, server_default="0")
 
     # 1. Criar projeto e alocar equipe
     pode_criar_projeto = Column(Boolean, default=False, nullable=False)
@@ -134,3 +144,32 @@ class PosicaoPermissaoModel(Base):
     #: cadastrado — o antigo `eh_lideranca_sem_frente(usuario.coordenador_
     #: vendas)`, agora por permissão em vez de nome de posição fixo.
     pode_coordenar_vendas = Column(Boolean, default=False, nullable=False)
+
+    #: ⭐ 2026-09-16 — as caixas da integração com a Contratos
+    #: (`documento_contratual`). "Criar documento"/"enviar ao cliente" não
+    #: viram caixa nova: reaproveitam `pode_criar_projeto` e `pode_
+    #: responsavel_por_vendas`, que já existem e significam a mesma coisa.
+    #:
+    #: ⭐ 2026-09-22 — a pedido: caixa própria da aprovação jurídica de
+    #: verdade (fecha a revisão interna e libera exportar pro cliente).
+    #: Antes morava dentro de `pode_editar_documento_juridico`; essa caixa e
+    #: `pode_marcar_documento_assinado` foram removidas no mesmo pedido —
+    #: quem tem `pode_elaborar_contratos_proprios`/`pode_elaborar_qualquer_
+    #: contrato` (ou é diretoria) já pode gerar, editar o texto livre pós-
+    #: confirmação/regerar E marcar como assinado — não precisava de caixa
+    #: à parte pra cada uma dessas ações.
+    pode_aprovar_contrato_internamente = Column(Boolean, default=False, nullable=False)
+    #: ⭐ 2026-09-21 — a pedido: quem assina PELA Insper Jr era só diretoria
+    #: de projetos, hardcoded (`eh_diretoria_de_projetos`). Vira delegável.
+    pode_editar_identidade_institucional = Column(Boolean, default=False, nullable=False)
+    #: Acessar a aba Contratos (vê TODOS os documentos, igual `pode_ver_
+    #: painel_contratos`) e elaborar (abrir, preencher, confirmar, gerar) os
+    #: documentos jurídicos dos projetos em que a PRÓPRIA pessoa consta como
+    #: vendedora — não qualquer projeto. `+ Novo Contrato` também só oferece,
+    #: pra quem só tem esta caixa, os projetos em que ela vendeu (mesma régua
+    #: de `aplicar_recorte_visao`, que já mostra pro vendedor os projetos que
+    #: vendeu).
+    pode_elaborar_contratos_proprios = Column(Boolean, default=False, nullable=False)
+    #: Mesma coisa, sem o recorte por vendedor — abre e elabora o documento
+    #: jurídico de QUALQUER projeto, igual diretoria/Jurídico.
+    pode_elaborar_qualquer_contrato = Column(Boolean, default=False, nullable=False)

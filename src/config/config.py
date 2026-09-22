@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     #: Sem isso o endpoint vira um canhão de spam para a caixa de qualquer um.
     RESET_INTERVALO_MINIMO_SEGUNDOS: int = 120
 
+    # ─── Documentos jurídicos (§ Contratos) ──────────────────────────────
+    #: Caminho do executável do LibreOffice, usado para converter o .docx
+    #: gerado em .pdf (`utils/pdf.py`). "soffice" cru assume que está no PATH
+    #: do servidor — nem sempre verdade (comum faltar em container/Windows).
+    SOFFICE_PATH: str = "soffice"
+
     class Config:
         env_file = ".env"
 

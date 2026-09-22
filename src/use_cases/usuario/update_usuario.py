@@ -24,11 +24,12 @@ class UpdateUsuarioRequest(BaseModel):
     ativo: Optional[bool] = None
     #: ⭐ 2026-09-16 — substitui os booleanos soltos `coordenador_vendas` e
     #: `bdr`. "Coordenador de vendas" virou cargo de verdade, escolhido em
-    #: `posicao` como qualquer outro; o que sobra aqui é só o BDR, a ÚNICA
-    #: situação em que a pessoa acumula duas posições — a principal
-    #: (`posicao`, sempre "consultor" na prática) e esta, opcional. Validado
-    #: em `execute`: só aceita "bdr", e só quando a posição efetiva é
-    #: "consultor" — ver `usuario_model.py`.
+    #: `posicao` como qualquer outro; o que sobra aqui é a pessoa acumular
+    #: duas posições — a principal (`posicao`) e esta, opcional.
+    #: ⭐ 2026-09-22 — a pedido: generalizado. Antes só aceitava "bdr" e só
+    #: em cima de "consultor" (hardcoded); agora aceita qualquer cargo
+    #: marcado `sobreponivel=True` (ver `posicao_permissao_model.py`), em
+    #: cima de qualquer posição — validado em `execute`.
     cargo_extra: Optional[str] = None
     semestre_graduacao: Optional[int] = Field(default=None, ge=1, le=8)
 
@@ -97,22 +98,26 @@ class UpdateUsuarioUseCase:
             if ja_existe and ja_existe.id != usuario_id:
                 raise RegraDeNegocioError("Já existe uma conta com este email")
 
-        # ⚠ BDR é o único cargo extra hoje, e só faz sentido em cima de
-        # "consultor" — a regra é estreita de propósito (ver `usuario_model.py`),
-        # não abre porta pra qualquer combinação.
+        # ⭐ 2026-09-22 — a pedido: generalizado. Cargo extra é qualquer
+        # posição marcada `sobreponivel=True` — decidido na hora de criar o
+        # cargo (ver `create_posicao_permissao.py`), não mais hardcoded pra
+        # só "bdr" em cima de "consultor".
         if data.get("cargo_extra"):
-            if data["cargo_extra"] != "bdr":
-                raise RegraDeNegocioError('O único cargo extra hoje é "bdr"')
+            extra_registro = self.posicao_repository.get_by_posicao(data["cargo_extra"])
+            if not extra_registro or not extra_registro.sobreponivel:
+                raise RegraDeNegocioError(f'"{data["cargo_extra"]}" não pode ser usado como cargo extra')
             posicao_efetiva = data.get("posicao", anterior.posicao)
-            if posicao_efetiva != "consultor":
-                raise RegraDeNegocioError("BDR só pode ser adicionado a quem é consultor")
+            if data["cargo_extra"] == posicao_efetiva:
+                raise RegraDeNegocioError("O cargo extra não pode ser igual à posição principal")
 
-        # Virar outra posição limpa o cargo extra pendurado — BDR não
-        # sobrevive a deixar de ser consultor.
+        # Virar a MESMA posição do cargo extra pendurado não faz sentido
+        # (extra igual à principal) — limpa. Qualquer outra combinação
+        # continua válida, já que cargo extra não é mais restrito a uma
+        # posição base específica.
         posicao_pedida = data.get("posicao")
-        if posicao_pedida and posicao_pedida != "consultor":
+        if posicao_pedida:
             cargo_extra_atual = data.get("cargo_extra", anterior.cargo_extra)
-            if cargo_extra_atual:
+            if cargo_extra_atual == posicao_pedida:
                 data["cargo_extra"] = None
 
         # `ativo` é espelho de `status`: mexer num mantém o outro coerente, senão

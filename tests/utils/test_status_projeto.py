@@ -110,7 +110,9 @@ class TestKickoffComoPreRequisito:
 
     def test_vendido_so_vai_para_ambientacao(self):
         """Mesmo com kickoff, Vendido não pula direto pro meio do projeto."""
-        for destino in STATUS_ORDEM[2:]:
+        for destino in STATUS_ORDEM:
+            if destino in ("contrato_em_elaboracao", "vendido", "ambientacao"):
+                continue
             assert not transicao_manual_valida("vendido", destino, tem_kickoff=True)
 
     def test_destinos_de_vendido_dependem_do_kickoff(self):
@@ -188,3 +190,35 @@ class TestPausarERetomar:
     def test_retomar_sem_status_guardado_levanta_erro(self):
         with pytest.raises(RegraDeNegocioError):
             retomar(None)
+
+
+class TestContratoEmElaboracao:
+    """⭐ 2026-09-16 — integração com a Contratos: o projeto nasce aqui ao
+    ser criado, e normalmente só vira Vendido sozinho, quando o Contrato de
+    Prestação de Serviços é assinado (`marcar_assinado.py`).
+
+    ⭐ 2026-09-21 — a única transição manual que existe daqui é pra Vendido
+    mesmo, o escape de diretoria pra quando o contrato foi resolvido fora da
+    plataforma (import antigo, caso excepcional) — quem pode usá-la é
+    decidido no router (`routers/projetos.py`), não aqui: esta função só é a
+    máquina de estados."""
+
+    def test_so_tem_vendido_como_destino_manual(self):
+        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=True) == ["vendido"]
+        assert destinos_validos("contrato_em_elaboracao", tem_kickoff=False) == ["vendido"]
+
+    def test_so_a_transicao_pra_vendido_e_valida(self):
+        assert transicao_manual_valida("contrato_em_elaboracao", "vendido", tem_kickoff=True)
+        for destino in STATUS_ORDEM:
+            if destino in ("contrato_em_elaboracao", "vendido"):
+                continue
+            assert not transicao_manual_valida(
+                "contrato_em_elaboracao", destino, tem_kickoff=True
+            )
+
+    def test_nao_e_pausavel(self):
+        assert not pode_pausar("contrato_em_elaboracao")
+
+    def test_e_o_primeiro_da_ordem(self):
+        assert STATUS_ORDEM[0] == "contrato_em_elaboracao"
+        assert STATUS_ORDEM[1] == "vendido"

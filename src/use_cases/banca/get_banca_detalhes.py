@@ -126,7 +126,6 @@ class GetBancaDetalhesUseCase:
             "cancelada_em": getattr(banca, "cancelada_em", None),
             "local": getattr(banca, "local", None),
             "entrega_link": getattr(banca, "entrega_link", None),
-            "entrega_arquivo_nome": getattr(banca, "entrega_arquivo_nome", None),
             "resultado": banca.resultado,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
             # Plural: uma banca pode cobrir vários escopos do projeto de uma

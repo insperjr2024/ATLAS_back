@@ -1,0 +1,99 @@
+"""Gerar um novo rascunho (.docx + .pdf) de um documento jurídico (§ Contratos).
+
+⭐ 2026-09-16 — porta de `contratos-backend/src/use_cases/projeto/gerar_documento.py`,
+trocando `ContratoRepository`/`DocumentoRepository`/`ConfiguracaoRepository`
+(Contratos) por `DocumentoContratualRepository`/`DocumentoContratualVersaoRepository`/
+`IdentidadeInstitucionalRepository` (ATLAS).
+
+⚠ Cada chamada cria uma VERSÃO nova (`versao + 1`), nunca sobrescreve a
+anterior — o histórico de rascunhos de um documento fica todo em
+`documento_contratual_versao`. Gerar de novo também devolve o documento pro
+começo do fluxo interno (`em_revisao_interna`), mesmo que ele já estivesse
+com alteração solicitada pelo cliente.
+
+⚠ 2026-09-18 — o conteúdo final mora no BANCO (`docx_conteudo`/`pdf_conteudo`),
+não em disco (ver docstring do model). O LibreOffice só converte a partir de
+um arquivo real, então um diretório temporário existe só durante esta
+chamada — nada sobrevive nele depois do `with`.
+
+⭐ 2026-09-20 — a pedido: recusa gerar com campo obrigatório vazio. É a
+segunda trava (a primeira é `confirmar_preenchimento.py`) — quem gere o
+contrato também não deve conseguir gerar um documento incompleto, mesmo que
+o confirmado tenha, por algum motivo, ficado incompleto (dado editado depois
+da confirmação, que pula essa trava).
+"""
+
+import os
+import tempfile
+
+from sqlalchemy.orm import Session
+
+from src.documentos_contratuais.render_template import TEMPLATE_POR_TIPO, renderizar
+from src.repositories.documento_contratual_repository import DocumentoContratualRepository
+from src.repositories.documento_contratual_versao_repository import (
+    DocumentoContratualVersaoRepository,
+)
+from src.repositories.identidade_institucional_repository import IdentidadeInstitucionalRepository
+from src.utils.exceptions import RegraDeNegocioError
+from src.utils.identidade_institucional import identidade_de_configuracao
+from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
+from src.utils.notificar_documento_contratual import documento_pronto_para_revisao_interna
+from src.utils.pdf import converter_docx_para_pdf
+from src.utils.status_documento_contratual import STATUS_GERACAO_PERMITIDA
+from src.utils.validar_dados_documento_contratual import campos_faltando, erro_campos_faltando
+
+
+class GerarDocumentoContratualUseCase:
+    def __init__(self, db: Session):
+        self.db = db
+        self.documentos = DocumentoContratualRepository(db)
+        self.versoes = DocumentoContratualVersaoRepository(db)
+        self.identidade = IdentidadeInstitucionalRepository(db)
+
+    def execute(self, documento_id: int):
+        documento = self.documentos.get_by_id(documento_id)
+        if not documento:
+            raise RegraDeNegocioError("Documento não encontrado.")
+        if documento.status not in STATUS_GERACAO_PERMITIDA:
+            raise RegraDeNegocioError(
+                f'Não é possível gerar um novo rascunho com o documento no status "{documento.status}".'
+            )
+        if documento.tipo not in TEMPLATE_POR_TIPO:
+            raise RegraDeNegocioError(f'Não há template para documentos do tipo "{documento.tipo}".')
+        faltando = campos_faltando(documento.tipo, documento.dados)
+        if faltando:
+            raise erro_campos_faltando(faltando)
+
+        identidade = identidade_de_configuracao(self.identidade.get())
+        doc = renderizar(documento.tipo, documento.dados, identidade)
+
+        with tempfile.TemporaryDirectory() as pasta_temp:
+            docx_path = os.path.join(pasta_temp, f"{documento.tipo}.docx")
+            doc.save(docx_path)
+            pdf_path = converter_docx_para_pdf(docx_path)
+
+            with open(docx_path, "rb") as f:
+                docx_conteudo = f.read()
+            with open(pdf_path, "rb") as f:
+                pdf_conteudo = f.read()
+
+        versao = self.versoes.ultima_versao(documento_id) + 1
+        versao_criada = self.versoes.create(
+            documento_id=documento_id,
+            versao=versao,
+            status_arquivo="rascunho",
+            docx_conteudo=docx_conteudo,
+            pdf_conteudo=pdf_conteudo,
+        )
+
+        atualizado = self.documentos.update(documento_id, status="em_revisao_interna")
+        documento_pronto_para_revisao_interna(self.db, atualizado)
+
+        # 🤖 2026-09-22 — a pedido: gerar o rascunho do TEP já move o projeto
+        # sozinho pra "Envio do TEP" — antes só a última banca aprovada
+        # fazia isso (`aprovar_banca.py`); agora as duas coisas levam lá,
+        # sem depender uma da outra.
+        if documento.tipo == "tep" and documento.projeto_id:
+            mudar_status_projeto_automaticamente(self.db, documento.projeto_id, "envio_tep")
+
+        return versao_criada
