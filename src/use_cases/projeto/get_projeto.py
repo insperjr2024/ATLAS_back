@@ -213,7 +213,14 @@ class ListProjetosUseCase:
         banca_por_escopo = self.banca_repository.mapa_por_escopo(list(projeto_por_escopo))
         proxima_por_projeto = {}
         for escopo_id, banca in banca_por_escopo.items():
-            if banca.data_hora is None or banca.realizado_em is not None:
+            # ⭐ 2026-09-22 — a pedido: banca cancelada não é "próxima banca"
+            # de ninguém — ficava sobrevivendo no card do Kanban do projeto
+            # com a data antiga, mesmo depois de cancelada.
+            if (
+                banca.data_hora is None
+                or banca.realizado_em is not None
+                or getattr(banca, "cancelada_em", None) is not None
+            ):
                 continue
             projeto_id = projeto_por_escopo.get(escopo_id)
             atual = proxima_por_projeto.get(projeto_id)
