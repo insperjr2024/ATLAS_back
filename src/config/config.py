@@ -27,12 +27,6 @@ class Settings(BaseSettings):
     SMTP_FROM: str = ""
     #: A API key gerada no dashboard do Resend (resend.com/api-keys).
     RESEND_API_KEY: str = ""
-    #: ⭐ 2026-09-23 — a pedido: enquanto Contratos está em teste em cima do
-    #: banco de PRODUÇÃO de verdade, todo e-mail (não só o de Contratos —
-    #: qualquer notificação) sai redirecionado pra este endereço em vez do
-    #: destinatário real. Vazio (o padrão) = comportamento normal. Some do
-    #: .env assim que o teste acabar.
-    EMAIL_TESTE_DESTINO: str = ""
     #: Base do link que vai no e-mail. Em produção precisa ser o domínio real,
     #: senão o link aponta para a máquina de quem enviou.
     FRONTEND_URL: str = "http://localhost:5173"
