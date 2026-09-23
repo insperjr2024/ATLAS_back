@@ -30,6 +30,10 @@ from src.utils.exceptions import RegraDeNegocioError
 
 
 class SubmeterAvaliacaoRequest(BaseModel):
+    #: ⭐ 2026-09-23 — a pedido: passou a ser obrigatório (era opcional). O
+    #: tipo continua `Optional` só pra aceitar o corpo sem o campo/com
+    #: `null` sem estourar na validação do Pydantic — quem garante que não
+    #: está vazio é `execute`, com a mensagem certa em português.
     comentario_feedback: Optional[str] = None
 
 
@@ -44,6 +48,12 @@ class SubmeterAvaliacaoUseCase:
         self.projeto_escopo_repository = ProjetoEscopoRepository(db)
 
     def execute(self, avaliacao_id: int, request: SubmeterAvaliacaoRequest, usuario_id: int):
+        # ⭐ 2026-09-23 — a pedido: comentário obrigatório em toda avaliação de
+        # banca — inclusive na submissão "comentário puro" (zero critérios,
+        # o atalho da aba Banca do projeto), onde ele é o ÚNICO conteúdo.
+        if not (request.comentario_feedback or "").strip():
+            raise RegraDeNegocioError("Escreva um comentário antes de enviar a avaliação.")
+
         avaliacao = self.repository.get_by_id(avaliacao_id)
         if not avaliacao:
             return None

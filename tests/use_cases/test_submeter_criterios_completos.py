@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import src.use_cases.avaliacao.submeter_avaliacao as mod
-from src.use_cases.avaliacao.submeter_avaliacao import SubmeterAvaliacaoUseCase
+from src.use_cases.avaliacao.submeter_avaliacao import SubmeterAvaliacaoRequest, SubmeterAvaliacaoUseCase
 from src.utils.exceptions import RegraDeNegocioError
 
 BANCA = SimpleNamespace(id=1, escopo_id=5)
@@ -152,3 +152,20 @@ class TestPerguntaDeTextoObrigatoria:
             ],
         )
         uc._exigir_criterios_completos(99, BANCA)  # não levanta
+
+
+class TestComentarioObrigatorio:
+    """⭐ 2026-09-23 — a pedido: comentário passou a ser obrigatório em toda
+    submissão de avaliação de banca, inclusive a "comentário puro" (zero
+    critérios) — ali ele é o ÚNICO conteúdo da avaliação. Recusa ANTES de
+    tocar em qualquer repositório (`db=None` já basta pra este teste)."""
+
+    def test_comentario_ausente_e_recusado(self):
+        uc = SubmeterAvaliacaoUseCase(db=None)
+        with pytest.raises(RegraDeNegocioError, match="comentário"):
+            uc.execute(1, SubmeterAvaliacaoRequest(comentario_feedback=None), usuario_id=1)
+
+    def test_comentario_so_espacos_e_recusado(self):
+        uc = SubmeterAvaliacaoUseCase(db=None)
+        with pytest.raises(RegraDeNegocioError, match="comentário"):
+            uc.execute(1, SubmeterAvaliacaoRequest(comentario_feedback="   "), usuario_id=1)
