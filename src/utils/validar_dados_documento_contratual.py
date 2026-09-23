@@ -3,9 +3,11 @@
 ⭐ 2026-09-20 — a pedido: sem isso dava pra confirmar o preenchimento e até
 gerar um contrato com CNPJ, nome do representante, tudo em branco. Mesma
 régua da Coleta de Dados (`extrair_coleta.py`): "(Opcional)" é a exceção
-explícita, o resto é obrigatório. Os únicos campos realmente opcionais aqui
-são e-mail/telefone do representante e a 2ª testemunha — nem todo cliente
-traz uma segunda pessoa.
+explícita, o resto é obrigatório. Os campos realmente opcionais são e-mail/
+telefone do representante e as duas testemunhas (⭐ 2026-09-22 — nem a 1ª é
+mais obrigatória: quem não informar nenhuma cai no padrão institucional, ver
+`_campos_testemunhas` e `render_template.py`/`_testemunhas_contexto`) — mas
+quem começar a preencher uma linha de testemunha termina ela.
 
 ⭐ 2026-09-21 — cada item devolvido carrega o CAMINHO junto do rótulo (não só
 o rótulo): é o que permite o front destacar o campo vazio em vez de só listar
@@ -65,12 +67,25 @@ CAMPOS_CONTRATANTE: List[Campo] = [
     ("contratante.representante.endereco", "Endereço do representante"),
 ]
 
-#: Só a testemunha 1 é obrigatória — a 2ª é opcional pros dois lados (ver a
-#: regra de balanceamento em `render_template.py`).
-CAMPOS_TESTEMUNHA_1: List[Campo] = [
-    ("testemunhas.0.nome", "Nome da testemunha 1"),
-    ("testemunhas.0.cpf", "CPF da testemunha 1"),
-]
+
+def _campos_testemunhas(dados: dict) -> List[Campo]:
+    """⭐ 2026-09-22 — a pedido: testemunha não é obrigatória, nem a 1ª. Quem
+    não informar nenhuma cai no padrão institucional (as duas testemunhas da
+    Identidade Institucional — ver o balanceamento em `render_template.py`,
+    `_testemunhas_contexto`). Mas quem começar a preencher uma linha termina
+    ela: não dá pra imprimir nome sem CPF, nem CPF sem nome."""
+    testemunhas = dados.get("testemunhas") or []
+    faltando: List[Campo] = []
+    for i, testemunha in enumerate(testemunhas[:2]):
+        testemunha = testemunha or {}
+        if _vazio(testemunha.get("nome")) and _vazio(testemunha.get("cpf")):
+            continue
+        if _vazio(testemunha.get("nome")):
+            faltando.append((f"testemunhas.{i}.nome", f"Nome da testemunha {i + 1}"))
+        if _vazio(testemunha.get("cpf")):
+            faltando.append((f"testemunhas.{i}.cpf", f"CPF da testemunha {i + 1}"))
+    return faltando
+
 
 CAMPOS_ASSINATURA: List[Campo] = [
     ("assinatura.dia", "Dia da assinatura"),
@@ -174,7 +189,7 @@ def campos_faltando(tipo: str, dados: dict) -> List[Campo]:
         return []
     dados = dados or {}
     faltando = _checar(dados, CAMPOS_CONTRATANTE)
-    faltando += _checar(dados, CAMPOS_TESTEMUNHA_1)
+    faltando += _campos_testemunhas(dados)
     faltando += _checar(dados, CAMPOS_ASSINATURA)
     especifico = CAMPOS_ESPECIFICOS_POR_TIPO.get(tipo)
     if especifico:

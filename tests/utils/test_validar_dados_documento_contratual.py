@@ -46,7 +46,6 @@ class TestComumATodosOsTipos:
         assert "Razão social do contratante" in faltando
         assert "CNPJ do contratante" in faltando
         assert "Nome do representante" in faltando
-        assert "Nome da testemunha 1" in faltando
         assert "Dia da assinatura" in faltando
 
     def test_cada_item_carrega_o_caminho_do_campo(self):
@@ -64,6 +63,51 @@ class TestComumATodosOsTipos:
         faltando = campos_faltando("nda", dados)
 
         assert faltando == []
+
+    def test_nenhuma_testemunha_informada_nao_e_pendencia(self):
+        """⭐ 2026-09-22 — a pedido: quem não informa testemunha nenhuma cai no
+        padrão institucional (as duas testemunhas da Identidade Institucional
+        — ver `render_template.py`/`_testemunhas_contexto`), não é mais
+        motivo pra travar confirmar/gerar."""
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": [{"nome": "", "cpf": ""}, {"nome": "", "cpf": ""}],
+            "assinatura": _assinatura_completa(),
+        }
+
+        assert campos_faltando("nda", dados) == []
+
+    def test_uma_testemunha_informada_sem_a_segunda_nao_e_pendencia(self):
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": [{"nome": "Fulano", "cpf": "111.444.777-35"}, {"nome": "", "cpf": ""}],
+            "assinatura": _assinatura_completa(),
+        }
+
+        assert campos_faltando("nda", dados) == []
+
+    def test_testemunha_com_nome_sem_cpf_e_pendencia(self):
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": [{"nome": "Fulano", "cpf": ""}, {"nome": "", "cpf": ""}],
+            "assinatura": _assinatura_completa(),
+        }
+
+        faltando = rotulos(campos_faltando("nda", dados))
+
+        assert "CPF da testemunha 1" in faltando
+        assert "Nome da testemunha 1" not in faltando
+
+    def test_testemunha_com_cpf_sem_nome_e_pendencia(self):
+        dados = {
+            "contratante": _contratante_completo(),
+            "testemunhas": [{"nome": "", "cpf": "111.444.777-35"}, {"nome": "", "cpf": ""}],
+            "assinatura": _assinatura_completa(),
+        }
+
+        faltando = rotulos(campos_faltando("nda", dados))
+
+        assert "Nome da testemunha 1" in faltando
 
     def test_email_e_telefone_do_representante_sao_opcionais(self):
         contratante = _contratante_completo()
