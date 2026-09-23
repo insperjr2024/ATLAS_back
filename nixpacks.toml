@@ -1,0 +1,7 @@
+# "Gerar rascunho" (§ Contratos) converte o .docx pra .pdf via LibreOffice
+# headless (`src/utils/pdf.py`, comando `soffice`) — sem isto no build, o
+# binário não existe no container e a conversão derruba com 500 em
+# produção (nunca acontecia localmente porque o LibreOffice já vem
+# instalado no Mac de quem desenvolve).
+[phases.setup]
+nixPkgs = ["libreoffice"]
