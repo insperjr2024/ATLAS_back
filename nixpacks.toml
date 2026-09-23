@@ -9,6 +9,14 @@
 # (foi o que quebrou o primeiro deploy — "python: command not found", o
 # próprio Python desapareceu do ambiente). `dependsOn` garante que esta
 # fase roda DEPOIS do setup padrão, só somando o LibreOffice a ele.
+#
+# ⚠ `aptPkgs`, não `nixPkgs`: a 2ª tentativa instalou via Nix e o binário
+# existiu (`soffice`), mas quebrou em runtime — "GLIBC_2.38 not found" — o
+# libstdc++ que veio junto com o pacote Nix do LibreOffice foi resolvido
+# contra uma geração de glibc diferente da que o resto do ambiente usa (Nix
+# não garante que fases separadas resolvam pro mesmo snapshot do nixpkgs).
+# Pacote via apt entra em /usr/lib, linkado contra a MESMA libc do sistema
+# que todo o resto do container já usa — sem essa mistura de gerações.
 [phases.libreoffice]
 dependsOn = ["setup"]
-nixPkgs = ["libreoffice"]
+aptPkgs = ["libreoffice"]
