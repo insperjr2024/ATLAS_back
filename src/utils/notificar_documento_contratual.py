@@ -240,17 +240,24 @@ def documento_assinado(db: Session, documento) -> None:
 
 
 def cliente_respondeu(db: Session, documento, aprovado: bool, motivo: str = None) -> None:
-    """Cliente aprovou ou pediu alteração — avisa quem ia mandar + quem
-    pode gerir o documento."""
+    """Cliente aprovou ou pediu alteração.
+
+    - Aprovou: avisa quem ia mandar (`_destinatarios_envio` — coordenador do
+      TEP incluso, é ele que toca a execução) + quem pode gerir o documento.
+    - Pediu alteração: ⭐ 2026-09-23 — a pedido: NÃO avisa o coordenador do
+      projeto — só quem pode gerir o documento (jurídico/`pode_elaborar_*` e
+      diretoria de projetos, via `_quem_gere_documento`). É um problema do
+      texto do contrato pra resolver, não da execução do projeto."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     if aprovado:
         titulo = f'O cliente aprovou o documento "{tipo}" do projeto "{nome_do_projeto(documento)}".'
+        destinatarios = {u.id: u for u in _destinatarios_envio(db, documento)}
     else:
         titulo = f'O cliente pediu alteração no documento "{tipo}" do projeto "{nome_do_projeto(documento)}".'
         if motivo:
             titulo += f' Pedido: "{motivo}"'
+        destinatarios = {}
 
-    destinatarios = {u.id: u for u in _destinatarios_envio(db, documento)}
     for usuario in _quem_gere_documento(db, documento):
         destinatarios[usuario.id] = usuario
 

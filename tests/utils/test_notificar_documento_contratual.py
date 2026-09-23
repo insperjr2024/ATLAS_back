@@ -287,3 +287,34 @@ class TestDocumentoAssinado:
         mod.documento_assinado(None, documento("contrato"))
 
         assert chamadas == []
+
+
+class TestClienteRespondeu:
+    """⭐ 2026-09-23 — a pedido: quando o cliente PEDE ALTERAÇÃO, o
+    coordenador do projeto não precisa saber — é um problema do texto do
+    contrato pra resolver (jurídico/diretoria), não da execução do projeto.
+    Quando o cliente APROVA, o coordenador continua entrando (é ele que
+    toca a execução do TEP, `_destinatarios_envio`)."""
+
+    def test_pediu_alteracao_nao_notifica_coordenador_do_tep(self, monkeypatch):
+        juridico_com_caixa = SimpleNamespace(id=JURIDICO.id, nome="Jurídico", posicao="adm_juridico")
+        membros = [SimpleNamespace(usuario_id=COORDENADOR.id, papel="coordenador")]
+        montar(monkeypatch, diretores=[DIRETOR], membros=membros, qualquer_contrato=[juridico_com_caixa])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.cliente_respondeu(None, documento("tep"), aprovado=False, motivo="Ajustar cláusula X")
+
+        assert set(chamadas) == {DIRETOR.id, JURIDICO.id}
+        assert COORDENADOR.id not in chamadas
+
+    def test_aprovou_continua_notificando_coordenador_do_tep(self, monkeypatch):
+        juridico_com_caixa = SimpleNamespace(id=JURIDICO.id, nome="Jurídico", posicao="adm_juridico")
+        membros = [SimpleNamespace(usuario_id=COORDENADOR.id, papel="coordenador")]
+        montar(monkeypatch, diretores=[DIRETOR], membros=membros, qualquer_contrato=[juridico_com_caixa])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.cliente_respondeu(None, documento("tep"), aprovado=True)
+
+        assert set(chamadas) == {DIRETOR.id, JURIDICO.id, COORDENADOR.id}

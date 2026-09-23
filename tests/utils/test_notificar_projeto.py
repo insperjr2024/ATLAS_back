@@ -79,19 +79,24 @@ def projeto(id=7, nome="Projeto Alfa"):
 
 
 class TestProjetoCriado:
-    def test_notifica_diretoria_gerentes_e_vendedores(self, monkeypatch):
+    """⭐ 2026-09-23 — a pedido: gerente saiu daqui — não precisa saber toda
+    vez que um projeto qualquer entra em "contrato em elaboração", só
+    quando de fato vira "Vendido" (`TestProjetoVendido`, que continua
+    notificando gerentes)."""
+
+    def test_notifica_diretoria_e_vendedores_nao_gerentes(self, monkeypatch):
         chamadas = montar(monkeypatch, diretores=[DIRETOR], gerentes=[GERENTE], vendedores=[VENDEDOR])
 
         mod.projeto_criado(None, projeto())
 
-        assert set(chamadas) == {DIRETOR.id, GERENTE.id, VENDEDOR.id}
+        assert set(chamadas) == {DIRETOR.id, VENDEDOR.id}
 
-    def test_sem_vendedor_ainda_notifica_so_diretoria_e_gerentes(self, monkeypatch):
+    def test_sem_vendedor_ainda_notifica_so_diretoria(self, monkeypatch):
         chamadas = montar(monkeypatch, diretores=[DIRETOR], gerentes=[GERENTE])
 
         mod.projeto_criado(None, projeto())
 
-        assert set(chamadas) == {DIRETOR.id, GERENTE.id}
+        assert set(chamadas) == {DIRETOR.id}
 
 
 class TestProjetoVendido:

@@ -34,10 +34,14 @@ def diretoria_e_gerentes(db: Session) -> dict:
 
 
 def projeto_criado(db: Session, projeto) -> None:
-    """Nasceu em "Contrato em elaboração" — avisa diretoria, gerentes e
-    quem vendeu (se já tiver vendedor definido na criação)."""
+    """Nasceu em "Contrato em elaboração" — avisa diretoria e quem vendeu (se
+    já tiver vendedor definido na criação).
+
+    ⭐ 2026-09-23 — a pedido: gerente saiu daqui — não precisa saber toda vez
+    que UM projeto qualquer entra em elaboração, só quando de fato vira
+    "Vendido" (`projeto_vendido`, que já é só diretoria e gerentes)."""
     titulo = f'Novo projeto em contrato: "{projeto.nome}".'
-    destinatarios = diretoria_e_gerentes(db)
+    destinatarios = {u.id: u for u in UsuarioRepository(db).get_por_posicao("diretor_projetos")}
     vendedores = ProjetoVendedorRepository(db).get_by_projeto(projeto.id)
     usuarios = UsuarioRepository(db)
     for vendedor in vendedores:
