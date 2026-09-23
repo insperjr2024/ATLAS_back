@@ -101,11 +101,14 @@ ORIGEM_NOTIFICACAO_ENUM = Enum("evento", "condicao", name="origem_notificacao")
 #: `reajuste_solicitado`, `reajuste_respondido`), tarefa obrigatória (
 #: `descricao_coordenador_pendente`) ou vencimento que é do dono da tarefa
 #: resolver (`tarefa_vencida`).
+#:
+#: ⭐ 2026-09-22 — a pedido: `escalacao_banca` SAIU daqui (era opcional, virou
+#: fixo). É o aviso do rodízio automático (§8) escalando alguém pra completar
+#: o piso de uma banca perto da data — perder esse e-mail é perder a banca.
 TIPOS_NOTIFICACAO_OPCIONAIS = frozenset(
     {
         "alocado_em_projeto",
         "entrega_registrada",
-        "escalacao_banca",
         "troca_banca",
         "banca_aviso",
         "entrega_alterada",
