@@ -41,6 +41,15 @@ class EmailSender:
     def enviar(self, destino: str, assunto: str, corpo_texto: str, corpo_html: str) -> None:
         settings = get_settings()
 
+        # ⭐ 2026-09-23 — a pedido: Contratos em teste em cima do banco de
+        # produção de verdade — todo e-mail (de qualquer notificação, não só
+        # de Contratos) sai redirecionado, senão pessoa de verdade recebe
+        # aviso de ação que não aconteceu. O destinatário original fica só
+        # registrado no assunto, pra quem está testando saber pra quem seria.
+        if settings.EMAIL_TESTE_DESTINO and destino != settings.EMAIL_TESTE_DESTINO:
+            assunto = f"[teste — seria para {destino}] {assunto}"
+            destino = settings.EMAIL_TESTE_DESTINO
+
         # Falha explícita em vez de silenciosa: sem credencial configurada o
         # e-mail não sai, e o usuário ficaria esperando um link que nunca chega.
         if not settings.RESEND_API_KEY:
