@@ -106,8 +106,15 @@ router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
 @router.post("/projetos")
 def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_pode_criar_projeto), db: Session = Depends(get_db)):
+    # ⭐ 2026-09-23 — a pedido: atalho só pra diretoria de projetos — decidido
+    # pela POSIÇÃO de quem chama, não pela caixa `pode_criar_projeto` (que
+    # jurídico/gerente também têm, pra outros fins). Ver o docstring de
+    # `CreateProjetoUseCase.execute`.
+    direto_para_vendido = current_user.posicao == "diretor_projetos"
     try:
-        return CreateProjetoUseCase(db).execute(request, criado_por=current_user.id)
+        return CreateProjetoUseCase(db).execute(
+            request, criado_por=current_user.id, direto_para_vendido=direto_para_vendido
+        )
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
