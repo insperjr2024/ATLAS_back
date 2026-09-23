@@ -51,6 +51,12 @@ def _quem_gere_documento(db: Session, documento) -> list:
     usuarios_repo = UsuarioRepository(db)
     destinatarios = {u.id: u for u in usuarios_repo.get_por_posicao("diretor_projetos")}
     for usuario in usuarios_com_permissao(db, "pode_elaborar_qualquer_contrato"):
+        # ⭐ 2026-09-23 — a pedido: gerente de frente tem esta caixa (acesso e
+        # edição de qualquer contrato é visão geral proposital), mas não é
+        # quem toca o dia a dia de gerar/revisar documento — virava
+        # notificação em massa pra gente que não ia fazer nada com ela.
+        if usuario.posicao == "gerente":
+            continue
         destinatarios[usuario.id] = usuario
     if documento.projeto_id:
         vendedor_ids = [v.usuario_id for v in ProjetoVendedorRepository(db).get_by_projeto(documento.projeto_id)]

@@ -30,7 +30,7 @@ def documento(tipo, projeto_id=7, criado_por=CRIADOR.id, confirmado_por=None):
     )
 
 
-def montar(monkeypatch, vendedores=(), diretores=(), membros=(), gerentes=(), juridicos=()):
+def montar(monkeypatch, vendedores=(), diretores=(), membros=(), gerentes=(), juridicos=(), qualquer_contrato=()):
     todos = {
         VENDEDOR.id: VENDEDOR, DIRETOR.id: DIRETOR, COORDENADOR.id: COORDENADOR,
         CRIADOR.id: CRIADOR, GERENTE.id: GERENTE, JURIDICO.id: JURIDICO,
@@ -63,9 +63,14 @@ def montar(monkeypatch, vendedores=(), diretores=(), membros=(), gerentes=(), ju
     # `diretoria_e_gerentes` mora em `notificar_projeto.py` — patcheia lá,
     # não aqui, senão o `mod.UsuarioRepository` não vale pra ela.
     monkeypatch.setattr(notificar_projeto_mod, "UsuarioRepository", UsuarioFake)
-    monkeypatch.setattr(
-        mod, "usuarios_com_permissao", lambda db, campo: list(juridicos) if campo == "pode_aprovar_contrato_internamente" else []
-    )
+    def usuarios_com_permissao_fake(db, campo):
+        if campo == "pode_aprovar_contrato_internamente":
+            return list(juridicos)
+        if campo == "pode_elaborar_qualquer_contrato":
+            return list(qualquer_contrato)
+        return []
+
+    monkeypatch.setattr(mod, "usuarios_com_permissao", usuarios_com_permissao_fake)
 
 
 class TestDestinatariosEnvio:
@@ -98,6 +103,37 @@ class TestDestinatariosEnvio:
         destinatarios = mod._destinatarios_envio(None, documento("nda"))
 
         assert {u.id for u in destinatarios} == {CRIADOR.id}
+
+
+class TestQuemGereDocumento:
+    """⭐ 2026-09-23 — a pedido: gerente de frente tem `pode_elaborar_
+    qualquer_contrato` (acesso e edição de qualquer contrato é visão geral
+    proposital), mas não deve entrar na notificação de "documento pronto
+    para geração" — vira notificação em massa pra gente que não vai
+    gerar/revisar o documento."""
+
+    def test_notifica_diretor_projetos(self, monkeypatch):
+        montar(monkeypatch, diretores=[DIRETOR])
+
+        destinatarios = mod._quem_gere_documento(None, documento("contrato"))
+
+        assert {u.id for u in destinatarios} == {DIRETOR.id}
+
+    def test_notifica_quem_tem_qualquer_contrato_mas_nao_e_gerente(self, monkeypatch):
+        juridico_com_caixa = SimpleNamespace(id=JURIDICO.id, nome="Jurídico", posicao="adm_juridico")
+        montar(monkeypatch, qualquer_contrato=[juridico_com_caixa])
+
+        destinatarios = mod._quem_gere_documento(None, documento("contrato"))
+
+        assert {u.id for u in destinatarios} == {JURIDICO.id}
+
+    def test_nao_notifica_gerente_mesmo_com_qualquer_contrato(self, monkeypatch):
+        gerente_com_caixa = SimpleNamespace(id=GERENTE.id, nome="Gerente", posicao="gerente")
+        montar(monkeypatch, qualquer_contrato=[gerente_com_caixa])
+
+        destinatarios = mod._quem_gere_documento(None, documento("contrato"))
+
+        assert destinatarios == []
 
 
 class TestDisparosUsamDestinatariosEnvio:
