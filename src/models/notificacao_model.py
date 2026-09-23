@@ -80,6 +80,10 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     "documento_contratual_liberado",
     "documento_contratual_cliente_aprovou",
     "documento_contratual_cliente_pediu_alteracao",
+    #: ⭐ 2026-09-23 — a pedido: documento marcado como assinado — avisa o(s)
+    #: gerente(s) da(s) frente(s) do projeto (ver `documento_assinado` em
+    #: `notificar_documento_contratual.py`).
+    "documento_contratual_assinado",
     "projeto_criado_em_contrato",
     "projeto_vendido",
     #: ⭐ 2026-09-22 — a pedido: Contrato de PS assinado abre a declaração de

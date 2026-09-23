@@ -8,10 +8,18 @@ nunca derruba quem chamou) e do sino.
 Eventos do fluxo de documento (o de projeto — criado/vendido — mora em
 `notificar_projeto.py`, é sobre o PROJETO, não um documento):
   - confirmado pela venda, pronto pra gerar            -> quem pode gerir o documento (ver
-                                                           `_quem_gere_documento`)
+                                                           `_quem_gere_documento`) — só sino
   - aprovado internamente / liberado ao cliente        -> quem vai mandar (vendedor no Contrato de
                                                            Prestação; diretoria + coordenadores no TEP)
+                                                           + diretoria de projetos + gerente(s) da(s)
+                                                           frente(s) do projeto + quem elaborou
+  - assinado                                           -> gerente(s) da(s) frente(s) do projeto
   - cliente respondeu (aprovou ou pediu alteração)     -> os mesmos + quem pode gerir o documento
+
+⭐ 2026-09-23 — a pedido: gerente da frente só entra no E-MAIL a partir da
+aprovação interna em diante (aprovado internamente / assinado) — a etapa de
+geração (`documento_pronto_para_gerar`/`documento_contrato_confirmado`) virou
+só sino pra todo mundo, diretoria e jurídico inclusive.
 
 ⭐ 2026-09-21 — os dois primeiros disparos abaixo notificavam
 `projeto.criado_por` (quem criou o PROJETO), não necessariamente quem vai de
@@ -26,8 +34,10 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from src.middlewares.authorization import usuario_tem_permissao
+from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_vendedor_repository import ProjetoVendedorRepository
+from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.registrar_notificacao import registrar
 from src.utils.notificar_projeto import diretoria_e_gerentes
@@ -67,6 +77,25 @@ def _quem_gere_documento(db: Session, documento) -> list:
     return list(destinatarios.values())
 
 
+def _gerentes_das_frentes_do_projeto(db: Session, projeto_id) -> list:
+    """⭐ 2026-09-23 — a pedido: gerente da frente (ou frentes) DESTE projeto
+    — não confundir com `diretoria_e_gerentes` (todos os gerentes, de toda
+    frente da Insper Jr). É a régua de quem recebe e-mail quando o contrato
+    é aprovado internamente e quando é assinado."""
+    if not projeto_id:
+        return []
+    frente_ids = [f.frente_id for f in ProjetoFrenteRepository(db).get_by_projeto(projeto_id)]
+    usuario_frente_repo = UsuarioFrenteRepository(db)
+    usuarios_repo = UsuarioRepository(db)
+    destinatarios = {}
+    for frente_id in frente_ids:
+        for vinculo in usuario_frente_repo.get_by_frente(frente_id):
+            usuario = usuarios_repo.get_by_id(vinculo.usuario_id)
+            if usuario and usuario.posicao == "gerente":
+                destinatarios[usuario.id] = usuario
+    return list(destinatarios.values())
+
+
 def documento_pronto_para_gerar(db: Session, documento) -> None:
     """Confirmado pela venda — avisa quem pode gerir o documento e gerar.
 
@@ -94,7 +123,12 @@ def documento_contrato_confirmado(db: Session, documento) -> None:
     """⭐ 2026-09-22 — a pedido: Contrato de Prestação elaborado (confirmado,
     entrou em Geração) — avisa diretoria de projetos, gerentes e o(s)
     vendedor(es) do projeto. Só pra tipo "contrato", sem pedido pros
-    outros tipos ainda."""
+    outros tipos ainda.
+
+    ⭐ 2026-09-23 — a pedido: só sino, sem e-mail. Ninguém precisa de e-mail
+    nesta etapa (geração) — diretoria e jurídico não, e o gerente só entra
+    no e-mail mais adiante (aprovado internamente / assinado, ver
+    `documento_aprovado_internamente`/`documento_assinado`)."""
     titulo = f'Contrato de Prestação elaborado — "{nome_do_projeto(documento)}" está em geração.'
     destinatarios = diretoria_e_gerentes(db)
     vendedor_ids = [v.usuario_id for v in ProjetoVendedorRepository(db).get_by_projeto(documento.projeto_id)]
@@ -113,6 +147,7 @@ def documento_contrato_confirmado(db: Session, documento) -> None:
             projeto_id=documento.projeto_id,
             rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:contrato_confirmado:{uuid4()}",
+            enviar_email=False,
         )
 
 
@@ -135,10 +170,19 @@ def documento_pronto_para_revisao_interna(db: Session, documento) -> None:
 
 def documento_aprovado_internamente(db: Session, documento) -> None:
     """Jurídico aprovou por dentro — avisa quem vai mandar ao cliente e quem
-    elaborou (confirmou o preenchimento)."""
+    elaborou (confirmou o preenchimento).
+
+    ⭐ 2026-09-23 — a pedido: soma também a diretoria de projetos e o(s)
+    gerente(s) da(s) frente(s) do projeto — "todos envolvidos", já que esta
+    é a etapa em que o gerente passa a entrar no e-mail (a de geração, não;
+    ver `documento_contrato_confirmado`)."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     titulo = f'Documento aprovado internamente — já pode mandar ao cliente: "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     destinatarios = {u.id: u for u in _destinatarios_envio(db, documento)}
+    for usuario in UsuarioRepository(db).get_por_posicao("diretor_projetos"):
+        destinatarios[usuario.id] = usuario
+    for usuario in _gerentes_das_frentes_do_projeto(db, documento.projeto_id):
+        destinatarios[usuario.id] = usuario
     if documento.confirmado_por:
         elaborador = UsuarioRepository(db).get_by_id(documento.confirmado_por)
         if elaborador:
@@ -168,6 +212,25 @@ def documento_liberado_para_cliente(db: Session, documento) -> None:
             projeto_id=documento.projeto_id,
             rota=_rota(documento.id),
             chave_dedup=f"documento_contratual:{documento.id}:liberado:{uuid4()}",
+        )
+
+
+def documento_assinado(db: Session, documento) -> None:
+    """⭐ 2026-09-23 — a pedido: documento marcado como assinado — avisa o(s)
+    gerente(s) da(s) frente(s) do projeto (mesma régua de `documento_
+    aprovado_internamente`, só que aqui o gerente é o único destinatário —
+    não é pedido pra somar diretoria/vendedor/quem elaborou nesta etapa)."""
+    tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
+    titulo = f'Documento assinado — "{tipo}" do projeto "{nome_do_projeto(documento)}".'
+    for usuario in _gerentes_das_frentes_do_projeto(db, documento.projeto_id):
+        registrar(
+            db,
+            usuario_id=usuario.id,
+            tipo="documento_contratual_assinado",
+            titulo=titulo,
+            projeto_id=documento.projeto_id,
+            rota=_rota(documento.id),
+            chave_dedup=f"documento_contratual:{documento.id}:assinado:{uuid4()}",
         )
 
 

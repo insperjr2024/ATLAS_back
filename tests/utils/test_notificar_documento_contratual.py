@@ -30,11 +30,22 @@ def documento(tipo, projeto_id=7, criado_por=CRIADOR.id, confirmado_por=None):
     )
 
 
-def montar(monkeypatch, vendedores=(), diretores=(), membros=(), gerentes=(), juridicos=(), qualquer_contrato=()):
+def montar(
+    monkeypatch,
+    vendedores=(),
+    diretores=(),
+    membros=(),
+    gerentes=(),
+    juridicos=(),
+    qualquer_contrato=(),
+    gerentes_da_frente=(),
+):
     todos = {
         VENDEDOR.id: VENDEDOR, DIRETOR.id: DIRETOR, COORDENADOR.id: COORDENADOR,
         CRIADOR.id: CRIADOR, GERENTE.id: GERENTE, JURIDICO.id: JURIDICO,
     }
+    for g in gerentes_da_frente:
+        todos[g.id] = g
 
     class UsuarioFake:
         def __init__(self, db): pass
@@ -57,9 +68,21 @@ def montar(monkeypatch, vendedores=(), diretores=(), membros=(), gerentes=(), ju
         def get_by_projeto(self, _projeto_id, apenas_atuais=False):
             return membros
 
+    class FrenteFake:
+        def __init__(self, db): pass
+        def get_by_projeto(self, _projeto_id):
+            return [SimpleNamespace(frente_id=1)] if gerentes_da_frente else []
+
+    class UsuarioFrenteFake:
+        def __init__(self, db): pass
+        def get_by_frente(self, _frente_id):
+            return [SimpleNamespace(usuario_id=g.id) for g in gerentes_da_frente]
+
     monkeypatch.setattr(mod, "UsuarioRepository", UsuarioFake)
     monkeypatch.setattr(mod, "ProjetoVendedorRepository", VendedorFake)
     monkeypatch.setattr(mod, "ProjetoMembroRepository", MembroFake)
+    monkeypatch.setattr(mod, "ProjetoFrenteRepository", FrenteFake)
+    monkeypatch.setattr(mod, "UsuarioFrenteRepository", UsuarioFrenteFake)
     # `diretoria_e_gerentes` mora em `notificar_projeto.py` — patcheia lá,
     # não aqui, senão o `mod.UsuarioRepository` não vale pra ela.
     monkeypatch.setattr(notificar_projeto_mod, "UsuarioRepository", UsuarioFake)
@@ -158,6 +181,20 @@ class TestDisparosUsamDestinatariosEnvio:
 
         assert set(chamadas) == {VENDEDOR.id, COORDENADOR.id}
 
+    def test_aprovado_internamente_soma_diretoria_e_gerente_da_frente(self, monkeypatch):
+        """⭐ 2026-09-23 — a pedido: "todos envolvidos" na aprovação interna —
+        quem manda ao cliente (vendedor), quem elaborou, diretoria de
+        projetos E o(s) gerente(s) da(s) frente(s) do projeto (é aqui que o
+        gerente passa a entrar no e-mail, não na geração)."""
+        gerente_frente = SimpleNamespace(id=70, nome="Gerente da Frente", posicao="gerente")
+        montar(monkeypatch, vendedores=[VENDEDOR], diretores=[DIRETOR], gerentes_da_frente=[gerente_frente])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.documento_aprovado_internamente(None, documento("contrato"))
+
+        assert set(chamadas) == {VENDEDOR.id, DIRETOR.id, gerente_frente.id}
+
     def test_liberado_para_cliente_notifica_quem_manda_nao_o_criador(self, monkeypatch):
         membros = [SimpleNamespace(usuario_id=COORDENADOR.id, papel="coordenador")]
         montar(monkeypatch, diretores=[DIRETOR], membros=membros)
@@ -173,11 +210,24 @@ class TestDocumentoContratoConfirmado:
     def test_notifica_diretoria_gerentes_e_vendedor(self, monkeypatch):
         montar(monkeypatch, vendedores=[VENDEDOR], diretores=[DIRETOR], gerentes=[GERENTE])
         chamadas = []
-        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw))
 
         mod.documento_contrato_confirmado(None, documento("contrato"))
 
-        assert set(chamadas) == {DIRETOR.id, GERENTE.id, VENDEDOR.id}
+        assert {c["usuario_id"] for c in chamadas} == {DIRETOR.id, GERENTE.id, VENDEDOR.id}
+
+    def test_e_so_sino_sem_email(self, monkeypatch):
+        """⭐ 2026-09-23 — a pedido: ninguém recebe e-mail na etapa de
+        geração — nem diretoria, nem jurídico, nem o gerente (que só entra
+        no e-mail a partir da aprovação interna, ver `documento_aprovado_
+        internamente`)."""
+        montar(monkeypatch, vendedores=[VENDEDOR], diretores=[DIRETOR], gerentes=[GERENTE])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw))
+
+        mod.documento_contrato_confirmado(None, documento("contrato"))
+
+        assert all(c["enviar_email"] is False for c in chamadas)
 
 
 class TestDocumentoProntoParaRevisaoInterna:
@@ -189,3 +239,28 @@ class TestDocumentoProntoParaRevisaoInterna:
         mod.documento_pronto_para_revisao_interna(None, documento("contrato"))
 
         assert chamadas == [JURIDICO.id]
+
+
+class TestDocumentoAssinado:
+    """⭐ 2026-09-23 — a pedido: documento assinado avisa só o(s) gerente(s)
+    da(s) frente(s) do projeto — a segunda (e última) etapa em que o
+    gerente recebe e-mail."""
+
+    def test_notifica_gerente_da_frente(self, monkeypatch):
+        gerente_frente = SimpleNamespace(id=70, nome="Gerente da Frente", posicao="gerente")
+        montar(monkeypatch, gerentes_da_frente=[gerente_frente])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.documento_assinado(None, documento("contrato"))
+
+        assert chamadas == [gerente_frente.id]
+
+    def test_sem_gerente_da_frente_nao_notifica_ninguem(self, monkeypatch):
+        montar(monkeypatch)
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.documento_assinado(None, documento("contrato"))
+
+        assert chamadas == []

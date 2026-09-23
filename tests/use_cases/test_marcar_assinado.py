@@ -33,6 +33,9 @@ def _mudanca_de_status_automatica(monkeypatch):
     # próprio em test_notificar_projeto.py.
     monkeypatch.setattr(marcar_assinado_mod, "projeto_vendido", lambda *a, **k: None)
     monkeypatch.setattr(marcar_assinado_mod, "vagas_abertas", lambda *a, **k: None)
+    # Idem pra notificação de "documento assinado" (avisa o(s) gerente(s) da
+    # frente) — tem teste próprio em test_notificar_documento_contratual.py.
+    monkeypatch.setattr(marcar_assinado_mod, "documento_assinado", lambda *a, **k: None)
     return chamadas
 
 
