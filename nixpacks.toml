@@ -3,5 +3,12 @@
 # binário não existe no container e a conversão derruba com 500 em
 # produção (nunca acontecia localmente porque o LibreOffice já vem
 # instalado no Mac de quem desenvolve).
-[phases.setup]
+#
+# ⚠ Fase PRÓPRIA, não `phases.setup`: sobrescrever `phases.setup.nixPkgs`
+# substitui inteiro o setup que o provider Python do Nixpacks gera sozinho
+# (foi o que quebrou o primeiro deploy — "python: command not found", o
+# próprio Python desapareceu do ambiente). `dependsOn` garante que esta
+# fase roda DEPOIS do setup padrão, só somando o LibreOffice a ele.
+[phases.libreoffice]
+dependsOn = ["setup"]
 nixPkgs = ["libreoffice"]
