@@ -90,6 +90,13 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: interesse do projeto em Vagas em Projetos — avisa os consultores das
     #: frentes dele, não quem já recebe `projeto_vendido` (diretoria/gerentes).
     "vagas_abertas",
+    #: ⭐ 2026-09-23 — a pedido: qualquer avaliação (banca OU lote de
+    #: Desempenho) que encerra com gente que não respondeu avisa a diretoria,
+    #: uma notificação por PESSOA pendente, com o nome dela — pra poder
+    #: pontuar. A de avaliação de banca já existia dentro de
+    #: `rodar_lembrete_prazo_avaliacao` (tipo `banca_aviso`); este tipo cobre
+    #: o lado que faltava, o lote de Avaliação de Desempenho.
+    "lote_desempenho_pendencia_diretoria",
     name="tipo_notificacao",
 )
 

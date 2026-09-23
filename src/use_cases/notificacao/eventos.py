@@ -21,6 +21,7 @@ from src.use_cases.notificacao.destinatarios import (
 )
 from src.use_cases.notificacao.registrar_notificacao import registrar, registrar_varios
 from src.utils.fuso import para_hora_local
+from src.utils.usuarios_com_permissao import usuarios_com_permissao
 
 
 def _formatar(valor) -> str:
@@ -280,6 +281,54 @@ def notificar_lote_desempenho_lembrete(db: Session, lote, pendencias) -> None:
             payload={"lote_id": lote.id},
             chave_dedup=f"lote_desempenho_lembrete:lote={lote.id}:usuario={avaliador_id}",
         )
+
+
+def notificar_lote_desempenho_pendencia_diretoria(db: Session, lote, pendencias) -> None:
+    """Lote de Avaliação de Desempenho ENCERROU com gente que não respondeu
+    — avisa quem administra Desempenho (diretoria de projetos + diretoria de
+    pessoas), uma notificação por PESSOA pendente, com o nome dela, pra dar
+    pra pontuar (⭐ 2026-09-23, a pedido).
+
+    Espelha o que `rodar_lembrete_prazo_avaliacao` já faz pro lado de
+    avaliação de BANCA (também um aviso por pessoa, à diretoria de
+    projetos, no dia seguinte ao prazo vencido) — este cobre o lado que
+    faltava, o lote de Desempenho.
+
+    ⚠ Sem filtro de "acabou de fechar": quem chama (o job de 5 em 5 min)
+    varre todo lote fechado recentemente a cada passada, e é o dedup por
+    lote+pendente+diretor que garante um aviso só, não uma janela de tempo.
+    """
+    pendentes: dict[int, str] = {}
+    for p in pendencias:
+        if p.get("respondida"):
+            continue
+        pendentes[p["avaliador_id"]] = p.get("avaliador_nome") or f"usuário {p['avaliador_id']}"
+    if not pendentes:
+        return
+
+    # Quem tem a caixa de administrar Desempenho — base OU cargo_extra, o
+    # mesmo recorte que `require_pode_administrar_desempenho` já usa pra
+    # deixar entrar na tela (ver `usuarios_com_permissao.py`).
+    diretores = {u.id: u for u in usuarios_com_permissao(db, "pode_administrar_desempenho")}
+    if not diretores:
+        return
+
+    nome_lote = getattr(lote, "nome", "") or "Avaliação de Desempenho"
+    for avaliador_id, nome in pendentes.items():
+        titulo = f'{nome} não respondeu "{nome_lote}" antes do prazo.'
+        for diretor in diretores.values():
+            registrar(
+                db,
+                usuario_id=diretor.id,
+                tipo="lote_desempenho_pendencia_diretoria",
+                titulo=titulo,
+                rota="/avaliacao-desempenho",
+                payload={"lote_id": lote.id, "usuario_id": avaliador_id},
+                chave_dedup=(
+                    f"lote_desempenho_pendencia_diretoria:lote={lote.id}"
+                    f":pendente={avaliador_id}:diretor={diretor.id}"
+                ),
+            )
 
 
 def notificar_lote_desempenho_cancelado(db: Session, lote, avaliador_ids) -> None:

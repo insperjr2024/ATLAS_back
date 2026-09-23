@@ -43,6 +43,7 @@ from src.use_cases.notificacao.reenviar_pendentes import reenviar_emails_pendent
 from src.utils.fuso import agora_utc
 from src.use_cases.notificacao.eventos import (
     notificar_lote_desempenho_lembrete,
+    notificar_lote_desempenho_pendencia_diretoria,
     notificar_pdi_prazo_proximo,
     notificar_pdi_prazo_vencido,
 )
@@ -185,6 +186,39 @@ def rodar_lembrete_lote_finalizacao() -> None:
                 avisos += 1
         if avisos:
             logger.info("Lembrete de lote de finalização: %d lote(s) com pendência", avisos)
+    finally:
+        db.close()
+
+
+def rodar_aviso_diretoria_lote_encerrado() -> None:
+    """⭐ 2026-09-23, a pedido: quando um lote de Avaliação de Desempenho
+    ENCERRA (prazo ou fechamento manual) e sobra gente que não respondeu,
+    avisa a diretoria (quem administra Desempenho) com o nome de cada
+    pendente — pra poder pontuar. Espelha o que já existe pro lado de
+    avaliação de BANCA (`rodar_lembrete_prazo_avaliacao`, dia seguinte ao
+    prazo vencido).
+
+    ⚠ Varre `get_relevantes_para_fila()` (aberto + fechado nos últimos 30
+    dias) e pula quem ainda está aberto — não precisa acertar a janela exata
+    de "acabou de fechar" porque o dedup (lote+pendente+diretor) em
+    `notificar_lote_desempenho_pendencia_diretoria` garante um aviso só,
+    não importa quantas passadas do job (5 em 5 min) encontrem o mesmo
+    lote fechado."""
+    from src.utils.desempenho_lote import esta_aberto
+
+    db = SessionLocal()
+    try:
+        lote_repo = DesempenhoLoteRepository(db)
+        avisos = 0
+        for lote in lote_repo.get_relevantes_para_fila():
+            if esta_aberto(lote.override_manual, lote.data_inicio, lote.data_fim):
+                continue
+            pendencias = GetPendenciasLoteUseCase(db).execute(lote.id) or []
+            if any(not p.get("respondida") for p in pendencias):
+                notificar_lote_desempenho_pendencia_diretoria(db, lote, pendencias)
+                avisos += 1
+        if avisos:
+            logger.info("Aviso à diretoria de lote encerrado com pendência: %d lote(s)", avisos)
     finally:
         db.close()
 
@@ -469,6 +503,15 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_lote_finalizacao,
         CronTrigger(minute="*/5"),
         id="lembrete_lote_finalizacao",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_aviso_diretoria_lote_encerrado,
+        # De 5 em 5 min, mesma frequência dos outros jobs de lote — o dedup
+        # por lote+pendente+diretor garante um aviso só, então varrer com
+        # frequência só custa uma query quando não há nada novo.
+        CronTrigger(minute="*/5"),
+        id="aviso_diretoria_lote_encerrado",
         replace_existing=True,
     )
     scheduler.add_job(
