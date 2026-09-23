@@ -57,6 +57,17 @@ class CreateProjetoRequest(BaseModel):
     #: cada um". Opcional para não quebrar quem cria o projeto e adiciona os
     #: escopos depois, na página do projeto.
     escopos: List[EscopoVendidoRequest] = Field(default_factory=list)
+    #: ⭐ 2026-09-23 — a pedido: `/projetos/novo` tem DOIS pontos de entrada
+    #: — o botão do atalho (`ProjetosList`, só diretoria de projetos) e o
+    #: fluxo normal via Contratos ("Projeto de entrega novo" no assistente
+    #: de Novo Contrato). Os dois batem na MESMA rota — sem este campo
+    #: explícito, o backend não tinha como diferenciar e tratava QUALQUER
+    #: criação por diretor_projetos como atalho, inclusive vindo do fluxo
+    #: certo (o aviso de atalho aparecia, e o projeto pulava "contrato em
+    #: elaboração" mesmo quando a pessoa ia abrir o Contrato de PS depois).
+    #: Só o router decide se honra isto (`current_user.posicao ==
+    #: "diretor_projetos"` também precisa ser verdade).
+    atalho_direto_vendido: bool = False
 
     @field_validator("frente_ids")
     @classmethod
