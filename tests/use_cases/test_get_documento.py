@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import src.use_cases.documento_contratual.get_documento as mod
 
 
-def _documento(projeto_id=7, projeto_nome="Projeto X", aprovado_internamente_por=None):
+def _documento(projeto_id=7, projeto_nome="Projeto X", aprovado_internamente_por=None, criado_por=None):
     projeto = SimpleNamespace(id=projeto_id, nome=projeto_nome, cliente=None)
     return SimpleNamespace(
         id=1,
@@ -27,6 +27,7 @@ def _documento(projeto_id=7, projeto_nome="Projeto X", aprovado_internamente_por
         status="aguardando_aprovacao_cliente",
         dados={},
         confirmado=True,
+        criado_por=criado_por,
         gestao_id=None,
         criado_em="2026-09-23",
         atualizado_em="2026-09-23",
@@ -92,3 +93,23 @@ class TestLinkAprovacaoAtivo:
         serializado = mod.serializar_documento_contratual_completo(None, _documento())
 
         assert serializado["link_aprovacao"] is None
+
+
+class TestCriadoPorNome:
+    """⭐ 2026-09-23 — a pedido: "onde está registrado quem criou o
+    contrato" — antes não estava em lugar nenhum."""
+
+    def test_sem_criador_registrado_e_nulo(self, monkeypatch):
+        _montar(monkeypatch, token=None)
+
+        serializado = mod.serializar_documento_contratual_completo(None, _documento(criado_por=None))
+
+        assert serializado["criado_por_nome"] is None
+
+    def test_com_criador_registrado_traz_o_nome(self, monkeypatch):
+        criador = SimpleNamespace(id=99, nome="Fulano Criador")
+        _montar(monkeypatch, token=None, usuario=criador)
+
+        serializado = mod.serializar_documento_contratual_completo(None, _documento(criado_por=99))
+
+        assert serializado["criado_por_nome"] == "Fulano Criador"

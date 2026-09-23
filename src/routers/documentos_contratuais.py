@@ -261,7 +261,7 @@ def criar_documento_institucional(
     if not _pode_abrir_documento(usuario, db, request.tipo):
         raise HTTPException(status_code=403, detail="Sem permissão para abrir este tipo de documento.")
     try:
-        documento = CriarDocumentoInstitucionalUseCase(db).execute(request)
+        documento = CriarDocumentoInstitucionalUseCase(db).execute(request, criado_por=usuario.id)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
     return serializar_documento_contratual_completo(db, documento, ultima_versao=None)
@@ -338,7 +338,7 @@ def abrir_documento(
             status_code=403, detail="Sem permissão para adicionar este tipo de documento."
         )
     try:
-        documento = AbrirDocumentoContratualUseCase(db).execute(projeto_id, request.tipo)
+        documento = AbrirDocumentoContratualUseCase(db).execute(projeto_id, request.tipo, criado_por=usuario.id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
 

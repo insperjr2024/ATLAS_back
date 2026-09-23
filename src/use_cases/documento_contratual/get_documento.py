@@ -24,6 +24,7 @@ def serializar_documento_contratual(
     frente_ids: Optional[List[int]] = None,
     aprovado_internamente_por_nome: Optional[str] = None,
     link_aprovacao: Optional[dict] = None,
+    criado_por_nome: Optional[str] = None,
 ) -> dict:
     return {
         "id": documento.id,
@@ -50,6 +51,10 @@ def serializar_documento_contratual(
         # ⭐ 2026-09-22 — a pedido: registro de auditoria visível na tela
         # ("Aprovado por Fulana às 14h32"), não só uma notificação que some
         # do sino depois de lida.
+        # ⭐ 2026-09-23 — a pedido: "onde está registrado quem criou o
+        # contrato" — antes não estava em lugar nenhum. `None` pra documentos
+        # de antes desta coluna existir (sem como reconstruir).
+        "criado_por_nome": criado_por_nome,
         "aprovado_internamente_por_nome": aprovado_internamente_por_nome,
         "aprovado_internamente_em": documento.aprovado_internamente_em,
         # Só não-`None` pro TEP em "aprovado_pelo_cliente" — o front usa isto
@@ -72,6 +77,13 @@ def _nome_aprovador(db: Session, documento: DocumentoContratualModel) -> Optiona
     if not documento.aprovado_internamente_por:
         return None
     usuario = UsuarioRepository(db).get_by_id(documento.aprovado_internamente_por)
+    return usuario.nome if usuario else None
+
+
+def _nome_criador(db: Session, documento: DocumentoContratualModel) -> Optional[str]:
+    if not documento.criado_por:
+        return None
+    usuario = UsuarioRepository(db).get_by_id(documento.criado_por)
     return usuario.nome if usuario else None
 
 
@@ -106,6 +118,7 @@ def serializar_documento_contratual_completo(
         frente_ids=_frente_ids(db, documento),
         aprovado_internamente_por_nome=_nome_aprovador(db, documento),
         link_aprovacao=_link_aprovacao_ativo(db, documento),
+        criado_por_nome=_nome_criador(db, documento),
     )
 
 

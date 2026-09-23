@@ -8,7 +8,7 @@ ATLAS (não existe mais uma pasta separada), e a herança de dados cai para
 portada, então não há um segundo lugar de onde puxar.
 """
 
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -57,7 +57,7 @@ class AbrirDocumentoContratualUseCase:
             disponiveis.append(tipo.value)
         return [str(t) for t in ordenar_por_tipo(disponiveis)]
 
-    def execute(self, projeto_id: int, tipo: str):
+    def execute(self, projeto_id: int, tipo: str, criado_por: Optional[int] = None):
         projeto = self.projetos.get_by_id(projeto_id)
         if not projeto:
             raise RegraDeNegocioError("Projeto não encontrado.")
@@ -85,4 +85,5 @@ class AbrirDocumentoContratualUseCase:
             status=StatusDocumentoContratual.AGUARDANDO_PREENCHIMENTO.value,
             dados=dados_iniciais,
             confirmado=False,
+            criado_por=criado_por,
         )

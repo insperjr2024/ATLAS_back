@@ -172,10 +172,11 @@ def documento_aprovado_internamente(db: Session, documento) -> None:
     """Jurídico aprovou por dentro — avisa quem vai mandar ao cliente e quem
     elaborou (confirmou o preenchimento).
 
-    ⭐ 2026-09-23 — a pedido: soma também a diretoria de projetos e o(s)
-    gerente(s) da(s) frente(s) do projeto — "todos envolvidos", já que esta
-    é a etapa em que o gerente passa a entrar no e-mail (a de geração, não;
-    ver `documento_contrato_confirmado`)."""
+    ⭐ 2026-09-23 — a pedido: soma também a diretoria de projetos, o(s)
+    gerente(s) da(s) frente(s) do projeto e quem CRIOU o documento (abriu o
+    "Novo Contrato") — "todos envolvidos", já que esta é a etapa em que o
+    gerente passa a entrar no e-mail (a de geração, não; ver `documento_
+    contrato_confirmado`)."""
     tipo = ROTULO_TIPO.get(documento.tipo, "Documento")
     titulo = f'Documento aprovado internamente — já pode mandar ao cliente: "{tipo}" do projeto "{nome_do_projeto(documento)}".'
     destinatarios = {u.id: u for u in _destinatarios_envio(db, documento)}
@@ -187,6 +188,10 @@ def documento_aprovado_internamente(db: Session, documento) -> None:
         elaborador = UsuarioRepository(db).get_by_id(documento.confirmado_por)
         if elaborador:
             destinatarios[elaborador.id] = elaborador
+    if documento.criado_por:
+        criador = UsuarioRepository(db).get_by_id(documento.criado_por)
+        if criador:
+            destinatarios[criador.id] = criador
     for usuario in destinatarios.values():
         registrar(
             db,

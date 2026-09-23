@@ -71,6 +71,12 @@ class DocumentoContratualModel(Base):
     #: gerir_documento` em `routers/documentos_contratuais.py`).
     #: Só importa enquanto o status é "aguardando_preenchimento".
     confirmado = Column(Boolean, nullable=False, default=False)
+    #: ⭐ 2026-09-23 — a pedido: quem abriu este documento (clicou em "Novo
+    #: Contrato" e escolheu o tipo) — registro de auditoria que não existia
+    #: (nem `confirmado_por` nem `aprovado_internamente_por` respondem "quem
+    #: criou"). Nullable: documentos de antes desta coluna existir ficam sem
+    #: essa informação, não há como reconstruir depois do fato.
+    criado_por = Column(Integer, ForeignKey("usuario.id"), nullable=True)
     #: ⭐ 2026-09-22 — a pedido: quem confirmou o preenchimento ("quem
     #: elaborou o contrato") — usado pra notificar essa pessoa quando o
     #: documento for aprovado internamente depois.

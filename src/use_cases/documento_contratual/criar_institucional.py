@@ -30,7 +30,7 @@ class CriarDocumentoInstitucionalUseCase:
     def __init__(self, db: Session):
         self.documentos = DocumentoContratualRepository(db)
 
-    def execute(self, request: CriarDocumentoInstitucionalRequest):
+    def execute(self, request: CriarDocumentoInstitucionalRequest, criado_por: Optional[int] = None):
         try:
             TipoDocumentoContratual(request.tipo)
         except ValueError:
@@ -46,4 +46,5 @@ class CriarDocumentoInstitucionalUseCase:
             status=StatusDocumentoContratual.AGUARDANDO_PREENCHIMENTO.value,
             dados=dados_iniciais,
             confirmado=False,
+            criado_por=criado_por,
         )

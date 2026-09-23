@@ -23,10 +23,19 @@ GERENTE = usuario(50)
 JURIDICO = usuario(60)
 
 
-def documento(tipo, projeto_id=7, criado_por=CRIADOR.id, confirmado_por=None):
+def documento(tipo, projeto_id=7, criado_por=CRIADOR.id, confirmado_por=None, documento_criado_por=None):
     projeto = SimpleNamespace(id=projeto_id, nome="Projeto X", criado_por=criado_por)
     return SimpleNamespace(
-        id=1, tipo=tipo, projeto_id=projeto_id, projeto=projeto, confirmado_por=confirmado_por
+        id=1,
+        tipo=tipo,
+        projeto_id=projeto_id,
+        projeto=projeto,
+        confirmado_por=confirmado_por,
+        # ⚠ Não confundir com `criado_por` acima — aquele é do PROJETO (cai
+        # em `_destinatarios_envio`/`_usuario_criador`); este é do
+        # DOCUMENTO (quem abriu o "Novo Contrato" — `documento_aprovado_
+        # internamente` soma essa pessoa aos destinatários).
+        criado_por=documento_criado_por,
     )
 
 
@@ -194,6 +203,20 @@ class TestDisparosUsamDestinatariosEnvio:
         mod.documento_aprovado_internamente(None, documento("contrato"))
 
         assert set(chamadas) == {VENDEDOR.id, DIRETOR.id, gerente_frente.id}
+
+    def test_aprovado_internamente_notifica_quem_criou_o_documento(self, monkeypatch):
+        """⭐ 2026-09-23 — a pedido: quem abriu o documento ("Novo Contrato")
+        também é avisado — não confundir com `confirmado_por` (quem
+        preencheu) nem com `projeto.criado_por` (quem criou o PROJETO)."""
+        montar(monkeypatch, vendedores=[VENDEDOR])
+        chamadas = []
+        monkeypatch.setattr(mod, "registrar", lambda db, **kw: chamadas.append(kw["usuario_id"]))
+
+        mod.documento_aprovado_internamente(
+            None, documento("contrato", documento_criado_por=GERENTE.id)
+        )
+
+        assert set(chamadas) == {VENDEDOR.id, GERENTE.id}
 
     def test_liberado_para_cliente_notifica_quem_manda_nao_o_criador(self, monkeypatch):
         membros = [SimpleNamespace(usuario_id=COORDENADOR.id, papel="coordenador")]
