@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from src.models.token_aprovacao_contratual_model import TokenAprovacaoContratualModel
 from src.repositories.base_repository import BaseRepository
@@ -9,6 +9,13 @@ class TokenAprovacaoContratualRepository(BaseRepository[TokenAprovacaoContratual
 
     def get_by_token(self, token: str) -> Optional[TokenAprovacaoContratualModel]:
         return self.first_by(token=token)
+
+    def list_by_documento(self, documento_id: int) -> List[TokenAprovacaoContratualModel]:
+        """Todos os tokens de um documento, usados ou não — diferente de
+        `get_ativo_por_documento`, que só acha o ativo. Quem precisa é o
+        hard delete (`hard_deletar_documento.py`): tem que apagar o
+        histórico inteiro, não só o link em aberto."""
+        return self.filter_by(documento_id=documento_id)
 
     def get_ativo_por_documento(self, documento_id: int) -> Optional[TokenAprovacaoContratualModel]:
         """⭐ 2026-09-23 — a pedido: o link/card de "enviar ao cliente" tem que

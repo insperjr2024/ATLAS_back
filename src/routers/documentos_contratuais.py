@@ -66,6 +66,9 @@ from src.use_cases.documento_contratual.confirmar_preenchimento import (
 from src.use_cases.documento_contratual.deletar_documento import (
     DeletarDocumentoContratualUseCase,
 )
+from src.use_cases.documento_contratual.hard_deletar_documento import (
+    HardDeletarDocumentoContratualUseCase,
+)
 from src.use_cases.documento_contratual.editar_texto import (
     EditarTextoDocumentoContratualUseCase,
     GetParagrafosEditaveisUseCase,
@@ -96,7 +99,7 @@ from src.use_cases.documento_contratual.reanexar_documento import (
     ReanexarDocumentoContratualUseCase,
 )
 from src.utils.erro_http import erro_de_regra
-from src.utils.exceptions import RegraDeNegocioError
+from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
 
 router = APIRouter(tags=["documentos contratuais"], dependencies=[Depends(get_current_user)])
 
@@ -719,6 +722,31 @@ def deletar_documento(
         DeletarDocumentoContratualUseCase(db).execute(documento_id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.delete("/documentos-contratuais/{documento_id}/permanente", status_code=204)
+def deletar_documento_permanente(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Apagar de vez — mesmo já assinado e arquivado. Restrito à diretoria:
+    diferente do apagar de cima (só documento nunca confirmado), este não
+    tem volta e o documento pode já ter histórico inteiro (versões,
+    solicitações de alteração, tokens de aprovação)."""
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+    if not eh_diretoria_de_projetos(usuario):
+        raise HTTPException(status_code=403, detail="Apagar definitivamente é restrito à diretoria de projetos.")
+
+    try:
+        HardDeletarDocumentoContratualUseCase(db).execute(documento_id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ResourceInUseError:
+        raise HTTPException(status_code=409, detail="Não é possível excluir: existem registros vinculados a este documento")
 
 
 @router.get("/identidade-institucional")
