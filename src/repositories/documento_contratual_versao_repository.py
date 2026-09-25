@@ -28,6 +28,18 @@ class DocumentoContratualVersaoRepository(BaseRepository[DocumentoContratualVers
         versoes = self.list_by_documento(documento_id)
         return versoes[0] if versoes else None
 
+    def get_por_numero(self, documento_id: int, versao: int) -> Optional[DocumentoContratualVersaoModel]:
+        """Uma versão ESPECÍFICA (não só a última) — pra baixar/pré-
+        visualizar o histórico (v1, v2, ...), não só o rascunho atual."""
+        return (
+            self.db.query(DocumentoContratualVersaoModel)
+            .filter(
+                DocumentoContratualVersaoModel.documento_id == documento_id,
+                DocumentoContratualVersaoModel.versao == versao,
+            )
+            .first()
+        )
+
     def marcar_final(self, versao: DocumentoContratualVersaoModel, gestao_id: int) -> DocumentoContratualVersaoModel:
         versao.status_arquivo = "final_assinado"
         versao.gestao_id = gestao_id

@@ -361,16 +361,49 @@ def get_documento(
     return documento
 
 
+@router.get("/documentos-contratuais/{documento_id}/versoes")
+def listar_versoes_documento(
+    documento_id: int,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Todo o histórico de versões geradas — a última primeiro. Antes disso
+    só existia `ultima_versao`, e o rascunho v1 sumia da tela assim que a
+    v2 nascia (reanexo, regeração...), mesmo com o arquivo intacto no
+    banco."""
+    documento = GetDocumentoContratualUseCase(db).execute(documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+    _projeto_visivel_ou_404(documento["projeto_id"], usuario, db)
+
+    versoes = DocumentoContratualVersaoRepository(db).list_by_documento(documento_id)
+    return {
+        "versoes": [
+            {
+                "id": v.id,
+                "documento_id": v.documento_id,
+                "versao": v.versao,
+                "status_arquivo": v.status_arquivo,
+                "criado_em": v.criado_em,
+                "arquivado_em": v.arquivado_em,
+            }
+            for v in versoes
+        ]
+    }
+
+
 @router.get("/documentos-contratuais/{documento_id}/arquivo")
 def download_arquivo(
     documento_id: int,
     formato: str = "pdf",
+    versao: Optional[int] = None,
     usuario=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Baixa o .pdf ou .docx da ÚLTIMA versão gerada — o mesmo arquivo que a
-    tela de aprovação do cliente mostra, e o que o Repositório lista depois
-    de assinado (nenhuma versão nova nasce depois de aprovado pelo cliente).
+    """Baixa o .pdf ou .docx de uma versão — a ÚLTIMA por padrão (mesmo
+    arquivo que a tela de aprovação do cliente mostra), ou uma versão
+    específica do histórico quando `versao` (o número, v1/v2/...) vem na
+    query.
     """
     documento = GetDocumentoContratualUseCase(db).execute(documento_id)
     if not documento:
@@ -379,17 +412,22 @@ def download_arquivo(
     if formato not in ("pdf", "docx"):
         raise HTTPException(status_code=422, detail='Formato deve ser "pdf" ou "docx".')
 
-    versao = DocumentoContratualVersaoRepository(db).ultima_versao_obj(documento_id)
-    if not versao:
+    versao_repo = DocumentoContratualVersaoRepository(db)
+    versao_obj = (
+        versao_repo.get_por_numero(documento_id, versao)
+        if versao is not None
+        else versao_repo.ultima_versao_obj(documento_id)
+    )
+    if not versao_obj:
         raise HTTPException(status_code=404, detail="Nenhum arquivo gerado ainda.")
-    conteudo = versao.pdf_conteudo if formato == "pdf" else versao.docx_conteudo
+    conteudo = versao_obj.pdf_conteudo if formato == "pdf" else versao_obj.docx_conteudo
     if not conteudo:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
 
     media_type = "application/pdf" if formato == "pdf" else (
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
-    nome = f"{documento['tipo']}_v{versao.versao}.{formato}"
+    nome = f"{documento['tipo']}_v{versao_obj.versao}.{formato}"
     return Response(
         content=conteudo,
         media_type=media_type,
