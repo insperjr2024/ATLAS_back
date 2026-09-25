@@ -36,10 +36,17 @@ class AvaliacaoNotaRepository:
         )
 
     def get_by_banca(self, banca_id: int) -> List[AvaliacaoNotaModel]:
+        """As notas de quem SUBMETEU avaliação desta banca — nunca de
+        rascunho. Sem o filtro de status, um formulário aberto e nunca
+        enviado (às vezes reaberto várias vezes, uma linha de avaliação
+        nova a cada vez) entrava na média junto com quem votou de verdade,
+        derrubando a nota final e a média por critério sem ninguém ter
+        votado aquilo — quem chama (nota final, histórico, notas por
+        pergunta) não filtra isso de novo."""
         return (
             self.db.query(AvaliacaoNotaModel)
             .join(AvaliacaoModel, AvaliacaoNotaModel.avaliacao_id == AvaliacaoModel.id)
-            .filter(AvaliacaoModel.banca_id == banca_id)
+            .filter(AvaliacaoModel.banca_id == banca_id, AvaliacaoModel.status == "submetida")
             .all()
         )
 
