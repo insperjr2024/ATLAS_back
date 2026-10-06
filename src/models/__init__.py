@@ -93,3 +93,12 @@ from src.models.identidade_institucional_model import IdentidadeInstitucionalMod
 from src.models.health_track_pilar_model import HealthTrackPilarModel
 from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
 from src.models.health_track_regra_model import HealthTrackRegraModel
+
+# Sabatina: o processo eleitoral (eleições, candidatos, votos ponderados e o
+# peso de cada posição). Ver `sabatina_model.py`.
+from src.models.sabatina_model import (
+    SabatinaCandidatoModel,
+    SabatinaEleicaoModel,
+    SabatinaPesoModel,
+    SabatinaVotoModel,
+)

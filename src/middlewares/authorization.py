@@ -271,6 +271,11 @@ require_diretor_projetos = _require_posicoes(
     DIRETORIA_DE_PROJETOS, "Ação restrita à diretoria de projetos"
 )
 
+#: Qualquer um dos três cargos de diretoria. Hoje só a Sabatina usa: montar,
+#: abrir e fechar eleição e ver apuração são da diretoria inteira, e de mais
+#: ninguém (gerente não entra).
+require_diretoria = _require_posicoes(DIRETORIA, "Ação restrita à diretoria")
+
 #: Cadastro de gente. Ver `DIRETORIA_DE_PESSOAS`.
 require_diretoria_de_pessoas = _require_posicoes(
     DIRETORIA_DE_PESSOAS,
