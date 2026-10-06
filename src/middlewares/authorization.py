@@ -544,6 +544,62 @@ def exigir_pode_editar_metadados_do_projeto(projeto_id: int, current_user, db: S
     return current_user
 
 
+def gerencia_frente_do_projeto(projeto_id: int, current_user, db: Session) -> bool:
+    """O projeto é de uma frente que esta pessoa gerencia?
+
+    **As duas pontas vêm de vínculos próprios, e nunca uma da outra.** A
+    frente do gerente sai de `usuario_frente`; a do projeto, de
+    `projeto_frente`. Já houve erro por deduzir a frente de alguém pelos
+    projetos em que ela está: num sinérgico, quem estava no projeto passava
+    a contar como de TODAS as frentes dele. Aqui estar na equipe, ter
+    vendido ou enxergar o projeto não entram na conta.
+
+    Sinérgico com a frente do gerente entre as suas: sim — ele é um dos
+    gerentes daquele projeto.
+    """
+    if getattr(current_user, "posicao", None) != "gerente":
+        return False
+
+    from src.models.projeto_frente_model import ProjetoFrenteModel
+
+    minhas = frentes_do_usuario(current_user, db)
+    if not minhas:
+        return False
+    return (
+        db.query(ProjetoFrenteModel.id)
+        .filter(
+            ProjetoFrenteModel.projeto_id == projeto_id,
+            ProjetoFrenteModel.frente_id.in_(minhas),
+        )
+        .first()
+        is not None
+    )
+
+
+def pode_preencher_health_track(projeto_id: int, current_user, db: Session) -> bool:
+    """A regra de quem preenche, sem levantar erro — é o que a tela recebe
+    para decidir se mostra o formulário. O front não reimplementa a regra de
+    frente: foi reimplementando-a que ela já saiu errada em outras telas."""
+    return eh_diretoria_de_projetos(current_user) or gerencia_frente_do_projeto(projeto_id, current_user, db)
+
+
+def exigir_pode_preencher_health_track(projeto_id: int, current_user, db: Session) -> None:
+    """Preencher as cores do Health Track: diretoria de projetos, ou o gerente
+    de uma frente do projeto.
+
+    Quem não enxerga o projeto recebe 404 (como no resto da plataforma); quem
+    enxerga mas não preenche — consultor, coordenador, gerente que só vendeu —
+    recebe 403.
+    """
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
+    if pode_preencher_health_track(projeto_id, current_user, db):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Só a diretoria de projetos e a gerência da frente do projeto preenchem o Health Track",
+    )
+
+
 def eh_avaliador_do_projeto(projeto_id: int, current_user, db: Session) -> bool:
     """Está escalado para alguma banca deste projeto?
 
