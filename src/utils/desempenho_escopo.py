@@ -14,9 +14,10 @@ frente cadastrada avalia todos os escopos dos projetos dele, em vez de
 sumir da fila sem explicação.
 
 Cada tipo de lote tem o seu formulário (`(finalizacao, escopo)` e
-`(periodico, escopo)`), porque as perguntas de "como foi" e "como está
-indo" não são as mesmas. Os dois seguem a régua de sempre: sem seções e
-critérios cadastrados pela tela de Formulários, a avaliação fica invisível.
+`(periodico, escopo)`). O da periódica nasce como cópia do da finalização
+(migration `a9d4e7c2b185`) e dali em diante cada um é editado por conta
+própria na tela de Formulários. Os dois seguem a régua de sempre: sem
+seções e critérios cadastrados, a avaliação fica invisível.
 
 Estas funções são a fonte única pra `get_fila`, `get_pendencias` e
 `create_avaliacao`, antes cada um repetia o `if lote.tipo == "finalizacao"`
