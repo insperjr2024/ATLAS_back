@@ -1,7 +1,7 @@
 """§ 2026-09-10 — registrar o local da banca.
 
 - quem é do projeto avaliado OU a diretoria de projetos (`_exigir_pode_mexer`)
-- só até 1h antes da banca
+- só até 1h antes da banca (diretoria de projetos e admin passam da trava)
 - texto obrigatório
 """
 
@@ -19,6 +19,7 @@ AGORA = datetime.now(timezone.utc).replace(tzinfo=None)
 CONSULTOR = SimpleNamespace(id=10, posicao="consultor")
 DIRETORIA = SimpleNamespace(id=99, posicao="diretor_projetos")
 DE_FORA = SimpleNamespace(id=77, posicao="consultor")
+ADMIN = SimpleNamespace(id=55, posicao="gerente", admin=True)
 
 
 def _uc(monkeypatch, *, banca, do_projeto=True):
@@ -35,6 +36,11 @@ def _uc(monkeypatch, *, banca, do_projeto=True):
             )
 
     monkeypatch.setattr(mod, "_exigir_pode_mexer", _exigir)
+    monkeypatch.setattr(
+        mod,
+        "usuario_tem_permissao",
+        lambda u, db, campo: campo == "pode_administrar_permissoes" and getattr(u, "admin", False),
+    )
     uc = RegistrarLocalBancaUseCase(db=None)
     uc.repository = SimpleNamespace(update=lambda bid, **kw: kw)
     return uc
@@ -58,6 +64,18 @@ def test_menos_de_1h_trava(monkeypatch):
     uc = _uc(monkeypatch, banca=_banca(daqui=timedelta(minutes=40)))
     with pytest.raises(RegraDeNegocioError, match="menos de 1h"):
         uc.execute(1, "Sala 401", CONSULTOR)
+
+
+def test_diretoria_registra_com_menos_de_1h(monkeypatch):
+    uc = _uc(monkeypatch, banca=_banca(daqui=timedelta(minutes=40)))
+    r = uc.execute(1, "Sala 401", DIRETORIA)
+    assert r["local"] == "Sala 401"
+
+
+def test_admin_registra_com_menos_de_1h(monkeypatch):
+    uc = _uc(monkeypatch, banca=_banca(daqui=timedelta(minutes=10)))
+    r = uc.execute(1, "Sala 401", ADMIN)
+    assert r["local"] == "Sala 401"
 
 
 def test_texto_vazio_recusado(monkeypatch):

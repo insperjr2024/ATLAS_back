@@ -6,7 +6,9 @@ DIRETORIA DE PROJETOS, que pode agir sobre qualquer banca (mesma régua da
 trava de desalocação, do pedido de remarcação, etc.). Os avaliadores
 escalados NÃO entram: eles julgam, não organizam.
 
-- **Local**: texto livre, editável até 1h antes da banca. Depois tranca.
+- **Local**: texto livre, editável até 1h antes da banca. Depois tranca, só
+  pra quem é do projeto: a diretoria de projetos e quem administra
+  permissões (o "admin") ainda podem informar/corrigir em cima da hora.
 - **Entrega**: link, a qualquer momento (antes ou depois). ⭐ 2026-09-22 — a
   pedido: upload de arquivo removido, só link agora.
 """
@@ -17,7 +19,7 @@ from typing import Set
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.middlewares.authorization import eh_diretoria_de_projetos
+from src.middlewares.authorization import eh_diretoria_de_projetos, usuario_tem_permissao
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.equipe_projeto_repository import EquipeProjetoRepository
@@ -80,6 +82,14 @@ def _banca_ou_erro(db: Session, banca_id: int):
     return banca
 
 
+def _ignora_prazo_do_local(db: Session, current_user) -> bool:
+    """Diretoria de projetos e admin (caixa `pode_administrar_permissoes`)
+    não ficam presos à trava de 1h do local."""
+    if eh_diretoria_de_projetos(current_user):
+        return True
+    return usuario_tem_permissao(current_user, db, "pode_administrar_permissoes")
+
+
 def _exigir_pode_mexer(db: Session, banca, current_user) -> None:
     """Time do projeto avaliado OU diretoria de projetos. Ninguém mais."""
     if eh_diretoria_de_projetos(current_user):
@@ -104,7 +114,7 @@ class RegistrarLocalBancaUseCase:
         if getattr(banca, "cancelada_em", None):
             raise RegraDeNegocioError("Esta banca foi cancelada.")
 
-        if banca.data_hora is not None:
+        if banca.data_hora is not None and not _ignora_prazo_do_local(self.db, current_user):
             faltando = banca.data_hora - agora_utc()
             if faltando < timedelta(hours=PRAZO_LOCAL_HORAS):
                 raise RegraDeNegocioError(
