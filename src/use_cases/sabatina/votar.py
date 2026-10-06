@@ -13,7 +13,7 @@ from src.repositories.sabatina_repository import (
 )
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.sabatina_apuracao import peso_da_posicao
+from src.utils.sabatina_apuracao import peso_do_usuario
 
 
 class VotoRequest(BaseModel):
@@ -80,11 +80,12 @@ class VotarUseCase:
                 raise RegraDeNegocioError("Candidato não pertence a esta eleição.")
 
         posicao = getattr(current_user, "posicao", None)
+        cargo_extra = getattr(current_user, "cargo_extra", None)
         voto = self.voto_repo.create(
             eleicao_id=eleicao_id,
             eleitor_id=current_user.id,
             candidato_id=request.candidato_id,
             posicao=posicao or "",
-            peso=peso_da_posicao(posicao, self.peso_repo.como_dict()),
+            peso=peso_do_usuario(posicao, cargo_extra, self.peso_repo.como_dict()),
         )
         return {"id": voto.id, "eleicao_id": eleicao_id, "em_branco": request.candidato_id is None}

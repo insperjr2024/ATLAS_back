@@ -7,8 +7,9 @@ membro ativo que não é candidato recebe a cédula e vota uma vez (num
 candidato ou em branco); ao FECHAR, a apuração sai na hora.
 
 Voto ponderado por posição (`sabatina_peso`): consultor 1, lideranças 2,
-diretoria 3 por padrão, editável. O peso é copiado pro voto no momento em
-que ele é dado, então mudar a tabela depois não reescreve eleição passada.
+diretoria 3 por padrão, editável. Quem acumula `cargo_extra` vota com o
+maior dos dois pesos. O peso é copiado pro voto no momento em que ele é
+dado, então mudar a tabela depois não reescreve eleição passada.
 
 Quem não votou faltou à sabatina: aparece nas pendências e não entra na
 conta. O percentual de aprovação é sobre os votos dados (brancos incluídos).

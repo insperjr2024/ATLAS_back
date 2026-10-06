@@ -38,6 +38,16 @@ def peso_da_posicao(posicao: Optional[str], pesos: dict) -> int:
     return peso_padrao(posicao)
 
 
+def peso_do_usuario(posicao: Optional[str], cargo_extra: Optional[str], pesos: dict) -> int:
+    """Quem acumula um `cargo_extra` (consultor que também é BDR) vota com o
+    MAIOR dos dois pesos. Mesma régua das permissões: o cargo extra soma,
+    nunca rebaixa."""
+    peso = peso_da_posicao(posicao, pesos)
+    if cargo_extra:
+        peso = max(peso, peso_da_posicao(cargo_extra, pesos))
+    return peso
+
+
 def apurar(candidatos: Iterable, votos: Iterable, percentual_aprovacao: int) -> dict:
     """`candidatos`: objetos com `id`, `usuario_id`. `votos`: objetos com
     `candidato_id` (None = branco) e `peso`."""

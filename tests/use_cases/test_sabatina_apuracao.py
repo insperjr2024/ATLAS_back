@@ -3,7 +3,7 @@ percentual sobre os votos dados, "mais um" estrito, branco e falta."""
 
 from types import SimpleNamespace
 
-from src.utils.sabatina_apuracao import apurar, peso_da_posicao, peso_padrao
+from src.utils.sabatina_apuracao import apurar, peso_da_posicao, peso_do_usuario, peso_padrao
 
 
 def _c(id, usuario_id):
@@ -31,6 +31,14 @@ def test_peso_padrao_por_posicao():
 def test_peso_gravado_vence_o_padrao():
     assert peso_da_posicao("consultor", {"consultor": 2}) == 2
     assert peso_da_posicao("gerente", {}) == 2
+
+
+def test_cargo_extra_usa_o_maior_peso():
+    # Consultor 2 + BDR 1 vota com 2; consultor 1 + BDR 2 também vota com 2.
+    assert peso_do_usuario("consultor", "bdr", {"consultor": 2, "bdr": 1}) == 2
+    assert peso_do_usuario("consultor", "bdr", {"consultor": 1, "bdr": 2}) == 2
+    assert peso_do_usuario("consultor", None, {"consultor": 1, "bdr": 2}) == 1
+    assert peso_do_usuario("coordenador", "bdr", {}) == 2
 
 
 def test_candidato_unico_eleito_com_mais_da_metade():
