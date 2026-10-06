@@ -1,15 +1,16 @@
 """Sabatina: o processo eleitoral. Ver `models/sabatina_model.py`.
 
-Montar, abrir, fechar, ver apuração e pendências: diretoria inteira
-(`require_diretoria`), gerente não. Votar e ver a própria cédula: qualquer
-pessoa logada que esteja entre os eleitores congelados na abertura.
+Montar, abrir, fechar, excluir, ver apuração e pendências: quem tem a caixa
+`pode_acessar_configuracoes_sabatina` (nasce marcada pra diretoria). Votar e
+ver a própria cédula: qualquer pessoa logada que esteja entre os eleitores
+congelados na abertura.
 """
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.database.database import get_db
-from src.middlewares.authorization import require_diretoria
+from src.middlewares.authorization import require_pode_acessar_configuracoes_sabatina
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.sabatina.eleicoes import (
     AbrirEleicaoUseCase,
@@ -50,15 +51,15 @@ def votar(
         raise erro_de_regra(e)
 
 
-# ---------------------------------------------------------------- diretoria
+# ---------------------------------------------------------------- configuração
 
 @router.get("/pesos")
-def pesos(_=Depends(require_diretoria), db: Session = Depends(get_db)):
+def pesos(_=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     return GetPesosUseCase(db).execute()
 
 
 @router.put("/pesos")
-def atualizar_pesos(request: UpdatePesosRequest, _=Depends(require_diretoria), db: Session = Depends(get_db)):
+def atualizar_pesos(request: UpdatePesosRequest, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     try:
         return UpdatePesosUseCase(db).execute(request)
     except RegraDeNegocioError as e:
@@ -66,13 +67,13 @@ def atualizar_pesos(request: UpdatePesosRequest, _=Depends(require_diretoria), d
 
 
 @router.get("/eleicoes")
-def listar_eleicoes(_=Depends(require_diretoria), db: Session = Depends(get_db)):
+def listar_eleicoes(_=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     return ListEleicoesUseCase(db).execute()
 
 
 @router.post("/eleicoes", status_code=201)
 def criar_eleicao(
-    request: EleicaoRequest, current_user=Depends(require_diretoria), db: Session = Depends(get_db)
+    request: EleicaoRequest, current_user=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)
 ):
     try:
         return CreateEleicaoUseCase(db).execute(request, current_user)
@@ -81,7 +82,7 @@ def criar_eleicao(
 
 
 @router.get("/eleicoes/{eleicao_id}")
-def get_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = Depends(get_db)):
+def get_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     try:
         return GetEleicaoUseCase(db).execute(eleicao_id)
     except RegraDeNegocioError as e:
@@ -90,7 +91,7 @@ def get_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = Dep
 
 @router.put("/eleicoes/{eleicao_id}")
 def editar_eleicao(
-    eleicao_id: int, request: EleicaoRequest, _=Depends(require_diretoria), db: Session = Depends(get_db)
+    eleicao_id: int, request: EleicaoRequest, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)
 ):
     try:
         return UpdateEleicaoUseCase(db).execute(eleicao_id, request)
@@ -99,7 +100,7 @@ def editar_eleicao(
 
 
 @router.delete("/eleicoes/{eleicao_id}", status_code=204)
-def apagar_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = Depends(get_db)):
+def apagar_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     try:
         DeleteEleicaoUseCase(db).execute(eleicao_id)
     except RegraDeNegocioError as e:
@@ -107,7 +108,7 @@ def apagar_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = 
 
 
 @router.post("/eleicoes/{eleicao_id}/abrir")
-def abrir_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = Depends(get_db)):
+def abrir_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     try:
         return AbrirEleicaoUseCase(db).execute(eleicao_id)
     except RegraDeNegocioError as e:
@@ -115,7 +116,7 @@ def abrir_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = D
 
 
 @router.post("/eleicoes/{eleicao_id}/fechar")
-def fechar_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = Depends(get_db)):
+def fechar_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     try:
         return FecharEleicaoUseCase(db).execute(eleicao_id)
     except RegraDeNegocioError as e:
@@ -123,7 +124,7 @@ def fechar_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = 
 
 
 @router.get("/eleicoes/{eleicao_id}/votos")
-def votos_eleicao(eleicao_id: int, _=Depends(require_diretoria), db: Session = Depends(get_db)):
+def votos_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
     try:
         return GetVotosEleicaoUseCase(db).execute(eleicao_id)
     except RegraDeNegocioError as e:

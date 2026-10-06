@@ -221,6 +221,13 @@ require_pode_gerir_calendarios_base = _dependencia_permissao(
 
 # ---------------------------------------------------------------- § Contratos
 
+# Sabatina (2026-10-06): montar, abrir, fechar e apurar eleição. Caixa que
+# nasce marcada pra diretoria; votar não passa por aqui.
+require_pode_acessar_configuracoes_sabatina = _dependencia_permissao(
+    "pode_acessar_configuracoes_sabatina",
+    "Você não tem permissão para acessar as configurações de sabatina",
+)
+
 require_pode_aprovar_contrato_internamente = _dependencia_permissao(
     "pode_aprovar_contrato_internamente",
     "Você não tem permissão para aprovar contratos internamente",
@@ -270,11 +277,6 @@ def _require_posicoes(posicoes, mensagem: str):
 require_diretor_projetos = _require_posicoes(
     DIRETORIA_DE_PROJETOS, "Ação restrita à diretoria de projetos"
 )
-
-#: Qualquer um dos três cargos de diretoria. Hoje só a Sabatina usa: montar,
-#: abrir e fechar eleição e ver apuração são da diretoria inteira, e de mais
-#: ninguém (gerente não entra).
-require_diretoria = _require_posicoes(DIRETORIA, "Ação restrita à diretoria")
 
 #: Cadastro de gente. Ver `DIRETORIA_DE_PESSOAS`.
 require_diretoria_de_pessoas = _require_posicoes(

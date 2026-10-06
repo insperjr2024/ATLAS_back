@@ -7,6 +7,7 @@ pendências, não a contagem, pra ninguém influenciar o que ainda está em
 curso.
 """
 
+import unicodedata
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -117,8 +118,15 @@ class GetVotosEleicaoUseCase(_Base):
                     "criado_em": v.criado_em,
                 }
             )
-        saida.sort(key=lambda d: d["eleitor_nome"])
+        # Ordem alfabética de verdade: sem acento e sem caixa pesarem.
+        saida.sort(key=lambda d: _chave_alfabetica(d["eleitor_nome"]))
         return saida
+
+
+def _chave_alfabetica(texto: str) -> str:
+    return "".join(
+        ch for ch in unicodedata.normalize("NFD", texto or "") if unicodedata.category(ch) != "Mn"
+    ).casefold()
 
 
 def _validar_candidatos(usuario_repo: UsuarioRepository, ids: List[int]) -> None:
@@ -160,12 +168,12 @@ class UpdateEleicaoUseCase(_Base):
 
 
 class DeleteEleicaoUseCase(_Base):
+    """Apaga em qualquer status (a pedido, 2026-10-06). Candidatos e votos
+    vão junto pelo `ON DELETE CASCADE`; a tela pede o nome digitado quando
+    há voto a perder."""
+
     def execute(self, eleicao_id: int) -> None:
-        eleicao = self._eleicao_ou_erro(eleicao_id)
-        if eleicao.status != "rascunho":
-            raise RegraDeNegocioError(
-                "Eleição aberta ou fechada fica no histórico; só rascunho pode ser apagado."
-            )
+        self._eleicao_ou_erro(eleicao_id)
         self.eleicao_repo.delete(eleicao_id)
 
 
