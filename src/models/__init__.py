@@ -87,3 +87,9 @@ from src.models.documento_contratual_versao_model import DocumentoContratualVers
 from src.models.token_aprovacao_contratual_model import TokenAprovacaoContratualModel
 from src.models.solicitacao_alteracao_contratual_model import SolicitacaoAlteracaoContratualModel
 from src.models.identidade_institucional_model import IdentidadeInstitucionalModel
+
+# Health Track — saúde dos projetos por pilar. Pilares e regra do status são
+# dados (a diretoria edita); avaliação e regra só crescem, nunca se sobrescrevem.
+from src.models.health_track_pilar_model import HealthTrackPilarModel
+from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
+from src.models.health_track_regra_model import HealthTrackRegraModel
