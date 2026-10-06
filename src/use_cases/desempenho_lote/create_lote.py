@@ -21,9 +21,10 @@ class CreateDesempenhoLoteRequest(BaseModel):
     #: for cancelada depois de já realizada. Nunca vem da tela de Formulários
     #: (lote aberto à mão não tem banca de origem).
     banca_id: Optional[int] = None
-    #: ⭐ Finalização: a Avaliação do Escopo entra junto? (2026-09-10). Default
-    #: `True` — a automática não passa o campo e segue incluindo; quem abre à
-    #: mão marca/desmarca na tela. Periódica ignora.
+    #: A Avaliação do Escopo entra junto? (2026-09-10). Default `True`: a
+    #: finalização automática não passa o campo e segue incluindo; quem abre
+    #: à mão marca/desmarca na tela. Na periódica (2026-10-05) ela fala do
+    #: escopo em andamento.
     inclui_avaliacao_de_escopo: bool = True
 
 

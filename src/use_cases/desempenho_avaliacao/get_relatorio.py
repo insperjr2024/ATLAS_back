@@ -7,6 +7,7 @@ from src.repositories.desempenho_avaliacao_repository import DesempenhoAvaliacao
 from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRepository
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
+from src.utils.desempenho_escopo import ids_dos_formularios_de_escopo
 
 class GetRelatorioDesempenhoUseCase:
     """Agrega as avaliações RECEBIDAS por `usuario_id`, por lote: média da
@@ -14,7 +15,7 @@ class GetRelatorioDesempenhoUseCase:
     comentários. A cor por nota (regra 2.9, `< 3` = atenção) fica pro front —
     aqui só vão os números.
 
-    ⚠ A Avaliação do Escopo (formulário `(finalizacao, escopo)`) NÃO entra
+    A Avaliação do Escopo (formulários `(*, escopo)`) NÃO entra
     aqui (2026-09-10, a pedido): quem respondeu avaliou o ESCOPO, não a si
     mesma, então não faz parte do relatório da PESSOA. Ela vive só no painel
     de avaliações, na visão "Avaliação de escopo"."""
@@ -30,12 +31,11 @@ class GetRelatorioDesempenhoUseCase:
         avaliacoes = self.avaliacao_repo.get_recebidas_por(usuario_id)
 
         lotes_por_id = {lote.id: lote for lote in self.lote_repo.get_all()}
-        form_escopo = self.formulario_repo.first_by(tipo="finalizacao", papel="escopo")
-        escopo_form_id = form_escopo.id if form_escopo else None
+        escopo_form_ids = ids_dos_formularios_de_escopo(self.formulario_repo)
 
         # Fora a auto-avaliação do escopo — o relatório da pessoa é só o que
         # os COLEGAS deram.
-        avaliacoes = [a for a in avaliacoes if a.formulario_id != escopo_form_id]
+        avaliacoes = [a for a in avaliacoes if a.formulario_id not in escopo_form_ids]
 
         if lote_id is not None:
             avaliacoes = [a for a in avaliacoes if a.lote_id == lote_id]

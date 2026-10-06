@@ -3,14 +3,23 @@ from typing import List, Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.desempenho_avaliacao_nota_repository import DesempenhoAvaliacaoNotaRepository
 from src.repositories.desempenho_avaliacao_repository import DesempenhoAvaliacaoRepository
 from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRepository
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_projeto_repository import DesempenhoLoteProjetoRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
-from src.use_cases.desempenho_avaliacao.get_fila import FORM_TYPE_ESCOPO, GetFilaUsuarioUseCase
+from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
+from src.use_cases.desempenho_avaliacao.get_fila import GetFilaUsuarioUseCase
+from src.utils.desempenho_escopo import (
+    FORM_TYPE_ESCOPO,
+    escopos_avaliaveis_no_lote,
+    escopos_da_pessoa,
+    formulario_escopo_do_lote,
+)
 from src.utils.desempenho_fila import calcular_pares_lote, deduplicar_pares
 from src.utils.desempenho_lote import esta_aberto
 from src.utils.exceptions import RegraDeNegocioError
@@ -29,6 +38,9 @@ class CreateDesempenhoAvaliacaoRequest(BaseModel):
     nota_geral: int
     comentarios: str
     notas: List[NotaInput]
+    #: Só na Avaliação do Escopo (2026-10-05): qual escopo vendido está
+    #: sendo avaliado. Obrigatório nela, ignorado na avaliação entre pessoas.
+    projeto_escopo_id: Optional[int] = None
 
 
 class CreateDesempenhoAvaliacaoUseCase:
@@ -41,6 +53,9 @@ class CreateDesempenhoAvaliacaoUseCase:
         self.avaliacao_nota_repo = DesempenhoAvaliacaoNotaRepository(db)
         self.formulario_repo = DesempenhoFormularioRepository(db)
         self.criterio_repo = DesempenhoCriterioRepository(db)
+        self.projeto_escopo_repo = ProjetoEscopoRepository(db)
+        self.banca_escopo_repo = BancaEscopoRepository(db)
+        self.usuario_frente_repo = UsuarioFrenteRepository(db)
 
     def execute(self, request: CreateDesempenhoAvaliacaoRequest, avaliador_id: int) -> dict:
         lote = self.lote_repo.get_by_id(request.lote_id)
@@ -53,23 +68,34 @@ class CreateDesempenhoAvaliacaoUseCase:
         membros = self.membro_repo.get_by_projetos(projeto_ids, apenas_atuais=True)
 
         # ⭐ Avaliação do Escopo (2026-09-09): auto-avaliação (avaliador ==
-        # avaliado), um por participante do projeto na finalização. Não passa
-        # pela fila de pares — mas TODAS as outras travas continuam valendo
-        # (lote aberto, não respondeu antes, nota 1-5, critérios completos).
-        eh_escopo = (
-            avaliador_id == request.avaliado_id
-            and lote.tipo == "finalizacao"
-            and getattr(lote, "inclui_avaliacao_de_escopo", True)
-            and avaliador_id in {m.usuario_id for m in membros}
-            and self.formulario_repo.first_by(tipo="finalizacao", papel=FORM_TYPE_ESCOPO)
-            is not None
-        )
-
-        if avaliador_id == request.avaliado_id and not eh_escopo:
-            raise RegraDeNegocioError("Você não pode avaliar a si mesmo")
-
+        # avaliado), uma POR ESCOPO da frente da pessoa (2026-10-05). Na
+        # finalização vale pros escopos da banca; na periódica, pros em
+        # andamento. Não passa pela fila de pares, mas TODAS as outras travas
+        # continuam valendo (lote aberto, não respondeu antes, nota 1-5,
+        # critérios completos).
+        eh_escopo = avaliador_id == request.avaliado_id
         if eh_escopo:
+            if not formulario_escopo_do_lote(lote, self.formulario_repo, self.criterio_repo):
+                raise RegraDeNegocioError("Você não pode avaliar a si mesmo")
+            if request.projeto_escopo_id is None:
+                raise RegraDeNegocioError("Diga qual escopo você está avaliando.")
+            meus_escopos = escopos_da_pessoa(
+                avaliador_id,
+                escopos_avaliaveis_no_lote(
+                    lote, projeto_ids, self.projeto_escopo_repo, self.banca_escopo_repo
+                ),
+                membros,
+                {uf.frente_id for uf in self.usuario_frente_repo.get_by_usuario(avaliador_id)},
+            )
+            if request.projeto_escopo_id not in {pe.id for pe in meus_escopos}:
+                raise RegraDeNegocioError(
+                    "Este escopo não está na sua Avaliação do Escopo deste lote."
+                )
             form_type = FORM_TYPE_ESCOPO
+            if self.avaliacao_repo.respondeu_escopo(
+                lote.id, avaliador_id, request.projeto_escopo_id
+            ):
+                raise RegraDeNegocioError("Você já respondeu a Avaliação deste escopo neste lote")
         else:
             # Regra 2.3: o par precisa estar na fila esperada do lote.
             agregados = deduplicar_pares(calcular_pares_lote(membros, lote.criado_em))
@@ -79,13 +105,8 @@ class CreateDesempenhoAvaliacaoUseCase:
                     "Você não está habilitado a avaliar esta pessoa neste lote"
                 )
             form_type = agregados[chave]["form_type"]
-
-        if self.avaliacao_repo.existe_par(lote.id, avaliador_id, request.avaliado_id):
-            raise RegraDeNegocioError(
-                "Você já respondeu a Avaliação do Escopo deste lote"
-                if eh_escopo
-                else "Você já avaliou esta pessoa neste lote"
-            )
+            if self.avaliacao_repo.existe_par(lote.id, avaliador_id, request.avaliado_id):
+                raise RegraDeNegocioError("Você já avaliou esta pessoa neste lote")
 
         if not 1 <= request.nota_geral <= 5:
             raise RegraDeNegocioError("A nota geral deve estar entre 1 e 5")
@@ -107,6 +128,7 @@ class CreateDesempenhoAvaliacaoUseCase:
             formulario_id=formulario.id,
             avaliador_id=avaliador_id,
             avaliado_id=request.avaliado_id,
+            projeto_escopo_id=request.projeto_escopo_id if eh_escopo else None,
             nota_geral=request.nota_geral,
             comentarios=request.comentarios,
         )
@@ -136,6 +158,7 @@ class CreateDesempenhoAvaliacaoUseCase:
                 "formulario_id": avaliacao.formulario_id,
                 "avaliador_id": avaliacao.avaliador_id,
                 "avaliado_id": avaliacao.avaliado_id,
+                "projeto_escopo_id": avaliacao.projeto_escopo_id,
                 "nota_geral": avaliacao.nota_geral,
                 "comentarios": avaliacao.comentarios,
             },

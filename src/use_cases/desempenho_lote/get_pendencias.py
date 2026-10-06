@@ -3,15 +3,27 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.desempenho_avaliacao_repository import DesempenhoAvaliacaoRepository
 from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRepository
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_projeto_repository import DesempenhoLoteProjetoRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
+from src.repositories.escopo_repository import EscopoRepository
+from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
+from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
-from src.use_cases.desempenho_avaliacao.get_fila import FORM_TYPE_ESCOPO
+from src.utils.desempenho_escopo import (
+    FORM_TYPE_ESCOPO,
+    catalogo_de_escopos,
+    escopos_avaliaveis_no_lote,
+    escopos_da_pessoa,
+    formulario_escopo_do_lote,
+    frentes_por_usuario,
+    nome_do_escopo_vendido,
+)
 from src.utils.desempenho_fila import calcular_pares_lote, deduplicar_pares
 
 logger = logging.getLogger(__name__)
@@ -27,6 +39,10 @@ class GetPendenciasLoteUseCase:
         self.projeto_repo = ProjetoRepository(db)
         self.formulario_repo = DesempenhoFormularioRepository(db)
         self.criterio_repo = DesempenhoCriterioRepository(db)
+        self.projeto_escopo_repo = ProjetoEscopoRepository(db)
+        self.banca_escopo_repo = BancaEscopoRepository(db)
+        self.usuario_frente_repo = UsuarioFrenteRepository(db)
+        self.escopo_repo = EscopoRepository(db)
 
     def execute(self, lote_id: int) -> Optional[list[dict]]:
         lote = self.lote_repo.get_by_id(lote_id)
@@ -45,24 +61,28 @@ class GetPendenciasLoteUseCase:
         # `pendencias`) nunca souberam que ela existia. Resultado: a
         # diretoria via "Fulano falta avaliar Beltrano" mas nunca "falta
         # avaliar Escopo", mesmo com o lote e o formulário prontos pra isso.
-        # Mesma régua de `get_fila.py`: só conta se o formulário tem
-        # conteúdo, e nunca derruba o resto da conta se algo aqui falhar.
-        escopo_por_projeto: dict[int, list[int]] = {}
+        # Mesma régua de `get_fila.py` (`utils/desempenho_escopo.py`): só
+        # conta se o formulário tem conteúdo, um item POR ESCOPO da frente da
+        # pessoa (2026-10-05), e nunca derruba o resto da conta se algo aqui
+        # falhar.
+        escopos_por_pessoa: dict[int, list] = {}
+        catalogo: dict[int, str] = {}
         try:
-            form_escopo = (
-                self.formulario_repo.first_by(tipo="finalizacao", papel=FORM_TYPE_ESCOPO)
-                if lote.tipo == "finalizacao"
-                and getattr(lote, "inclui_avaliacao_de_escopo", True)
-                else None
-            )
-            tem_conteudo = form_escopo and self.criterio_repo.get_by_formulario(form_escopo.id)
-            if tem_conteudo:
-                for membro in membros:
-                    escopo_por_projeto.setdefault(membro.usuario_id, []).append(membro.projeto_id)
+            form_escopo = formulario_escopo_do_lote(lote, self.formulario_repo, self.criterio_repo)
+            if form_escopo:
+                escopos = escopos_avaliaveis_no_lote(
+                    lote, projeto_ids, self.projeto_escopo_repo, self.banca_escopo_repo
+                )
+                frentes = frentes_por_usuario(self.usuario_frente_repo)
+                for usuario_id in {m.usuario_id for m in membros}:
+                    meus = escopos_da_pessoa(usuario_id, escopos, membros, frentes.get(usuario_id))
+                    if meus:
+                        escopos_por_pessoa[usuario_id] = meus
+                catalogo = catalogo_de_escopos(self.escopo_repo, escopos)
         except Exception:
             logger.exception("Falha ao montar pendências de Avaliação do Escopo (lote %s)", lote_id)
 
-        usuario_ids = {uid for par in agregados for uid in par} | set(escopo_por_projeto)
+        usuario_ids = {uid for par in agregados for uid in par} | set(escopos_por_pessoa)
         nomes = {u.id: u.nome for u in self.usuario_repo.get_all() if u.id in usuario_ids}
         nomes_projeto = {p.id: p.nome for p in self.projeto_repo.get_all() if p.id in projeto_ids}
 
@@ -77,20 +97,25 @@ class GetPendenciasLoteUseCase:
                     "form_type": dados["form_type"],
                     "projeto_ids": dados["projeto_ids"],
                     "projeto_nomes": [nomes_projeto.get(pid) for pid in dados["projeto_ids"]],
+                    "projeto_escopo_id": None,
+                    "escopo_nome": None,
                     "respondida": self.avaliacao_repo.existe_par(lote_id, avaliador_id, avaliado_id),
                 }
             )
-        for usuario_id, ids_projeto in escopo_por_projeto.items():
-            resultado.append(
-                {
-                    "avaliador_id": usuario_id,
-                    "avaliador_nome": nomes.get(usuario_id),
-                    "avaliado_id": usuario_id,
-                    "avaliado_nome": nomes.get(usuario_id),
-                    "form_type": FORM_TYPE_ESCOPO,
-                    "projeto_ids": ids_projeto,
-                    "projeto_nomes": [nomes_projeto.get(pid) for pid in ids_projeto],
-                    "respondida": self.avaliacao_repo.existe_par(lote_id, usuario_id, usuario_id),
-                }
-            )
+        for usuario_id, escopos in sorted(escopos_por_pessoa.items()):
+            for pe in escopos:
+                resultado.append(
+                    {
+                        "avaliador_id": usuario_id,
+                        "avaliador_nome": nomes.get(usuario_id),
+                        "avaliado_id": usuario_id,
+                        "avaliado_nome": nomes.get(usuario_id),
+                        "form_type": FORM_TYPE_ESCOPO,
+                        "projeto_ids": [pe.projeto_id],
+                        "projeto_nomes": [nomes_projeto.get(pe.projeto_id)],
+                        "projeto_escopo_id": pe.id,
+                        "escopo_nome": nome_do_escopo_vendido(pe, catalogo),
+                        "respondida": self.avaliacao_repo.respondeu_escopo(lote_id, usuario_id, pe.id),
+                    }
+                )
         return resultado
