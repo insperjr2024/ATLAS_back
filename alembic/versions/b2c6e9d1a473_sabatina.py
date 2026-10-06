@@ -1,7 +1,7 @@
 """sabatina: eleições, candidatos, votos e peso por posição
 
 Revision ID: b2c6e9d1a473
-Revises: 47252a7f87ff
+Revises: d1b8f4a6e372
 Create Date: 2026-10-05
 
 Ver `models/sabatina_model.py`. O peso é semeado pra cada posição que
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b2c6e9d1a473"
-down_revision: Union[str, Sequence[str], None] = "47252a7f87ff"
+down_revision: Union[str, Sequence[str], None] = "d1b8f4a6e372"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
