@@ -25,6 +25,9 @@ from src.utils.piso_banca import calcular_piso_banca
 #: aqui "sem esta pessoa, o piso continua coberto?". A diretoria
 #: (`pode_gerir_membros`) ainda passa por cima, caso a caso.
 PRAZO_TRAVA_DESALOCACAO_DIAS = 7
+#: A menos de tantas horas da banca ninguém mais sai sozinho, faça falta pro
+#: piso ou não; só a gestão tira.
+PRAZO_TRAVA_DESALOCACAO_HORAS = 24
 
 
 class UpdateCandidaturaRequest(BaseModel):
@@ -108,6 +111,18 @@ class DeleteCandidaturaUseCase:
                 f"{PRAZO_TRAVA_DESALOCACAO_DIAS} dias e sua saída deixaria a composição "
                 "mínima descoberta. Fale com a diretoria de projetos."
             )
+
+        # Trava das 24h, pra todo mundo (2026-10-07, a pedido): quem não faz
+        # falta pro piso sai sozinho até um dia antes; depois disso só com a
+        # diretoria. Antes dava até o último minuto. Quem faz falta pro piso
+        # já parou nos 7 dias, acima.
+        if banca and not eh_gestao and banca.data_hora is not None:
+            horas = (banca.data_hora - agora_utc()).total_seconds() / 3600
+            if 0 <= horas < PRAZO_TRAVA_DESALOCACAO_HORAS:
+                raise RegraDeNegocioError(
+                    f"Não dá mais para sair desta banca: faltam menos de {PRAZO_TRAVA_DESALOCACAO_HORAS}h. "
+                    "Fale com a diretoria de projetos."
+                )
 
         # ⚠ ANTES de apagar (2026-09-15): a FK de `candidatura_id` em
         # `solicitacao_troca` é SET NULL, não CASCADE — apagar a candidatura
