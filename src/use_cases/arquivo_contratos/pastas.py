@@ -133,15 +133,16 @@ class EditarPastaUseCase:
 
 
 class ApagarPastaUseCase:
-    """Só pasta vazia: sumir com dezenas de contratos num clique errado não."""
+    """Pasta com conteúdo só vai com `recursivo=True` (a tela pergunta antes):
+    subpastas e arquivos caem em cascata."""
 
     def __init__(self, db: Session):
         self.pastas = ArquivoContratosPastaRepository(db)
 
-    def execute(self, pasta_id: int) -> None:
+    def execute(self, pasta_id: int, recursivo: bool = False) -> None:
         pasta = self.pastas.get_by_id(pasta_id)
         if not pasta:
             raise RegraDeNegocioError("Pasta não encontrada")
-        if self.pastas.tem_conteudo(pasta_id):
-            raise RegraDeNegocioError("Esvazie a pasta antes de apagá-la.")
+        if self.pastas.tem_conteudo(pasta_id) and not recursivo:
+            raise RegraDeNegocioError("A pasta tem conteúdo. Confirme que quer apagar tudo que está dentro.")
         self.pastas.delete(pasta_id)

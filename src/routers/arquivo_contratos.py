@@ -73,8 +73,8 @@ def editar_pasta(pasta_id: int, request: RenomearPastaRequest, db: Session = Dep
 
 
 @router.delete("/pastas/{pasta_id}", status_code=204)
-def apagar_pasta(pasta_id: int, db: Session = Depends(get_db)):
-    _regra(lambda: ApagarPastaUseCase(db).execute(pasta_id))
+def apagar_pasta(pasta_id: int, recursivo: bool = False, db: Session = Depends(get_db)):
+    _regra(lambda: ApagarPastaUseCase(db).execute(pasta_id, recursivo))
     return None
 
 
