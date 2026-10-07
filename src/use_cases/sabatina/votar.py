@@ -31,9 +31,16 @@ class MinhasEleicoesUseCase:
         self.candidato_repo = SabatinaCandidatoRepository(db)
         self.voto_repo = SabatinaVotoRepository(db)
         self.usuario_repo = UsuarioRepository(db)
+        self.peso_repo = SabatinaPesoRepository(db)
 
     def execute(self, usuario_id: int) -> list[dict]:
         nomes = {u.id: u.nome for u in self.usuario_repo.get_all()}
+        # O peso com que a pessoa votaria AGORA, pela mesma conta do voto, pra
+        # cédula mostrar e ela conferir antes de votar (a pedido, 2026-10-07).
+        eu = self.usuario_repo.get_by_id(usuario_id)
+        meu_peso = peso_do_usuario(
+            getattr(eu, "posicao", None), getattr(eu, "cargo_extra", None), self.peso_repo.como_dict()
+        )
         saida = []
         for eleicao in self.eleicao_repo.get_abertas():
             candidatos = self.candidato_repo.get_by_eleicao(eleicao.id)
@@ -53,6 +60,7 @@ class MinhasEleicoesUseCase:
                     ],
                     "sou_candidato": sou_candidato,
                     "ja_votei": meu_voto is not None,
+                    "meu_peso": meu_peso,
                 }
             )
         return saida
