@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from src.repositories.semestre_repository import SemestreRepository
 from src.use_cases.semestre.get_semestre import serializar_semestre
+from src.use_cases.arquivo_contratos.arquivar import garantir_pasta_semestre
 from src.utils.exceptions import RegraDeNegocioError
 from pydantic import BaseModel
 from datetime import date
@@ -34,4 +35,7 @@ class CreateSemestreUseCase:
             fim=request.fim,
             status=request.status,
         )
+        # Arquivo de contratos (2026-10-07): toda gestão nova ganha a pasta
+        # raiz dela já na criação.
+        garantir_pasta_semestre(self.db, semestre)
         return serializar_semestre(semestre)

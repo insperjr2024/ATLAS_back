@@ -19,6 +19,7 @@ from src.routers import (
     desempenho,
     documentos_contratuais,
     health_track,
+    arquivo_contratos,
     sabatina,
     monitoramento,
     notificacoes,
@@ -677,3 +678,4 @@ app.include_router(solicitacoes_troca.router)
 app.include_router(documentos_contratuais.router)
 app.include_router(health_track.router)
 app.include_router(sabatina.router)
+app.include_router(arquivo_contratos.router)

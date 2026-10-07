@@ -110,3 +110,6 @@ from src.models.desempenho_lote_formulario_model import DesempenhoLoteFormulario
 # Modelo base (.docx) de documento jurídico trocado pela diretoria; sem linha,
 # vale o arquivo do deploy. Ver `documento_modelo_model.py`.
 from src.models.documento_modelo_model import DocumentoModeloModel
+
+# Arquivo de contratos: a pasta compartilhada. Ver `arquivo_contratos_model.py`.
+from src.models.arquivo_contratos_model import ArquivoContratosItemModel, ArquivoContratosPastaModel
