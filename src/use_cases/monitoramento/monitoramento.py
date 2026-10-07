@@ -1261,13 +1261,18 @@ class AlocacaoUseCase(_BaseMonitoramento):
         #
         # Capacidade e sobrecarga são propriedades da PESSOA. Quem carrega 3
         # projetos está cheio venha de onde vier o terceiro.
-        # ⚠ `status` entra aqui pelo MESMO motivo que frente e escopo: ele
-        # também estreita a população. Filtrar "Em andamento" e medir a carga
-        # só nesses projetos daria a alguém que coordena um Em andamento e dois
-        # Aguardando bancas duas vagas livres que não existem — o mesmo bug de
-        # capacidade inflada que o filtro de frente causava.
-        sem_filtro = frente_id is None and escopo_id is None and not status
-        do_recorte = self._projetos_visiveis(current_user, frente_id, escopo_id, status)
+        # ⚠ `status` é a EXCEÇÃO a essa regra, e de propósito (diretoria,
+        # 2026-10-07): ele não escolhe quem aparece, escolhe COMO a carga é
+        # medida. A pergunta que a diretoria faz com ele é "quem está
+        # disponível de verdade?": quem só tem projeto em Aguardando banca ou
+        # Entrega final está quase desocupado, então filtrar Ambientação +
+        # Em andamento tem que mostrar essa pessoa com 0, e não escondê-la
+        # por não estar em projeto nenhum desses. A população continua a de
+        # sempre (frente/escopo), só a contagem muda. Isso infla a capacidade
+        # do card de propósito: com o filtro, ela responde "quantos cabem
+        # olhando só o que está rodando agora".
+        sem_filtro = frente_id is None and escopo_id is None
+        do_recorte = self._projetos_visiveis(current_user, frente_id, escopo_id)
         projetos = (
             do_recorte if sem_filtro else self._projetos_visiveis(current_user, None, None)
         )
@@ -1282,7 +1287,15 @@ class AlocacaoUseCase(_BaseMonitoramento):
         # pausado (2026-08-19) também não: pausado é "parado", ninguém
         # trabalha nele enquanto durar, e contar a vaga como ocupada
         # impediria a pessoa de entrar em outro projeto de verdade.
-        ativos = {p.id for p in projetos if p.status not in ("finalizado", "pausado")}
+        #
+        # Com filtro de status, só os projetos NESSES status contam (ver o
+        # bloco acima sobre o `status`). Finalizado e pausado continuam sem
+        # gerar carga mesmo que alguém os marque no filtro.
+        ativos = {
+            p.id
+            for p in projetos
+            if p.status not in ("finalizado", "pausado") and (not status or p.status in status)
+        }
 
         membros = self.membro_repository.get_by_projetos(ids, apenas_atuais=True)
         usuarios = {u.id: u for u in self.usuario_repository.get_all() if u.status == "ativo"}
@@ -1371,15 +1384,14 @@ class AlocacaoUseCase(_BaseMonitoramento):
         elif frente_id is not None:
             frentes_da_populacao = {frente_id}
 
-        # Com filtro (de frente, escopo ou status), a POPULAÇÃO é quem trabalha
-        # nele. A carga de cada um continua vindo de todos os projetos dela
-        # (ver o topo deste método) — filtro escolhe quem aparece, não como
-        # se mede.
+        # Com filtro de frente ou escopo, a POPULAÇÃO é quem trabalha nele. A
+        # carga de cada um continua vindo de todos os projetos dela (ver o
+        # topo deste método) — esses dois filtros escolhem quem aparece, não
+        # como se mede. O de status faz o oposto, e não entra aqui.
         #
-        # ⚠ O `in ativos` faz o filtro de status por `finalizado` ou `pausado`
-        # devolver tabela VAZIA, e está certo: nenhum dos dois gera carga (ver
-        # `ativos` acima). Quem só coordena projeto pausado tem as vagas
-        # LIVRES — listá-lo aqui com carga 0 diria o contrário do card.
+        # O `in ativos` tira do recorte quem só está em projeto finalizado ou
+        # pausado: nenhum dos dois gera carga (ver `ativos` acima), e quem só
+        # coordena projeto pausado tem as vagas LIVRES.
         ids_recorte = {p.id for p in do_recorte}
         no_recorte: Dict[str, set] = defaultdict(set)
         for m in membros:
@@ -1390,12 +1402,12 @@ class AlocacaoUseCase(_BaseMonitoramento):
             if frentes_da_populacao is not None:
                 if not (frentes_por_usuario.get(usuario.id, set()) & frentes_da_populacao):
                     return False
-                # Escopo e status continuam estreitando a população: os dois
-                # perguntam "quem trabalha NESTE recorte", e a resposta não
-                # pode incluir quem não está em projeto nenhum. O filtro de
-                # frente é a única exceção — ele já foi respondido acima, pelo
-                # vínculo da pessoa, e não pelos projetos dela.
-                if escopo_id is not None or status:
+                # Escopo continua estreitando a população: ele pergunta "quem
+                # trabalha NESTE recorte", e a resposta não pode incluir quem
+                # não está em projeto nenhum. O filtro de frente já foi
+                # respondido acima, pelo vínculo da pessoa, e não pelos
+                # projetos dela. Status não estreita ninguém (ver o topo).
+                if escopo_id is not None:
                     return usuario.id in no_recorte[papel]
                 return True
             if not sem_filtro:
