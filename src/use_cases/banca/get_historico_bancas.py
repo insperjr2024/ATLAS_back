@@ -7,6 +7,7 @@ from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.repositories.avaliacao_nota_repository import AvaliacaoNotaRepository
+from src.utils.avaliacoes_pendentes import avaliacao_aberta, prazo_avaliacao
 from src.utils.escopos_da_banca import nome_do_escopo
 from src.utils.filtrar_historico_bancas import filtrar_historico_bancas
 from src.utils.banca_nota import calcular_nota_final
@@ -89,5 +90,9 @@ class GetHistoricoBancasUseCase:
                 # `use_cases/banca/aprovar_banca.py`). Sem isto, o histórico
                 # de bancas não tinha onde mostrar o veredito.
                 "resultado": banca.resultado,
+                "realizado_em": banca.realizado_em,
+                "prazo_avaliacao": prazo_avaliacao(banca),
+                "prazo_avaliacao_override": getattr(banca, "prazo_avaliacao_override", None),
+                "avaliacao_aberta": avaliacao_aberta(banca),
             })
         return linhas

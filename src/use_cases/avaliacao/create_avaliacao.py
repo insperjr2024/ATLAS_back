@@ -3,11 +3,11 @@ from src.repositories.avaliacao_repository import AvaliacaoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.banca_sessao_repository import BancaSessaoRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
-from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS, avaliacao_aberta
 from src.utils.exceptions import RegraDeNegocioError
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class CreateAvaliacaoRequest(BaseModel):
@@ -63,8 +63,7 @@ class CreateAvaliacaoUseCase:
             # ADICIONAR alguém a uma banca já realizada enquanto este mesmo
             # prazo ainda não venceu (`create_candidatura.py`). Depois que as
             # avaliações fecham, adicionar não faz mais sentido nenhum.
-            prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
-            if datetime.now() > prazo:
+            if not avaliacao_aberta(banca):
                 raise RegraDeNegocioError(
                     f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"
                 )

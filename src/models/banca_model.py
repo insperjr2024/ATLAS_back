@@ -30,6 +30,13 @@ class BancaModel(Base):
     #: era reportada como realizada só pelo relógio — e "venceu e não
     #: aconteceu" não existia no sistema.
     realizado_em = Column(DateTime, nullable=True)
+    #: Janela de avaliação forçada pela diretoria (2026-10-06, a pedido).
+    #: Nulo = segue o prazo de `PRAZO_AVALIACAO_DIAS` depois de
+    #: `realizado_em`; "aberto" reabre por exceção pra quem esqueceu;
+    #: "fechado" encerra antes. Ver `utils/avaliacoes_pendentes.avaliacao_aberta`.
+    prazo_avaliacao_override = Column(
+        Enum("aberto", "fechado", name="banca_prazo_avaliacao_override"), nullable=True
+    )
     #: 🔒 Libera ou trava a entrega ao cliente (§5.5, §8).
     resultado = Column(
         Enum("aprovada", "nao_aprovada", name="resultado_banca"), nullable=True

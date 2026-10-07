@@ -12,7 +12,7 @@ avaliadores — esta submissão só fecha o formulário de notas e comentário.
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.use_cases.formulario.get_formulario_ativo import GetFormularioAtivoUseCase
-from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS, avaliacao_aberta
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -94,7 +94,7 @@ class SubmeterAvaliacaoUseCase:
         # Sempre a partir da REALIZAÇÃO (2026-09-15, revisto a pedido): ver o
         # comentário em `create_avaliacao.py` — o prazo é da banca, não de
         # quando a pessoa virou candidata.
-        if datetime.now() > banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS):
+        if not avaliacao_aberta(banca):
             raise RegraDeNegocioError(
                 f"O prazo de {PRAZO_AVALIACAO_DIAS} dias para avaliar esta banca já passou"
             )
