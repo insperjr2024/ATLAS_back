@@ -31,6 +31,7 @@ from src.use_cases.desempenho_avaliacao.get_fila import GetFilaUsuarioUseCase
 from src.use_cases.desempenho_avaliacao.get_relatorio import GetRelatorioDesempenhoUseCase
 from src.use_cases.desempenho_formulario.get_formulario import GetDesempenhoFormularioUseCase
 from src.use_cases.desempenho_formulario.update_formulario import (
+    ListLotesAbertosDoFormularioUseCase,
     UpdateDesempenhoFormularioRequest,
     UpdateDesempenhoFormularioUseCase,
 )
@@ -133,11 +134,18 @@ def get_pendencias(lote_id: int, _=Depends(require_pode_administrar_desempenho),
 # ---------------------------------------------------------------- formulários
 
 @router.get("/desempenho/formularios/{tipo}/{papel}")
-def get_formulario(tipo: str, papel: str, db: Session = Depends(get_db)):
-    result = GetDesempenhoFormularioUseCase(db).execute(tipo, papel)
+def get_formulario(tipo: str, papel: str, lote_id: Optional[int] = None, db: Session = Depends(get_db)):
+    result = GetDesempenhoFormularioUseCase(db).execute(tipo, papel, lote_id)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
     return result
+
+
+@router.get("/desempenho/formularios/{tipo}/{papel}/lotes-abertos")
+def get_lotes_abertos_do_formulario(
+    tipo: str, papel: str, _=Depends(require_pode_editar_formularios_desempenho), db: Session = Depends(get_db)
+):
+    return ListLotesAbertosDoFormularioUseCase(db).execute(tipo, papel)
 
 
 @router.put("/desempenho/formularios/{tipo}/{papel}")
@@ -148,7 +156,10 @@ def update_formulario(
     _=Depends(require_pode_editar_formularios_desempenho),
     db: Session = Depends(get_db),
 ):
-    result = UpdateDesempenhoFormularioUseCase(db).execute(tipo, papel, request)
+    try:
+        result = UpdateDesempenhoFormularioUseCase(db).execute(tipo, papel, request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
     return result

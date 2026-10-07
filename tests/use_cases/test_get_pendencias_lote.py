@@ -98,6 +98,22 @@ class FakeDesempenhoFormularioRepository:
     def first_by(self, tipo, papel):
         return FORMULARIOS.get((tipo, papel))
 
+    def vigente(self, tipo, papel):
+        return FORMULARIOS.get((tipo, papel))
+
+    def get_by_id(self, formulario_id):
+        return next((f for f in FORMULARIOS.values() if f and f.id == formulario_id), None)
+
+
+class FakeDesempenhoLoteFormularioRepository:
+    """Sem versão congelada em nenhum lote: tudo cai na vigente."""
+
+    def __init__(self, db):
+        pass
+
+    def formulario_id_de(self, lote_id, papel):
+        return None
+
 
 class FakeDesempenhoCriterioRepository:
     def __init__(self, db):
@@ -185,6 +201,7 @@ def _mundo(monkeypatch):
     monkeypatch.setattr(f"{modulo}.UsuarioRepository", FakeUsuarioRepository)
     monkeypatch.setattr(f"{modulo}.ProjetoRepository", FakeProjetoRepository)
     monkeypatch.setattr(f"{modulo}.DesempenhoFormularioRepository", FakeDesempenhoFormularioRepository)
+    monkeypatch.setattr(f"{modulo}.DesempenhoLoteFormularioRepository", FakeDesempenhoLoteFormularioRepository)
     monkeypatch.setattr(f"{modulo}.DesempenhoCriterioRepository", FakeDesempenhoCriterioRepository)
     monkeypatch.setattr(f"{modulo}.ProjetoEscopoRepository", FakeProjetoEscopoRepository)
     monkeypatch.setattr(f"{modulo}.BancaEscopoRepository", FakeBancaEscopoRepository)

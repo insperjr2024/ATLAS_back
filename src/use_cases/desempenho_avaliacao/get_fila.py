@@ -7,6 +7,7 @@ from src.repositories.desempenho_avaliacao_repository import DesempenhoAvaliacao
 from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRepository
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_projeto_repository import DesempenhoLoteProjetoRepository
+from src.repositories.desempenho_lote_formulario_repository import DesempenhoLoteFormularioRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
@@ -48,6 +49,7 @@ class GetFilaUsuarioUseCase:
         self.usuario_repo = UsuarioRepository(db)
         self.formulario_repo = DesempenhoFormularioRepository(db)
         self.criterio_repo = DesempenhoCriterioRepository(db)
+        self.lote_formulario_repo = DesempenhoLoteFormularioRepository(db)
         self.projeto_escopo_repo = ProjetoEscopoRepository(db)
         self.banca_escopo_repo = BancaEscopoRepository(db)
         self.usuario_frente_repo = UsuarioFrenteRepository(db)
@@ -77,7 +79,7 @@ class GetFilaUsuarioUseCase:
             # `utils/desempenho_escopo.py`.
             try:
                 form_escopo = formulario_escopo_do_lote(
-                    lote, self.formulario_repo, self.criterio_repo
+                    lote, self.formulario_repo, self.criterio_repo, self.lote_formulario_repo
                 )
                 meus_escopos = (
                     escopos_da_pessoa(

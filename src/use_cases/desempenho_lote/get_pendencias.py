@@ -8,6 +8,7 @@ from src.repositories.desempenho_avaliacao_repository import DesempenhoAvaliacao
 from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRepository
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_projeto_repository import DesempenhoLoteProjetoRepository
+from src.repositories.desempenho_lote_formulario_repository import DesempenhoLoteFormularioRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 from src.repositories.escopo_repository import EscopoRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
@@ -39,6 +40,7 @@ class GetPendenciasLoteUseCase:
         self.projeto_repo = ProjetoRepository(db)
         self.formulario_repo = DesempenhoFormularioRepository(db)
         self.criterio_repo = DesempenhoCriterioRepository(db)
+        self.lote_formulario_repo = DesempenhoLoteFormularioRepository(db)
         self.projeto_escopo_repo = ProjetoEscopoRepository(db)
         self.banca_escopo_repo = BancaEscopoRepository(db)
         self.usuario_frente_repo = UsuarioFrenteRepository(db)
@@ -68,7 +70,7 @@ class GetPendenciasLoteUseCase:
         escopos_por_pessoa: dict[int, list] = {}
         catalogo: dict[int, str] = {}
         try:
-            form_escopo = formulario_escopo_do_lote(lote, self.formulario_repo, self.criterio_repo)
+            form_escopo = formulario_escopo_do_lote(lote, self.formulario_repo, self.criterio_repo, self.lote_formulario_repo)
             if form_escopo:
                 escopos = escopos_avaliaveis_no_lote(
                     lote, projeto_ids, self.projeto_escopo_repo, self.banca_escopo_repo

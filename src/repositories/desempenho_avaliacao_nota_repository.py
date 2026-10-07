@@ -18,3 +18,15 @@ class DesempenhoAvaliacaoNotaRepository(BaseRepository[DesempenhoAvaliacaoNotaMo
             .filter(DesempenhoAvaliacaoNotaModel.avaliacao_id.in_(avaliacao_ids))
             .all()
         )
+
+    def criterios_com_resposta(self, criterio_ids: List[int]) -> set:
+        """Dentre `criterio_ids`, os que já têm alguma nota gravada."""
+        if not criterio_ids:
+            return set()
+        linhas = (
+            self.db.query(DesempenhoAvaliacaoNotaModel.criterio_id)
+            .filter(DesempenhoAvaliacaoNotaModel.criterio_id.in_(criterio_ids))
+            .distinct()
+            .all()
+        )
+        return {c for (c,) in linhas}
