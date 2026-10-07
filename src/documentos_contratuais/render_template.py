@@ -19,6 +19,7 @@ Regras de testemunha (decisão do time, mantidas da Contratos):
 
 from __future__ import annotations
 
+import io
 import os
 
 from docxtpl import DocxTemplate
@@ -329,14 +330,22 @@ def montar_contexto(tipo: str, dados: dict, identidade: dict) -> dict:
     return ctx
 
 
-def renderizar(tipo: str, dados: dict, identidade: dict) -> DocxTemplate:
+def caminho_template_padrao(tipo: str) -> str:
     caminho = TEMPLATE_POR_TIPO.get(tipo)
     if not caminho:
         raise ValueError(f'Não há template para documentos do tipo "{tipo}".')
     template_path = os.path.join(TEMPLATES_DIR, caminho)
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Template não encontrado: {template_path}")
+    return template_path
 
-    doc = DocxTemplate(template_path)
+
+def renderizar(tipo: str, dados: dict, identidade: dict, template_bytes: bytes | None = None) -> DocxTemplate:
+    """`template_bytes`: o modelo personalizado da diretoria
+    (`documento_modelo`), quando houver; sem ele, o padrão do deploy."""
+    if template_bytes:
+        doc = DocxTemplate(io.BytesIO(template_bytes))
+    else:
+        doc = DocxTemplate(caminho_template_padrao(tipo))
     doc.render(montar_contexto(tipo, dados, identidade))
     return doc

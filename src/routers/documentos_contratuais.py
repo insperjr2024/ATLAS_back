@@ -38,6 +38,13 @@ from src.middlewares.authorization import (
     usuario_tem_permissao,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.documento_contratual.modelos import (
+    MIME_DOCX,
+    BaixarModeloUseCase,
+    EnviarModeloUseCase,
+    ListarModelosUseCase,
+    RemoverModeloUseCase,
+)
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
 )
@@ -346,6 +353,57 @@ def abrir_documento(
         raise HTTPException(status_code=409, detail=str(e))
 
     return serializar_documento_contratual_completo(db, documento, ultima_versao=0)
+
+
+# ---------------------------------------------------------------- modelos base (.docx)
+
+def _exigir_edita_identidade(usuario, db, acao: str) -> None:
+    if not eh_diretoria_de_projetos(usuario) and not usuario_tem_permissao(
+        usuario, db, "pode_editar_identidade_institucional"
+    ):
+        raise HTTPException(status_code=403, detail=f"Sem permissão para {acao}.")
+
+
+@router.get("/documentos-contratuais/modelos")
+def listar_modelos_contratuais(usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    _exigir_edita_identidade(usuario, db, "ver os modelos base")
+    return ListarModelosUseCase(db).execute()
+
+
+@router.get("/documentos-contratuais/modelos/{tipo}/arquivo")
+def baixar_modelo_contratual(tipo: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    _exigir_edita_identidade(usuario, db, "baixar os modelos base")
+    try:
+        conteudo, nome = BaixarModeloUseCase(db).execute(tipo)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(
+        content=conteudo,
+        media_type=MIME_DOCX,
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
+
+
+@router.put("/documentos-contratuais/modelos/{tipo}")
+async def enviar_modelo_contratual(
+    tipo: str,
+    arquivo: UploadFile = File(...),
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _exigir_edita_identidade(usuario, db, "trocar os modelos base")
+    conteudo = await arquivo.read()
+    try:
+        return EnviarModeloUseCase(db).execute(tipo, conteudo, arquivo.filename or "", usuario.id)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.delete("/documentos-contratuais/modelos/{tipo}", status_code=204)
+def remover_modelo_contratual(tipo: str, usuario=Depends(get_current_user), db: Session = Depends(get_db)):
+    _exigir_edita_identidade(usuario, db, "voltar o modelo ao padrão")
+    RemoverModeloUseCase(db).execute(tipo)
+    return None
 
 
 @router.get("/documentos-contratuais/{documento_id}")

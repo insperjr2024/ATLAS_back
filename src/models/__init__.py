@@ -106,3 +106,7 @@ from src.models.sabatina_model import (
 # Qual versão de formulário cada lote aberto ficou usando quando o vigente
 # foi editado "só pra futuros". Ver `desempenho_formulario_model.py`.
 from src.models.desempenho_lote_formulario_model import DesempenhoLoteFormularioModel
+
+# Modelo base (.docx) de documento jurídico trocado pela diretoria; sem linha,
+# vale o arquivo do deploy. Ver `documento_modelo_model.py`.
+from src.models.documento_modelo_model import DocumentoModeloModel
