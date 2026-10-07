@@ -13,6 +13,7 @@ from src.repositories.sabatina_repository import (
 )
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.fuso import agora_utc
 from src.utils.sabatina_apuracao import peso_do_usuario
 
 
@@ -87,5 +88,9 @@ class VotarUseCase:
             candidato_id=request.candidato_id,
             posicao=posicao or "",
             peso=peso_do_usuario(posicao, cargo_extra, self.peso_repo.como_dict()),
+            # No mesmo relógio de `aberta_em` (UTC naive), e não no `now()` do
+            # banco: a corrida da diretoria põe os dois no mesmo eixo, e um
+            # banco local em America/Sao_Paulo deslocava os votos em 3 h.
+            criado_em=agora_utc(),
         )
         return {"id": voto.id, "eleicao_id": eleicao_id, "em_branco": request.candidato_id is None}

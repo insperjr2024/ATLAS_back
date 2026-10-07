@@ -2,12 +2,14 @@
 
 Ciclo: `rascunho` (edita nome, percentual e candidatos) -> `aberta` (congela
 quem vota, recebe votos) -> `fechada` (apuração). Sem volta em nenhum passo.
-Resultado só sai fechada: enquanto aberta a diretoria vê participação e
-pendências, não a contagem, pra ninguém influenciar o que ainda está em
-curso.
+
+Voto anônimo (2026-10-07): ninguém, nem a diretoria, vê quem votou em quem.
+O que sai daqui é sempre agregado: participação (quem já votou e quem falta,
+sem o conteúdo do voto), a corrida em tempo real enquanto aberta e os
+números da apuração quando fechada. Não existe rota que devolva o voto
+individual, e a tabela `sabatina_voto` só é lida pra somar.
 """
 
-import unicodedata
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -95,38 +97,58 @@ class GetEleicaoUseCase(_Base):
         return self.serializar(self._eleicao_ou_erro(eleicao_id))
 
 
-class GetVotosEleicaoUseCase(_Base):
-    """Quem votou em quem. Existe pra diretoria conferir se precisar; a tela
-    não traz isto junto do resultado de propósito."""
+class GetGraficosEleicaoUseCase(_Base):
+    """Os números por trás dos gráficos da diretoria, sem identidade de
+    eleitor. Serve a corrida em tempo real (eleição aberta) e os gráficos
+    extras depois da apuração (fechada).
 
-    def execute(self, eleicao_id: int) -> list[dict]:
+    O que vai: a contagem por candidato (a mesma conta da apuração, só que
+    parcial enquanto aberta), participação por posição em quantidade e a
+    linha do tempo dos votos (quando cada voto entrou, em quem e com que
+    peso). A linha do tempo não leva a posição de quem votou de propósito:
+    cruzada com a lista de pendentes, ela entregaria o voto de quem é único
+    na posição.
+    """
+
+    def execute(self, eleicao_id: int) -> dict:
         eleicao = self._eleicao_ou_erro(eleicao_id)
+        if eleicao.status == "rascunho":
+            raise RegraDeNegocioError("Esta eleição ainda não foi aberta.")
         pessoas = _pessoas(self.usuario_repo)
-        candidatos = {c.id: c.usuario_id for c in self.candidato_repo.get_by_eleicao(eleicao.id)}
-        saida = []
-        for v in self.voto_repo.get_by_eleicao(eleicao.id):
-            eleitor = pessoas.get(v.eleitor_id, {})
-            cand_uid = candidatos.get(v.candidato_id) if v.candidato_id else None
-            saida.append(
-                {
-                    "eleitor_id": v.eleitor_id,
-                    "eleitor_nome": eleitor.get("nome", f"Usuário {v.eleitor_id}"),
-                    "posicao": v.posicao,
-                    "peso": v.peso,
-                    "candidato_id": v.candidato_id,
-                    "candidato_nome": pessoas.get(cand_uid, {}).get("nome") if cand_uid else None,
-                    "criado_em": v.criado_em,
-                }
-            )
-        # Ordem alfabética de verdade: sem acento e sem caixa pesarem.
-        saida.sort(key=lambda d: _chave_alfabetica(d["eleitor_nome"]))
-        return saida
+        candidatos = self.candidato_repo.get_by_eleicao(eleicao.id)
+        votos = self.voto_repo.get_by_eleicao(eleicao.id)
 
+        parcial = apurar(candidatos, votos, eleicao.percentual_aprovacao)
+        for linha in parcial["candidatos"]:
+            p = pessoas.get(linha["usuario_id"]) or {}
+            linha["nome"] = p.get("nome", f"Usuário {linha['usuario_id']}")
 
-def _chave_alfabetica(texto: str) -> str:
-    return "".join(
-        ch for ch in unicodedata.normalize("NFD", texto or "") if unicodedata.category(ch) != "Mn"
-    ).casefold()
+        # Participação por posição: quantos eleitores de cada posição já
+        # votaram. Só quantidades, e pela posição ATUAL da pessoa (a mesma
+        # régua pros dois lados da fração), não pela gravada no voto.
+        votaram = {v.eleitor_id for v in votos}
+        por_posicao: Dict[str, dict] = {}
+        for uid in eleicao.eleitores_ids or []:
+            posicao = (pessoas.get(uid) or {}).get("posicao") or "sem_posicao"
+            faixa = por_posicao.setdefault(posicao, {"posicao": posicao, "total": 0, "votaram": 0})
+            faixa["total"] += 1
+            if uid in votaram:
+                faixa["votaram"] += 1
+
+        linha_do_tempo = [
+            {"em": v.criado_em, "candidato_id": v.candidato_id, "peso": v.peso}
+            for v in sorted(votos, key=lambda v: (v.criado_em, v.id))
+        ]
+
+        return {
+            "status": eleicao.status,
+            "aberta_em": eleicao.aberta_em,
+            "fechada_em": eleicao.fechada_em,
+            "total_eleitores": len(eleicao.eleitores_ids or []),
+            "parcial": parcial,
+            "por_posicao": sorted(por_posicao.values(), key=lambda f: -f["total"]),
+            "linha_do_tempo": linha_do_tempo,
+        }
 
 
 def _validar_candidatos(usuario_repo: UsuarioRepository, ids: List[int]) -> None:

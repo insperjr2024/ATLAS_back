@@ -1,9 +1,11 @@
 """Sabatina: o processo eleitoral. Ver `models/sabatina_model.py`.
 
-Montar, abrir, fechar, excluir, ver apuração e pendências: quem tem a caixa
-`pode_acessar_configuracoes_sabatina` (nasce marcada pra diretoria). Votar e
-ver a própria cédula: qualquer pessoa logada que esteja entre os eleitores
-congelados na abertura.
+Montar, abrir, fechar, excluir, ver apuração, pendências e gráficos: quem
+tem a caixa `pode_acessar_configuracoes_sabatina` (nasce marcada pra
+diretoria). Votar e ver a própria cédula: qualquer pessoa logada que esteja
+entre os eleitores congelados na abertura.
+
+Voto anônimo: nenhuma rota devolve quem votou em quem, nem pra diretoria.
 """
 
 from fastapi import APIRouter, Depends
@@ -19,7 +21,7 @@ from src.use_cases.sabatina.eleicoes import (
     EleicaoRequest,
     FecharEleicaoUseCase,
     GetEleicaoUseCase,
-    GetVotosEleicaoUseCase,
+    GetGraficosEleicaoUseCase,
     ListEleicoesUseCase,
     UpdateEleicaoUseCase,
 )
@@ -123,9 +125,11 @@ def fechar_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes
         raise erro_de_regra(e)
 
 
-@router.get("/eleicoes/{eleicao_id}/votos")
-def votos_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
+@router.get("/eleicoes/{eleicao_id}/graficos")
+def graficos_eleicao(eleicao_id: int, _=Depends(require_pode_acessar_configuracoes_sabatina), db: Session = Depends(get_db)):
+    """Contagem agregada pra corrida ao vivo (aberta) e gráficos da apuração
+    (fechada). Sem identidade de eleitor."""
     try:
-        return GetVotosEleicaoUseCase(db).execute(eleicao_id)
+        return GetGraficosEleicaoUseCase(db).execute(eleicao_id)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
