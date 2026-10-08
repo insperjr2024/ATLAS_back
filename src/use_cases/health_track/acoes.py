@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from src.models.health_track_pilar_model import HealthTrackPilarModel
 from src.models.projeto_model import ProjetoModel
 from src.repositories.health_track_acao_repository import HealthTrackAcaoRepository
+from src.use_cases.health_track.notificar_acoes import notificar_acao_atribuida, notificar_acao_concluida
 from src.repositories.usuario_repository import UsuarioRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.fuso import agora_utc, hoje_local
@@ -68,6 +69,14 @@ class _Base:
         if request.pilar_id is not None and not self.db.get(HealthTrackPilarModel, request.pilar_id):
             raise RegraDeNegocioError("Pilar não encontrado.")
 
+    def _nome(self, usuario_id: Optional[int]) -> Optional[str]:
+        u = self.usuario_repo.get_by_id(usuario_id) if usuario_id else None
+        return u.nome if u else None
+
+    def _nome_projeto(self, projeto_id: int) -> str:
+        p = self.db.get(ProjetoModel, projeto_id)
+        return p.nome if p else f"Projeto {projeto_id}"
+
     def _ou_erro(self, acao_id: int, projeto_id: int):
         acao = self.repository.get_by_id(acao_id)
         if not acao or acao.projeto_id != projeto_id:
@@ -100,6 +109,7 @@ class CriarAcaoUseCase(_Base):
             criado_por=getattr(current_user, "id", None),
             criado_em=agora_utc(),
         )
+        notificar_acao_atribuida(self.db, acao, self._nome_projeto(projeto_id), self._nome(acao.criado_por))
         return self.serializar_varias([acao])[0]
 
 
@@ -107,6 +117,7 @@ class EditarAcaoUseCase(_Base):
     def execute(self, projeto_id: int, acao_id: int, request: AcaoRequest) -> dict:
         acao = self._ou_erro(acao_id, projeto_id)
         self._validar(request)
+        responsavel_antes = acao.responsavel_id
         acao = self.repository.update(
             acao.id,
             pilar_id=request.pilar_id,
@@ -115,6 +126,9 @@ class EditarAcaoUseCase(_Base):
             responsavel_id=request.responsavel_id,
             prazo=request.prazo,
         )
+        # Só a pessoa NOVA é avisada; a chave de dedup já segura o resto.
+        if acao.responsavel_id and acao.responsavel_id != responsavel_antes:
+            notificar_acao_atribuida(self.db, acao, self._nome_projeto(projeto_id), self._nome(acao.criado_por))
         return self.serializar_varias([acao])[0]
 
 
@@ -123,11 +137,14 @@ class ConcluirAcaoUseCase(_Base):
 
     def execute(self, projeto_id: int, acao_id: int, concluida: bool, current_user) -> dict:
         acao = self._ou_erro(acao_id, projeto_id)
+        quem = getattr(current_user, "id", None)
         acao = self.repository.update(
             acao.id,
             concluida_em=agora_utc() if concluida else None,
-            concluida_por=getattr(current_user, "id", None) if concluida else None,
+            concluida_por=quem if concluida else None,
         )
+        if concluida:
+            notificar_acao_concluida(self.db, acao, self._nome_projeto(projeto_id), quem, self._nome(quem))
         return self.serializar_varias([acao])[0]
 
 

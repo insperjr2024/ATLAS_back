@@ -97,6 +97,12 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: `rodar_lembrete_prazo_avaliacao` (tipo `banca_aviso`); este tipo cobre
     #: o lado que faltava, o lote de Avaliação de Desempenho.
     "lote_desempenho_pendencia_diretoria",
+    #: 📌 Ações do Health Track (§15, 2026-10-08): o responsável não vê o
+    #: Health Track, então o aviso é como ele fica sabendo. Migration
+    #: `d2f6a8c4e117`.
+    "acao_atribuida",
+    "acao_concluida",
+    "acao_prazo_vencido",
     name="tipo_notificacao",
 )
 

@@ -43,7 +43,7 @@ from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaU
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
 from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
 from src.use_cases.notificacao.reenviar_pendentes import reenviar_emails_pendentes
-from src.utils.fuso import agora_utc
+from src.utils.fuso import agora_utc, hoje_local
 from src.use_cases.notificacao.eventos import (
     notificar_lote_desempenho_lembrete,
     notificar_lote_desempenho_pendencia_diretoria,
@@ -51,6 +51,8 @@ from src.use_cases.notificacao.eventos import (
     notificar_pdi_prazo_vencido,
 )
 from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
+from src.repositories.health_track_acao_repository import HealthTrackAcaoRepository
+from src.use_cases.health_track.notificar_acoes import notificar_acao_prazo_vencido
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.use_cases.monitoramento.monitoramento import _BaseMonitoramento, _agrupar
 from src.models.projeto_model import ProjetoModel
@@ -404,6 +406,32 @@ def rodar_lembrete_condicoes() -> None:
         db.close()
 
 
+def rodar_lembrete_acoes_health_track() -> None:
+    """Ação do Health Track (§15) aberta cujo prazo venceu ONTEM: avisa o
+    responsável e a diretoria de projetos, uma vez só (mesmo truque de
+    comparar com "ontem" de `rodar_lembrete_prazo_avaliacao`)."""
+    db = SessionLocal()
+    try:
+        ontem = hoje_local() - timedelta(days=1)
+        usuario_repository = UsuarioRepository(db)
+        diretores = [d.id for d in usuario_repository.get_por_posicao("diretor_projetos")]
+        avisos = 0
+        for acao in HealthTrackAcaoRepository(db).get_abertas():
+            if acao.prazo != ontem:
+                continue
+            projeto = db.get(ProjetoModel, acao.projeto_id)
+            nome_projeto = projeto.nome if projeto else f"Projeto {acao.projeto_id}"
+            responsavel = usuario_repository.get_by_id(acao.responsavel_id) if acao.responsavel_id else None
+            destinatarios = ([acao.responsavel_id] if acao.responsavel_id else []) + diretores
+            for uid in dict.fromkeys(destinatarios):
+                notificar_acao_prazo_vencido(db, uid, acao, nome_projeto, responsavel.nome if responsavel else None)
+            avisos += 1
+        if avisos:
+            logger.info("Ações do Health Track vencidas ontem: %d", avisos)
+    finally:
+        db.close()
+
+
 def rodar_lembrete_prazo_pdi() -> None:
     """Um aviso por ITEM de PDI vencendo amanhã (pro responsável certo — o
     mentor num "Encontro N", a diretoria num "PDI inicial") e um aviso o dia
@@ -554,6 +582,12 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_prazo_avaliacao,
         CronTrigger(hour=6, minute=15),
         id="lembrete_prazo_avaliacao",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_lembrete_acoes_health_track,
+        CronTrigger(hour=6, minute=20),
+        id="lembrete_acoes_health_track",
         replace_existing=True,
     )
     # Pausado (19/08/2026, pedido direto): PDI ainda não está em uso pela
