@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from src.middlewares.authorization import aplicar_recorte_visao
 from src.models.projeto_model import ProjetoModel
+from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.frente_repository import FrenteRepository
 from src.repositories.health_track_avaliacao_repository import HealthTrackAvaliacaoRepository
 from src.repositories.health_track_pilar_repository import HealthTrackPilarRepository
@@ -46,6 +47,7 @@ class GetCarteiraUseCase:
         self.membro_repo = ProjetoMembroRepository(db)
         self.usuario_frente_repo = UsuarioFrenteRepository(db)
         self.usuario_repo = UsuarioRepository(db)
+        self.config_repo = ConfiguracaoRepository(db)
 
     def execute(self, current_user, frente_id: Optional[int] = None) -> dict:
         projetos: List[ProjetoModel] = (
@@ -60,6 +62,13 @@ class GetCarteiraUseCase:
         pilares = self.pilar_repo.get_ativos()
         ids_pilares = [p.id for p in pilares]
         reguas = ReguasStatus(self.regra_repo.get_versoes())
+        config = self.config_repo.get()
+        # §7: a partir de quantas avaliações seguidas na mesma cor o pilar
+        # vira alerta. Vem de Configurações; sem linha, o padrão da spec.
+        persistencia = {
+            "amarelo": getattr(config, "health_track_persistencia_amarelo", 2) if config else 2,
+            "vermelho": getattr(config, "health_track_persistencia_vermelho", 2) if config else 2,
+        }
         pessoas = {u.id: u for u in self.usuario_repo.get_all()}
         frentes = {f.id: f for f in self.frente_repo.get_all()}
 
@@ -107,28 +116,63 @@ class GetCarteiraUseCase:
                             {g for fid in frentes_do_projeto.get(projeto.id, []) for g in gerentes_da_frente.get(fid, [])}
                         )
                     ],
-                    **_saude(historico.get(projeto.id, []), ids_pilares, reguas),
+                    **_saude(historico.get(projeto.id, []), ids_pilares, reguas, persistencia),
                 }
             )
 
-        return {"pilares": [serializar_pilar(p) for p in pilares], "projetos": linhas}
+        return {
+            "pilares": [serializar_pilar(p) for p in pilares],
+            "persistencia": persistencia,
+            "projetos": linhas,
+        }
 
 
-def _saude(historico: list, ids_pilares: List[int], reguas: ReguasStatus) -> dict:
+def _saude(
+    historico: list,
+    ids_pilares: List[int],
+    reguas: ReguasStatus,
+    persistencia: Optional[Dict[str, int]] = None,
+) -> dict:
     """A parte do Health Track de uma linha: a cor vigente de cada pilar
-    ativo, o status geral e a tendência contra o ciclo anterior.
+    ativo (com há quantas avaliações seguidas ela se repete), o status geral
+    e a tendência contra o ciclo anterior.
 
     `historico` vem da linha mais nova pra mais antiga. A cor vigente de um
     pilar é a primeira dele que aparece; o ciclo é o grupo de linhas com o
     mesmo `avaliado_em`. A tendência compara o status (pela regra ATUAL, pra
     comparar réguas iguais) dos dois últimos ciclos completos.
+
+    Persistência (§7): `sequencia` conta, do mais recente pra trás, quantas
+    avaliações seguidas do pilar têm a cor vigente; `persistente` liga quando
+    a cor é amarela ou vermelha e a sequência bate o limite configurado.
     """
+    persistencia = persistencia or {"amarelo": 2, "vermelho": 2}
     ultimas: Dict[int, object] = {}
+    sequencias: Dict[int, int] = defaultdict(int)
+    quebrou: set = set()
     for a in historico:
         ultimas.setdefault(a.pilar_id, a)
+        if a.pilar_id in quebrou:
+            continue
+        if a.cor == ultimas[a.pilar_id].cor:
+            sequencias[a.pilar_id] += 1
+        else:
+            quebrou.add(a.pilar_id)
     cores = {pid: ultimas[pid].cor for pid in ids_pilares if pid in ultimas}
+
+    def persistente(pid: int) -> bool:
+        cor = ultimas[pid].cor
+        return cor in persistencia and sequencias[pid] >= persistencia[cor]
+
     pilares = {
-        str(pid): {"cor": ultimas[pid].cor, "avaliado_em": ultimas[pid].avaliado_em} if pid in ultimas else None
+        str(pid): {
+            "cor": ultimas[pid].cor,
+            "avaliado_em": ultimas[pid].avaliado_em,
+            "sequencia": sequencias[pid],
+            "persistente": persistente(pid),
+        }
+        if pid in ultimas
+        else None
         for pid in ids_pilares
     }
     mais_recente = max((a.avaliado_em for a in ultimas.values()), default=None)
@@ -153,4 +197,5 @@ def _saude(historico: list, ids_pilares: List[int], reguas: ReguasStatus) -> dic
         "avaliado_em": mais_recente,
         "total_ciclos": len({a.avaliado_em for a in historico}),
         "algum_vermelho": any(c == "vermelho" for c in cores.values()),
+        "alertas_persistentes": sum(1 for pid in ids_pilares if pid in ultimas and persistente(pid)),
     }

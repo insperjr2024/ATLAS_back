@@ -18,3 +18,8 @@ class ConfiguracaoModel(Base):
     #: qualquer uma) cada frente vinculada precisa ter na banca, além do piso
     #: de membros comuns (§8). Editável pela diretoria, como `vagas_por_banca`.
     lideranca_minima_por_frente = Column(Integer, nullable=False, default=1, server_default="1")
+    #: Health Track §7: a partir de quantas avaliações seguidas na mesma cor
+    #: um pilar vira alerta de persistência ("amarelo há 3 avaliações").
+    #: Editável pela diretoria em Configurações, como o resto da linha.
+    health_track_persistencia_amarelo = Column(Integer, nullable=False, default=2, server_default="2")
+    health_track_persistencia_vermelho = Column(Integer, nullable=False, default=2, server_default="2")

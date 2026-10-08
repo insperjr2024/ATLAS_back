@@ -14,4 +14,6 @@ class GetConfiguracaoUseCase:
             "id": configuracao.id,
             "vagas_por_banca": configuracao.vagas_por_banca,
             "lideranca_minima_por_frente": configuracao.lideranca_minima_por_frente,
+            "health_track_persistencia_amarelo": configuracao.health_track_persistencia_amarelo,
+            "health_track_persistencia_vermelho": configuracao.health_track_persistencia_vermelho,
         }

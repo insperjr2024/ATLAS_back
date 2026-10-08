@@ -37,6 +37,7 @@ from src.use_cases.health_track.editar_pilares import (
 )
 from src.use_cases.health_track.get_avaliacao_atual import GetAvaliacaoAtualUseCase
 from src.use_cases.health_track.get_carteira import GetCarteiraUseCase
+from src.use_cases.health_track.get_evolucao import GetEvolucaoUseCase
 from src.use_cases.health_track.get_ciclos import GetCiclosUseCase
 from src.use_cases.health_track.get_historico import GetHistoricoUseCase
 from src.use_cases.health_track.get_regra import GetHistoricoRegraUseCase, GetRegraUseCase
@@ -132,6 +133,13 @@ def desfazer_justificativa(
         return DesfazerJustificativaUseCase(db).execute(rodada_id, projeto_id)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
+
+
+@router.get("/evolucao")
+def evolucao(db: Session = Depends(get_db)):
+    """§16: a carteira rodada a rodada (status geral e cor de cada pilar),
+    mais o ponto de hoje."""
+    return GetEvolucaoUseCase(db).execute()
 
 
 @router.get("/pilares")

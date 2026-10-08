@@ -58,3 +58,26 @@ def test_pilar_novo_sem_cor_deixa_o_status_pendente():
     assert r["pilares"]["3"] is None
     # O ciclo incompleto não entra na tendência.
     assert r["status_anterior"] is None
+
+
+def test_persistencia_conta_avaliacoes_seguidas_na_mesma_cor():
+    """§7: cliente amarelo há 3 avaliações, cronograma acabou de ficar
+    vermelho (1), escopo verde há 3 (verde nunca é alerta)."""
+    hist = (
+        ciclo(datetime(2026, 10, 15), {1: "vermelho", 2: "amarelo", 3: "verde"})
+        + ciclo(datetime(2026, 10, 8), {1: "verde", 2: "amarelo", 3: "verde"})
+        + ciclo(datetime(2026, 10, 1), {1: "verde", 2: "amarelo", 3: "verde"})
+    )
+    r = _saude(hist, PILARES, REGUAS, {"amarelo": 2, "vermelho": 2})
+    assert r["pilares"]["2"]["sequencia"] == 3 and r["pilares"]["2"]["persistente"] is True
+    assert r["pilares"]["1"]["sequencia"] == 1 and r["pilares"]["1"]["persistente"] is False
+    assert r["pilares"]["3"]["sequencia"] == 3 and r["pilares"]["3"]["persistente"] is False
+    assert r["alertas_persistentes"] == 1
+
+
+def test_limite_de_persistencia_vem_da_configuracao():
+    hist = ciclo(datetime(2026, 10, 8), {1: "amarelo", 2: "verde", 3: "verde"}) + ciclo(
+        datetime(2026, 10, 1), {1: "amarelo", 2: "verde", 3: "verde"}
+    )
+    assert _saude(hist, PILARES, REGUAS, {"amarelo": 2, "vermelho": 2})["pilares"]["1"]["persistente"] is True
+    assert _saude(hist, PILARES, REGUAS, {"amarelo": 3, "vermelho": 2})["pilares"]["1"]["persistente"] is False
