@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 import src.models  # noqa: F401
 from src.database.database import Base
+from src.models.health_track_acao_model import HealthTrackAcaoModel
 from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
 from src.models.health_track_pilar_model import HealthTrackPilarModel
 from src.models.health_track_regra_model import HealthTrackRegraModel
@@ -48,6 +49,7 @@ def db():
             HealthTrackRegraModel.__table__,
             HealthTrackRodadaModel.__table__,
             HealthTrackRodadaProjetoModel.__table__,
+            HealthTrackAcaoModel.__table__,
         ],
     )
     s = sessionmaker(bind=engine)()
@@ -129,3 +131,27 @@ def test_avaliar_depois_de_justificar_vira_avaliada(db):
     avaliar(db, 11)
     item = {p["projeto_id"]: p for p in GetRodadaAtualUseCase(db).execute()["projetos"]}[11]
     assert item["situacao"] == "avaliada" and item["justificativa"] is None
+
+
+def test_apagar_o_ciclo_devolve_o_projeto_a_pendente_na_rodada(db):
+    from src.use_cases.health_track.apagar import ApagarCicloUseCase
+
+    AbrirRodadaUseCase(db).execute(DIRETORA)
+    avaliar(db, 10)
+    atual = GetRodadaAtualUseCase(db).execute()
+    assert {p["projeto_id"]: p["situacao"] for p in atual["projetos"]}[10] == "avaliada"
+    ciclo = db.query(HealthTrackAvaliacaoModel).filter_by(projeto_id=10).first().avaliado_em
+    assert ApagarCicloUseCase(db).execute(10, ciclo) == {"apagadas": 1}
+    atual = GetRodadaAtualUseCase(db).execute()
+    assert {p["projeto_id"]: p["situacao"] for p in atual["projetos"]}[10] == "pendente"
+
+
+def test_zerar_apaga_avaliacoes_rodadas_e_acoes(db):
+    from src.use_cases.health_track.apagar import ZerarHealthTrackUseCase
+
+    AbrirRodadaUseCase(db).execute(DIRETORA)
+    avaliar(db, 10)
+    r = ZerarHealthTrackUseCase(db).execute()
+    assert r["avaliacoes"] == 1 and r["rodadas"] == 1 and r["acoes"] == 0
+    assert GetRodadaAtualUseCase(db).execute() is None
+    assert db.query(HealthTrackAvaliacaoModel).count() == 0

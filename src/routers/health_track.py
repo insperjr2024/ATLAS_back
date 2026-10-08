@@ -14,6 +14,7 @@ os pilares é só da diretoria de projetos. Dar a caixa a outra posição abre a
 leitura; não abre nem preenchimento nem edição.
 """
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -37,6 +38,7 @@ from src.use_cases.health_track.acoes import (
     ListAcoesAbertasUseCase,
     ListAcoesDoProjetoUseCase,
 )
+from src.use_cases.health_track.apagar import ApagarCicloUseCase, ZerarHealthTrackUseCase
 from src.use_cases.health_track.editar_pilares import (
     CriarPilarUseCase,
     EditarPilarRequest,
@@ -281,6 +283,26 @@ def avaliacao_atual(
         **GetAvaliacaoAtualUseCase(db).execute(projeto_id),
         "pode_preencher": pode_preencher_health_track(projeto_id, current_user, db),
     }
+
+
+@router.delete("/projetos/{projeto_id}/avaliacoes/ciclos")
+def apagar_ciclo(
+    projeto_id: int,
+    avaliado_em: datetime,
+    _=Depends(require_diretor_projetos),
+    db: Session = Depends(get_db),
+):
+    """Apaga UM preenchimento (todas as linhas com esse `avaliado_em`)."""
+    try:
+        return ApagarCicloUseCase(db).execute(projeto_id, avaliado_em)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.delete("/tudo")
+def zerar(_=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+    """Apaga todas as avaliações, rodadas e ações. Pilares e regra ficam."""
+    return ZerarHealthTrackUseCase(db).execute()
 
 
 @router.get("/projetos/{projeto_id}/avaliacoes/historico")

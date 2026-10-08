@@ -45,6 +45,24 @@ class HealthTrackAvaliacaoRepository(BaseRepository[HealthTrackAvaliacaoModel]):
             .all()
         )
 
+    def apagar_ciclo(self, projeto_id: int, avaliado_em) -> int:
+        """Apaga as linhas de UM preenchimento (mesmo `avaliado_em`)."""
+        n = (
+            self.db.query(HealthTrackAvaliacaoModel)
+            .filter(
+                HealthTrackAvaliacaoModel.projeto_id == projeto_id,
+                HealthTrackAvaliacaoModel.avaliado_em == avaliado_em,
+            )
+            .delete(synchronize_session=False)
+        )
+        self.db.commit()
+        return n
+
+    def apagar_todas(self) -> int:
+        n = self.db.query(HealthTrackAvaliacaoModel).delete(synchronize_session=False)
+        self.db.commit()
+        return n
+
     def registrar_ciclo(self, linhas: List[dict]) -> List[HealthTrackAvaliacaoModel]:
         """Grava as cores de um preenchimento num commit só: ou entram todos
         os pilares, ou nenhum — um ciclo pela metade quebraria a contagem de
