@@ -28,6 +28,15 @@ from src.middlewares.authorization import (
     require_pode_ver_health_track,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.health_track.acoes import (
+    AcaoRequest,
+    ApagarAcaoUseCase,
+    ConcluirAcaoUseCase,
+    CriarAcaoUseCase,
+    EditarAcaoUseCase,
+    ListAcoesAbertasUseCase,
+    ListAcoesDoProjetoUseCase,
+)
 from src.use_cases.health_track.editar_pilares import (
     CriarPilarUseCase,
     EditarPilarRequest,
@@ -131,6 +140,75 @@ def desfazer_justificativa(
 ):
     try:
         return DesfazerJustificativaUseCase(db).execute(rodada_id, projeto_id)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+# ---------------------------------------------------------------- ações (§15)
+#
+# Ler: a caixa. Criar, editar, concluir e apagar: quem preenche o Health
+# Track do projeto (diretoria de projetos ou gerente da frente).
+
+
+@router.get("/acoes")
+def acoes_abertas(db: Session = Depends(get_db)):
+    return ListAcoesAbertasUseCase(db).execute()
+
+
+@router.get("/projetos/{projeto_id}/acoes")
+def acoes_do_projeto(projeto_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    exigir_acesso_ao_projeto(projeto_id, current_user, db, somente_leitura_ok=True)
+    return ListAcoesDoProjetoUseCase(db).execute(projeto_id)
+
+
+@router.post("/projetos/{projeto_id}/acoes", status_code=201)
+def criar_acao(
+    projeto_id: int, request: AcaoRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    exigir_pode_preencher_health_track(projeto_id, current_user, db)
+    try:
+        return CriarAcaoUseCase(db).execute(projeto_id, request, current_user)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.put("/projetos/{projeto_id}/acoes/{acao_id}")
+def editar_acao(
+    projeto_id: int,
+    acao_id: int,
+    request: AcaoRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exigir_pode_preencher_health_track(projeto_id, current_user, db)
+    try:
+        return EditarAcaoUseCase(db).execute(projeto_id, acao_id, request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.post("/projetos/{projeto_id}/acoes/{acao_id}/concluir")
+def concluir_acao(
+    projeto_id: int,
+    acao_id: int,
+    concluida: bool = True,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exigir_pode_preencher_health_track(projeto_id, current_user, db)
+    try:
+        return ConcluirAcaoUseCase(db).execute(projeto_id, acao_id, concluida, current_user)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.delete("/projetos/{projeto_id}/acoes/{acao_id}", status_code=204)
+def apagar_acao(
+    projeto_id: int, acao_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    exigir_pode_preencher_health_track(projeto_id, current_user, db)
+    try:
+        ApagarAcaoUseCase(db).execute(projeto_id, acao_id)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
 

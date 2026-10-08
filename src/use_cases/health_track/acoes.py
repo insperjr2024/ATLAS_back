@@ -1,0 +1,137 @@
+"""Ações do Health Track (§15). Ver `models/health_track_acao_model.py`.
+
+Quem cria, edita e conclui é quem preenche o Health Track do projeto
+(diretoria de projetos ou gerente da frente), checado na rota. Ler é de
+quem tem a caixa.
+"""
+
+from datetime import date
+from typing import Dict, List, Optional
+
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from src.models.health_track_pilar_model import HealthTrackPilarModel
+from src.models.projeto_model import ProjetoModel
+from src.repositories.health_track_acao_repository import HealthTrackAcaoRepository
+from src.repositories.usuario_repository import UsuarioRepository
+from src.utils.exceptions import RegraDeNegocioError
+from src.utils.fuso import agora_utc, hoje_local
+
+
+class AcaoRequest(BaseModel):
+    problema: str = Field(min_length=3, max_length=1000)
+    proxima_acao: str = Field(min_length=3, max_length=1000)
+    responsavel_id: Optional[int] = None
+    prazo: Optional[date] = None
+    pilar_id: Optional[int] = None
+
+
+class _Base:
+    def __init__(self, db: Session):
+        self.db = db
+        self.repository = HealthTrackAcaoRepository(db)
+        self.usuario_repo = UsuarioRepository(db)
+
+    def serializar(self, acao, nomes: Dict[int, str], pilares: Dict[int, str], projetos: Dict[int, str]) -> dict:
+        hoje = hoje_local()
+        return {
+            "id": acao.id,
+            "projeto_id": acao.projeto_id,
+            "projeto_nome": projetos.get(acao.projeto_id),
+            "pilar_id": acao.pilar_id,
+            "pilar_nome": pilares.get(acao.pilar_id) if acao.pilar_id else None,
+            "problema": acao.problema,
+            "proxima_acao": acao.proxima_acao,
+            "responsavel_id": acao.responsavel_id,
+            "responsavel_nome": nomes.get(acao.responsavel_id) if acao.responsavel_id else None,
+            "prazo": acao.prazo,
+            "atrasada": acao.concluida_em is None and acao.prazo is not None and acao.prazo < hoje,
+            "concluida_em": acao.concluida_em,
+            "concluida_por_nome": nomes.get(acao.concluida_por) if acao.concluida_por else None,
+            "criado_por_nome": nomes.get(acao.criado_por) if acao.criado_por else None,
+            "criado_em": acao.criado_em,
+        }
+
+    def serializar_varias(self, acoes: List) -> List[dict]:
+        nomes = {u.id: u.nome for u in self.usuario_repo.get_all()}
+        pilares = {p.id: p.nome for p in self.db.query(HealthTrackPilarModel)}
+        ids = {a.projeto_id for a in acoes}
+        projetos = {
+            p.id: p.nome for p in self.db.query(ProjetoModel).filter(ProjetoModel.id.in_(ids or [-1]))
+        }
+        return [self.serializar(a, nomes, pilares, projetos) for a in acoes]
+
+    def _validar(self, request: AcaoRequest) -> None:
+        if request.responsavel_id is not None and not self.usuario_repo.get_by_id(request.responsavel_id):
+            raise RegraDeNegocioError("Responsável não encontrado.")
+        if request.pilar_id is not None and not self.db.get(HealthTrackPilarModel, request.pilar_id):
+            raise RegraDeNegocioError("Pilar não encontrado.")
+
+    def _ou_erro(self, acao_id: int, projeto_id: int):
+        acao = self.repository.get_by_id(acao_id)
+        if not acao or acao.projeto_id != projeto_id:
+            raise RegraDeNegocioError("Ação não encontrada.")
+        return acao
+
+
+class ListAcoesDoProjetoUseCase(_Base):
+    def execute(self, projeto_id: int) -> List[dict]:
+        return self.serializar_varias(self.repository.get_by_projeto(projeto_id))
+
+
+class ListAcoesAbertasUseCase(_Base):
+    """Todas as abertas da carteira: a seção "projetos que exigem atenção"."""
+
+    def execute(self) -> List[dict]:
+        return self.serializar_varias(self.repository.get_abertas())
+
+
+class CriarAcaoUseCase(_Base):
+    def execute(self, projeto_id: int, request: AcaoRequest, current_user) -> dict:
+        self._validar(request)
+        acao = self.repository.create(
+            projeto_id=projeto_id,
+            pilar_id=request.pilar_id,
+            problema=request.problema.strip(),
+            proxima_acao=request.proxima_acao.strip(),
+            responsavel_id=request.responsavel_id,
+            prazo=request.prazo,
+            criado_por=getattr(current_user, "id", None),
+            criado_em=agora_utc(),
+        )
+        return self.serializar_varias([acao])[0]
+
+
+class EditarAcaoUseCase(_Base):
+    def execute(self, projeto_id: int, acao_id: int, request: AcaoRequest) -> dict:
+        acao = self._ou_erro(acao_id, projeto_id)
+        self._validar(request)
+        acao = self.repository.update(
+            acao.id,
+            pilar_id=request.pilar_id,
+            problema=request.problema.strip(),
+            proxima_acao=request.proxima_acao.strip(),
+            responsavel_id=request.responsavel_id,
+            prazo=request.prazo,
+        )
+        return self.serializar_varias([acao])[0]
+
+
+class ConcluirAcaoUseCase(_Base):
+    """Concluir, ou reabrir (`concluida=False`) se foi sem querer."""
+
+    def execute(self, projeto_id: int, acao_id: int, concluida: bool, current_user) -> dict:
+        acao = self._ou_erro(acao_id, projeto_id)
+        acao = self.repository.update(
+            acao.id,
+            concluida_em=agora_utc() if concluida else None,
+            concluida_por=getattr(current_user, "id", None) if concluida else None,
+        )
+        return self.serializar_varias([acao])[0]
+
+
+class ApagarAcaoUseCase(_Base):
+    def execute(self, projeto_id: int, acao_id: int) -> None:
+        self._ou_erro(acao_id, projeto_id)
+        self.repository.delete(acao_id)

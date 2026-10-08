@@ -94,6 +94,7 @@ from src.models.health_track_pilar_model import HealthTrackPilarModel
 from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
 from src.models.health_track_regra_model import HealthTrackRegraModel
 from src.models.health_track_rodada_model import HealthTrackRodadaModel, HealthTrackRodadaProjetoModel
+from src.models.health_track_acao_model import HealthTrackAcaoModel
 
 # Sabatina: o processo eleitoral (eleições, candidatos, votos ponderados e o
 # peso de cada posição). Ver `sabatina_model.py`.
