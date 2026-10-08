@@ -67,3 +67,48 @@ def notificar_acao_prazo_vencido(db: Session, destinatario_id: int, acao, projet
         payload={"acao_id": acao.id},
         chave_dedup=f"acao_prazo_vencido:acao={acao.id}:prazo={acao.prazo:%Y%m%d}:destinatario={destinatario_id}",
     )
+
+
+# ---------------------------------------------------------------- rodadas
+
+
+def quem_tem_health_track(db: Session) -> list:
+    """Todo mundo ativo cuja posição (ou cargo extra) tem a caixa."""
+    from src.repositories.posicao_permissao_repository import PosicaoPermissaoRepository
+    from src.repositories.usuario_repository import UsuarioRepository
+
+    posicoes = PosicaoPermissaoRepository(db).get_posicoes_com_permissao("pode_ver_health_track")
+    return UsuarioRepository(db).get_ativos_por_posicoes_ou_cargo_extra(posicoes)
+
+
+def notificar_rodada_aberta(db: Session, rodada, total: int, aberta_por_id: Optional[int], por_nome: Optional[str]) -> None:
+    """Pra quem tem a caixa e não foi quem abriu: o gerente fica sabendo que
+    há projeto da frente dele pra avaliar."""
+    for pessoa in quem_tem_health_track(db):
+        if pessoa.id == aberta_por_id:
+            continue
+        registrar(
+            db,
+            usuario_id=pessoa.id,
+            tipo="rodada_health_track_aberta",
+            titulo=f"Rodada de Health Track aberta: {total} projeto{'s' if total != 1 else ''} pra avaliar"
+            + (f" (por {por_nome})" if por_nome else ""),
+            corpo="Cada projeto em acompanhamento precisa ser avaliado ou justificado antes de a rodada concluir.",
+            rota="/health-track",
+            payload={"rodada_id": rodada.id},
+            chave_dedup=f"rodada_health_track_aberta:rodada={rodada.id}:destinatario={pessoa.id}",
+        )
+
+
+def notificar_rodada_parada(db: Session, destinatario_id: int, rodada, pendentes: int, semanas: int) -> None:
+    """A cada 7 dias de rodada aberta com pendente, uma vez por semana."""
+    registrar(
+        db,
+        usuario_id=destinatario_id,
+        tipo="rodada_health_track_pendente",
+        titulo=f"A rodada de Health Track está aberta há {semanas * 7} dias com {pendentes} projeto{'s' if pendentes != 1 else ''} pendente{'s' if pendentes != 1 else ''}",
+        corpo="Avalie ou justifique os pendentes pra concluir a rodada.",
+        rota="/health-track",
+        payload={"rodada_id": rodada.id},
+        chave_dedup=f"rodada_health_track_pendente:rodada={rodada.id}:semana={semanas}:destinatario={destinatario_id}",
+    )

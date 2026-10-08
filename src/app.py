@@ -52,7 +52,11 @@ from src.use_cases.notificacao.eventos import (
 )
 from src.use_cases.projeto.avancar_status import AvancarStatusAutomaticoUseCase
 from src.repositories.health_track_acao_repository import HealthTrackAcaoRepository
-from src.use_cases.health_track.notificar_acoes import notificar_acao_prazo_vencido
+from src.use_cases.health_track.notificar_acoes import notificar_acao_prazo_vencido, notificar_rodada_parada
+from src.repositories.health_track_rodada_repository import (
+    HealthTrackRodadaProjetoRepository,
+    HealthTrackRodadaRepository,
+)
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
 from src.use_cases.monitoramento.monitoramento import _BaseMonitoramento, _agrupar
 from src.models.projeto_model import ProjetoModel
@@ -432,6 +436,28 @@ def rodar_lembrete_acoes_health_track() -> None:
         db.close()
 
 
+def rodar_lembrete_rodada_health_track() -> None:
+    """Rodada do Health Track aberta há 7, 14, 21... dias com pendente: um
+    aviso por semana pra diretoria de projetos. Nunca diário: o lembrete
+    diário do PDI incomodou e foi pausado."""
+    db = SessionLocal()
+    try:
+        rodada = HealthTrackRodadaRepository(db).get_aberta()
+        if not rodada:
+            return
+        dias = (agora_utc() - rodada.aberta_em).days
+        semanas = dias // 7
+        if semanas < 1:
+            return
+        pendentes = sum(1 for i in HealthTrackRodadaProjetoRepository(db).get_by_rodada(rodada.id) if i.situacao == "pendente")
+        if not pendentes:
+            return
+        for diretor in UsuarioRepository(db).get_por_posicao("diretor_projetos"):
+            notificar_rodada_parada(db, diretor.id, rodada, pendentes, semanas)
+    finally:
+        db.close()
+
+
 def rodar_lembrete_prazo_pdi() -> None:
     """Um aviso por ITEM de PDI vencendo amanhã (pro responsável certo — o
     mentor num "Encontro N", a diretoria num "PDI inicial") e um aviso o dia
@@ -588,6 +614,12 @@ async def lifespan(app: FastAPI):
         rodar_lembrete_acoes_health_track,
         CronTrigger(hour=6, minute=20),
         id="lembrete_acoes_health_track",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        rodar_lembrete_rodada_health_track,
+        CronTrigger(hour=6, minute=25),
+        id="lembrete_rodada_health_track",
         replace_existing=True,
     )
     # Pausado (19/08/2026, pedido direto): PDI ainda não está em uso pela

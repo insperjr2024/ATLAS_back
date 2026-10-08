@@ -16,6 +16,8 @@ from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
 from src.models.health_track_pilar_model import HealthTrackPilarModel
 from src.models.health_track_regra_model import HealthTrackRegraModel
 from src.models.health_track_rodada_model import HealthTrackRodadaModel, HealthTrackRodadaProjetoModel
+from src.models.notificacao_model import NotificacaoModel
+from src.models.posicao_permissao_model import PosicaoPermissaoModel
 from src.models.projeto_model import ProjetoModel
 from src.models.usuario_model import UsuarioModel
 from src.use_cases.health_track.registrar_avaliacao import (
@@ -50,6 +52,10 @@ def db():
             HealthTrackRodadaModel.__table__,
             HealthTrackRodadaProjetoModel.__table__,
             HealthTrackAcaoModel.__table__,
+            # Abrir a rodada avisa quem tem a caixa: precisa do catálogo de
+            # permissões e da tabela do sino (vazios, ninguém é avisado).
+            PosicaoPermissaoModel.__table__,
+            NotificacaoModel.__table__,
         ],
     )
     s = sessionmaker(bind=engine)()

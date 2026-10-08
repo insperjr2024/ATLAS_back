@@ -103,6 +103,10 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     "acao_atribuida",
     "acao_concluida",
     "acao_prazo_vencido",
+    #: Rodada do Health Track aberta / parada com pendentes. Migration
+    #: `e5b9c3d7a241`.
+    "rodada_health_track_aberta",
+    "rodada_health_track_pendente",
     name="tipo_notificacao",
 )
 

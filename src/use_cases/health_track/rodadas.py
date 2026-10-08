@@ -19,6 +19,7 @@ from src.repositories.health_track_rodada_repository import (
     HealthTrackRodadaRepository,
 )
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.health_track.notificar_acoes import notificar_rodada_aberta
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.fuso import agora_utc
 
@@ -106,8 +107,11 @@ class AbrirRodadaUseCase(_Base):
         )
         if not projetos:
             raise RegraDeNegocioError("Não há projeto em acompanhamento pra avaliar.")
-        rodada = self.rodada_repo.create(aberta_em=agora_utc(), aberta_por=getattr(current_user, "id", None))
+        quem = getattr(current_user, "id", None)
+        rodada = self.rodada_repo.create(aberta_em=agora_utc(), aberta_por=quem)
         self.item_repo.bulk_create([{"rodada_id": rodada.id, "projeto_id": p.id} for p in projetos])
+        abriu = self.usuario_repo.get_by_id(quem) if quem else None
+        notificar_rodada_aberta(self.db, rodada, len(projetos), quem, abriu.nome if abriu else None)
         return self.serializar(rodada)
 
 
