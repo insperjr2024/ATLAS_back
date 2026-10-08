@@ -32,6 +32,19 @@ class HealthTrackAvaliacaoRepository(BaseRepository[HealthTrackAvaliacaoModel]):
             ultimas.setdefault(avaliacao.pilar_id, avaliacao)
         return ultimas
 
+    def get_por_projetos(self, projeto_ids: List[int]) -> List[HealthTrackAvaliacaoModel]:
+        """O histórico de vários projetos numa consulta, da linha mais nova
+        para a mais antiga. É o que o mapa da carteira lê: uma consulta por
+        projeto viraria dezenas a cada abertura da página."""
+        if not projeto_ids:
+            return []
+        return (
+            self.db.query(HealthTrackAvaliacaoModel)
+            .filter(HealthTrackAvaliacaoModel.projeto_id.in_(projeto_ids))
+            .order_by(HealthTrackAvaliacaoModel.avaliado_em.desc(), HealthTrackAvaliacaoModel.id.desc())
+            .all()
+        )
+
     def registrar_ciclo(self, linhas: List[dict]) -> List[HealthTrackAvaliacaoModel]:
         """Grava as cores de um preenchimento num commit só: ou entram todos
         os pilares, ou nenhum — um ciclo pela metade quebraria a contagem de

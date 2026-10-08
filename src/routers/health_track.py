@@ -3,13 +3,15 @@
 Pilares, as cores de cada pilar por projeto, o status geral calculado a partir
 delas (§4) e a regra desse cálculo, editável e versionada (§5).
 
-2026-10-07 — o router INTEIRO exige a caixa `pode_ver_health_track`, que
-nasce só no diretor de projetos. Por baixo dela valem as regras de antes: ler
-a avaliação segue o recorte de visão (quem enxerga o projeto), preencher é da
+O router INTEIRO exige a caixa `pode_ver_health_track`, que nasce só no
+diretor de projetos (2026-10-07/08, a pedido da diretoria: coordenador e
+consultor não veem o Health Track, que por isso saiu de dentro do projeto e
+virou página própria). Por baixo dela valem as regras de antes: ler a
+avaliação segue o recorte de visão (quem enxerga o projeto), preencher é da
 diretoria de projetos e do gerente de uma frente do projeto (ver
-`exigir_pode_preencher_health_track`), e editar a regra do status geral é só
-da diretoria de projetos. Dar a caixa a outra posição abre a leitura; não abre
-nem preenchimento nem edição da regra.
+`exigir_pode_preencher_health_track`), e editar a regra do status geral e
+os pilares é só da diretoria de projetos. Dar a caixa a outra posição abre a
+leitura; não abre nem preenchimento nem edição.
 """
 
 from typing import Optional
@@ -26,7 +28,15 @@ from src.middlewares.authorization import (
     require_pode_ver_health_track,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
+from src.use_cases.health_track.editar_pilares import (
+    CriarPilarUseCase,
+    EditarPilarRequest,
+    EditarPilarUseCase,
+    ListarTodosPilaresUseCase,
+    PilarRequest,
+)
 from src.use_cases.health_track.get_avaliacao_atual import GetAvaliacaoAtualUseCase
+from src.use_cases.health_track.get_carteira import GetCarteiraUseCase
 from src.use_cases.health_track.get_ciclos import GetCiclosUseCase
 from src.use_cases.health_track.get_historico import GetHistoricoUseCase
 from src.use_cases.health_track.get_regra import GetHistoricoRegraUseCase, GetRegraUseCase
@@ -47,9 +57,46 @@ router = APIRouter(
 )
 
 
+@router.get("/carteira")
+def carteira(
+    frente_id: Optional[int] = None,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """O mapa da carteira (§8 e §9): projetos em curso que a pessoa enxerga,
+    com a cor de cada pilar e o status geral."""
+    return GetCarteiraUseCase(db).execute(current_user, frente_id)
+
+
 @router.get("/pilares")
-def listar_pilares(db: Session = Depends(get_db)):
+def listar_pilares(todos: bool = False, db: Session = Depends(get_db)):
+    """`?todos=true` inclui os desativados (tela de configuração)."""
+    if todos:
+        return ListarTodosPilaresUseCase(db).execute()
     return ListarPilaresUseCase(db).execute()
+
+
+@router.post("/pilares", status_code=201)
+def criar_pilar(
+    request: PilarRequest, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)
+):
+    try:
+        return CriarPilarUseCase(db).execute(request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.put("/pilares/{pilar_id}")
+def editar_pilar(
+    pilar_id: int,
+    request: EditarPilarRequest,
+    _=Depends(require_diretor_projetos),
+    db: Session = Depends(get_db),
+):
+    try:
+        return EditarPilarUseCase(db).execute(pilar_id, request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
 
 
 @router.get("/classificacoes")
