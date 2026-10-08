@@ -3,11 +3,13 @@
 Pilares, as cores de cada pilar por projeto, o status geral calculado a partir
 delas (§4) e a regra desse cálculo, editável e versionada (§5).
 
-Ler segue o recorte de visão de sempre (quem enxerga o projeto, inclusive
-quem só o vendeu). Preencher é da diretoria de projetos e do gerente de uma
-frente do projeto — ver `exigir_pode_preencher_health_track`. A regra do
-status geral se lê por qualquer pessoa logada e só a diretoria de projetos
-edita.
+2026-10-07 — o router INTEIRO exige a caixa `pode_ver_health_track`, que
+nasce só no diretor de projetos. Por baixo dela valem as regras de antes: ler
+a avaliação segue o recorte de visão (quem enxerga o projeto), preencher é da
+diretoria de projetos e do gerente de uma frente do projeto (ver
+`exigir_pode_preencher_health_track`), e editar a regra do status geral é só
+da diretoria de projetos. Dar a caixa a outra posição abre a leitura; não abre
+nem preenchimento nem edição da regra.
 """
 
 from typing import Optional
@@ -21,6 +23,7 @@ from src.middlewares.authorization import (
     exigir_pode_preencher_health_track,
     pode_preencher_health_track,
     require_diretor_projetos,
+    require_pode_ver_health_track,
 )
 from src.middlewares.validate_user_auth_token import get_current_user
 from src.use_cases.health_track.get_avaliacao_atual import GetAvaliacaoAtualUseCase
@@ -38,7 +41,9 @@ from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError
 
 router = APIRouter(
-    prefix="/health-track", tags=["health track"], dependencies=[Depends(get_current_user)]
+    prefix="/health-track",
+    tags=["health track"],
+    dependencies=[Depends(require_pode_ver_health_track)],
 )
 
 
