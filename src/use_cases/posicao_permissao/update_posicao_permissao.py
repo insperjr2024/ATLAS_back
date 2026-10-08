@@ -44,6 +44,7 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_editar_identidade_institucional: Optional[bool] = None
     pode_elaborar_contratos_proprios: Optional[bool] = None
     pode_elaborar_qualquer_contrato: Optional[bool] = None
+    pode_ver_health_track: Optional[bool] = None
 
 
 class UpdatePosicaoPermissaoUseCase:

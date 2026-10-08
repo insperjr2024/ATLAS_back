@@ -173,3 +173,12 @@ class PosicaoPermissaoModel(Base):
     #: Mesma coisa, sem o recorte por vendedor — abre e elabora o documento
     #: jurídico de QUALQUER projeto, igual diretoria/Jurídico.
     pode_elaborar_qualquer_contrato = Column(Boolean, default=False, nullable=False)
+
+    #: 2026-10-07 — a pedido: o Health Track inteiro (a aba do projeto, a
+    #: regra do status geral em Configurações e qualquer visão geral que vier)
+    #: nasce só para `diretor_projetos`. Caixa, e não guarda por posição, para
+    #: a diretoria poder abrir a outras posições depois sem mexer em código.
+    #: Preencher continua exigindo também ser diretoria de projetos ou gerente
+    #: da frente (`exigir_pode_preencher_health_track`), e editar a regra
+    #: continua só da diretoria de projetos.
+    pode_ver_health_track = Column(Boolean, default=False, nullable=False)

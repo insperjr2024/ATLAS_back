@@ -226,6 +226,15 @@ require_pode_aprovar_contrato_internamente = _dependencia_permissao(
     "Você não tem permissão para aprovar contratos internamente",
 )
 
+# ---------------------------------------------------------------- § Health Track
+
+# Porta de entrada de todo o router `/health-track`: ler a avaliação, a regra,
+# os pilares. Nasce só no diretor de projetos (migration `e9c2a5d7b413`).
+require_pode_ver_health_track = _dependencia_permissao(
+    "pode_ver_health_track",
+    "Você não tem permissão para ver o Health Track",
+)
+
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):

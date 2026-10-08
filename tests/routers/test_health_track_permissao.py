@@ -165,6 +165,35 @@ class TestQuemEditaARegra:
         assert require_diretor_projetos in [d.call for d in rota.dependant.dependencies]
 
 
+class TestQuemVeOHealthTrack:
+    """2026-10-07 — o router inteiro passa pela caixa `pode_ver_health_track`,
+    que nasce só no diretor de projetos. As regras de preencher e de editar a
+    regra continuam valendo por baixo dela."""
+
+    def test_o_router_inteiro_exige_a_caixa(self):
+        from src.middlewares.authorization import require_pode_ver_health_track
+        from src.routers.health_track import router
+
+        assert require_pode_ver_health_track in [d.dependency for d in router.dependencies]
+
+    def test_sem_a_caixa_recebe_403(self, db):
+        from src.middlewares.authorization import require_pode_ver_health_track
+
+        db.add(PosicaoPermissaoModel(posicao="gerente", nome="Gerente", pode_ver_health_track=False))
+        db.commit()
+        with pytest.raises(HTTPException) as erro:
+            require_pode_ver_health_track(current_user=pessoa(db, "gerente"), db=db)
+        assert erro.value.status_code == 403
+
+    def test_com_a_caixa_passa(self, db):
+        from src.middlewares.authorization import require_pode_ver_health_track
+
+        db.add(PosicaoPermissaoModel(posicao="diretor_projetos", nome="Diretor(a) de Projetos", pode_ver_health_track=True))
+        db.commit()
+        diretor = pessoa(db, "diretor_projetos")
+        assert require_pode_ver_health_track(current_user=diretor, db=db) is diretor
+
+
 class TestPodePreencherParaATela:
     """O `/atual` diz à tela se mostra o formulário — mesma regra do POST."""
 
