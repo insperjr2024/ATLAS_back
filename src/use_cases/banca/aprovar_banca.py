@@ -42,7 +42,6 @@ from src.use_cases.banca.marcar_banca_escopo import registrar_resultado_na_sessa
 from src.use_cases.projeto_escopo.get_escopos_projeto import nome_do_escopo
 from src.utils.apuracao_banca import apurar_aprovacao
 from src.utils.exceptions import RegraDeNegocioError
-from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
 
 
 def _frentes_da_banca(db: Session, banca_id: int) -> List[int]:
@@ -71,39 +70,6 @@ def _possiveis_gerentes(usuarios_por_id: dict) -> List:
     gerente ativo do sistema — quem lê a fila sabe a quem pedir para cadastrar
     o vínculo."""
     return [u for u in usuarios_por_id.values() if u.posicao == "gerente" and u.ativo]
-
-
-def projeto_da_banca(db: Session, banca_id: int) -> Optional[int]:
-    """`projeto_id` da banca, via `banca_escopo` → `projeto_escopo`.
-
-    `None` para banca legada (sem vínculo de escopo) — não há projeto a partir
-    do qual cobrar gerente nenhum, e só a diretoria decide essas.
-    """
-    escopo_ids = BancaEscopoRepository(db).get_escopo_ids(banca_id)
-    projeto_escopo_repository = ProjetoEscopoRepository(db)
-    for escopo_id in escopo_ids:
-        escopo = projeto_escopo_repository.get_by_id(escopo_id)
-        if escopo:
-            return escopo.projeto_id
-    return None
-
-
-def _validacao_tecnica_completa(db: Session, projeto_id: int) -> bool:
-    """Nenhum escopo deste projeto tem banca realizada esperando resultado —
-    mesmo filtro de `monitoramento/aprovacoes.py::_bancas_sem_resultado`
-    (banca com `realizado_em` e sem `resultado` ainda é pendência), só que
-    de um projeto só em vez do portfólio inteiro. Escopo sem banca nenhuma
-    (ambientação, por exemplo) não conta como pendência — só entra na conta
-    quem já tem banca de verdade esperando veredito."""
-    escopos = ProjetoEscopoRepository(db).get_by_projeto(projeto_id)
-    if not escopos:
-        return False
-    bancas_por_escopo = BancaRepository(db).mapa_por_escopo([e.id for e in escopos])
-    for escopo in escopos:
-        banca = bancas_por_escopo.get(escopo.id)
-        if banca and banca.realizado_em and not banca.resultado:
-            return False
-    return True
 
 
 def sessao_corrente(db: Session, banca_id: int) -> int:
@@ -255,14 +221,10 @@ class RegistrarAprovacaoBancaUseCase:
         )
         registrar_resultado_na_sessao(self.sessao_repository, banca)
 
-        # 🤖 2026-09-21 — a pedido: quando a última banca pendente do projeto
-        # é aprovada, o projeto já vai pra "Envio do TEP" sozinho — o TEP em
-        # si continua sendo aberto e preenchido por uma pessoa, isto só move
-        # o status, não elabora nada.
-        if request.aprovado:
-            projeto_id = projeto_da_banca(self.db, banca_id)
-            if projeto_id and _validacao_tecnica_completa(self.db, projeto_id):
-                mudar_status_projeto_automaticamente(self.db, projeto_id, "envio_tep")
+        # Aprovar a última banca NÃO move mais o projeto pra "Envio do TEP"
+        # (2026-10-08, a pedido: "era só quando o TEP fosse gerado pela 1ª
+        # vez"). A regra de 2026-09-21 que fazia isso saiu daqui; quem leva o
+        # projeto lá é `gerar_documento.py`, ao gerar o rascunho do TEP.
 
         return {"banca_id": banca_id, **montar_situacao_aprovacao(self.db, banca)}
 

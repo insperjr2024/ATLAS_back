@@ -184,7 +184,6 @@ def mundo(monkeypatch):
         # Idem: quem move o projeto sozinho pro "Envio do TEP" tem teste
         # próprio (`TestMoveProjetoParaEnvioDoTep`) — aqui, sem vínculo de
         # projeto (ver `BancaEscopoFake`), a chamada nem chega a acontecer.
-        monkeypatch.setattr(mod, "mudar_status_projeto_automaticamente", lambda *a, **k: None)
 
         return RegistrarAprovacaoBancaUseCase(db=None), banca
 
@@ -382,14 +381,19 @@ class TestMoveProjetoParaEnvioDoTep:
         monkeypatch.setattr(mod, "ProjetoEscopoRepository", ProjetoEscopoFake)
         monkeypatch.setattr(mod, "BancaRepository", BancaComEscopoFake)
 
-        chamadas = []
+        # O módulo não muda mais status nenhum; a lista fica vazia por
+        # construção e o teste abaixo garante que continue assim.
+        chamadas: list = []
         monkeypatch.setattr(
             mod, "mudar_status_projeto_automaticamente",
             lambda db, pid, status: chamadas.append((pid, status)),
+            raising=False,
         )
         return chamadas
 
-    def test_ultima_banca_pendente_aprovada_move_o_projeto(self, mundo, monkeypatch):
+    def test_ultima_banca_pendente_aprovada_nao_move_mais_o_projeto(self, mundo, monkeypatch):
+        """2026-10-08, a pedido: só gerar o TEP pela primeira vez leva o
+        projeto a "Envio do TEP". A banca aprovada deixou de fazer isso."""
         uc, banca = mundo(realizado_em="2026-09-01", resultado=None)
         outra_banca_ja_resolvida = SimpleNamespace(id=2, realizado_em="2026-09-01", resultado="aprovada")
         chamadas = self._ligar_ao_projeto(
@@ -399,7 +403,7 @@ class TestMoveProjetoParaEnvioDoTep:
 
         decidir(uc, aprovado=True, usuario=DIRETOR)
 
-        assert chamadas == [(99, "envio_tep")]
+        assert chamadas == []
 
     def test_banca_aprovada_mas_nao_a_ultima_nao_move(self, mundo, monkeypatch):
         uc, banca = mundo(realizado_em="2026-09-01", resultado=None)
