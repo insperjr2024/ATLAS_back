@@ -23,12 +23,16 @@ from src.repositories.projeto_frente_repository import ProjetoFrenteRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.usuario_frente_repository import UsuarioFrenteRepository
 from src.repositories.usuario_repository import UsuarioRepository
+from src.use_cases.health_track.rodadas import EM_ACOMPANHAMENTO, POS_BANCA
 from src.use_cases.health_track.serializar import serializar_pilar
 from src.utils.health_track_status import ReguasStatus, calcular_status_geral, status_geral_ou_nada
 
-#: Fora do mapa: nenhum dos dois está sendo trabalhado, então não tem saúde
-#: a acompanhar. Mesma régua da carga do monitoramento.
-FORA_DA_CARTEIRA = ("finalizado", "pausado")
+#: O mapa tem dois blocos (a pedido da diretoria, 2026-10-08): quem está em
+#: acompanhamento e entra nas rodadas, e quem já passou da banca (envio TEP,
+#: ajustes, finalizado), que fica num bloco à parte só de leitura, porque não
+#: tem mais por que reavaliar mas a última leitura continua valendo pro
+#: quadro da gestão. Antes da venda fechar não há equipe, então fica fora.
+BLOCO_POR_STATUS = {**{s: "acompanhamento" for s in EM_ACOMPANHAMENTO}, **{s: "encerrado" for s in POS_BANCA}}
 
 
 class GetCarteiraUseCase:
@@ -48,7 +52,7 @@ class GetCarteiraUseCase:
             aplicar_recorte_visao(self.db.query(ProjetoModel), current_user, self.db, frente_id)
             .filter(ProjetoModel.arquivado_em.is_(None))
             .filter(ProjetoModel.institucional.is_(False))
-            .filter(ProjetoModel.status.notin_(FORA_DA_CARTEIRA))
+            .filter(ProjetoModel.status.in_(list(BLOCO_POR_STATUS)))
             .order_by(ProjetoModel.nome)
             .all()
         )
@@ -91,6 +95,7 @@ class GetCarteiraUseCase:
                     "nome": projeto.nome,
                     "cliente": projeto.cliente,
                     "status": projeto.status,
+                    "bloco": BLOCO_POR_STATUS[projeto.status],
                     "frentes": [
                         {"id": fid, "nome": frentes[fid].nome if fid in frentes else f"Frente {fid}"}
                         for fid in frentes_do_projeto.get(projeto.id, [])

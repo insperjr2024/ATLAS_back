@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from src.models.health_track_avaliacao_model import CORES_HEALTH_TRACK
 from src.repositories.health_track_avaliacao_repository import HealthTrackAvaliacaoRepository
 from src.repositories.health_track_pilar_repository import HealthTrackPilarRepository
+from src.use_cases.health_track.rodadas import marcar_avaliado_na_rodada
 from src.use_cases.health_track.serializar import nomes_para, serializar_avaliacao
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.fuso import agora_utc
@@ -70,6 +71,9 @@ class RegistrarAvaliacaoUseCase:
             }
             for a in request.avaliacoes
         ])
+
+        # Se há rodada aberta com este projeto, ele sai de pendente.
+        marcar_avaliado_na_rodada(self.db, projeto_id, getattr(current_user, "id", None))
 
         # Na ordem de exibição, como a tela desenha os pilares.
         criadas.sort(key=lambda a: (ativos[a.pilar_id].ordem, a.pilar_id))

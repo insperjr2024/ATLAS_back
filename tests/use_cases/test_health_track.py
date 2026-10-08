@@ -28,6 +28,7 @@ from src.use_cases.health_track.registrar_avaliacao import (
     RegistrarAvaliacaoRequest,
     RegistrarAvaliacaoUseCase,
 )
+from src.models.health_track_rodada_model import HealthTrackRodadaModel, HealthTrackRodadaProjetoModel
 from src.use_cases.health_track import update_regra as editar_regra
 from src.use_cases.health_track.get_regra import GetHistoricoRegraUseCase, GetRegraUseCase
 from src.use_cases.health_track.update_regra import UpdateRegraRequest, UpdateRegraUseCase
@@ -48,6 +49,9 @@ def db():
             HealthTrackPilarModel.__table__,
             HealthTrackAvaliacaoModel.__table__,
             HealthTrackRegraModel.__table__,
+            # O registro de avaliação consulta a rodada aberta.
+            HealthTrackRodadaModel.__table__,
+            HealthTrackRodadaProjetoModel.__table__,
         ],
     )
     s = sessionmaker(bind=engine)()

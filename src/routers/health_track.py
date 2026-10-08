@@ -42,6 +42,15 @@ from src.use_cases.health_track.get_historico import GetHistoricoUseCase
 from src.use_cases.health_track.get_regra import GetHistoricoRegraUseCase, GetRegraUseCase
 from src.use_cases.health_track.listar_classificacoes import ListarClassificacoesUseCase
 from src.use_cases.health_track.listar_pilares import ListarPilaresUseCase
+from src.use_cases.health_track.rodadas import (
+    AbrirRodadaUseCase,
+    ConcluirRodadaUseCase,
+    DesfazerJustificativaUseCase,
+    GetRodadaAtualUseCase,
+    JustificarProjetoUseCase,
+    JustificarRequest,
+    ListRodadasUseCase,
+)
 from src.use_cases.health_track.registrar_avaliacao import (
     RegistrarAvaliacaoRequest,
     RegistrarAvaliacaoUseCase,
@@ -66,6 +75,63 @@ def carteira(
     """O mapa da carteira (§8 e §9): projetos em curso que a pessoa enxerga,
     com a cor de cada pilar e o status geral."""
     return GetCarteiraUseCase(db).execute(current_user, frente_id)
+
+
+# ---------------------------------------------------------------- rodadas
+#
+# Abrir, concluir, justificar e desfazer: diretoria de projetos, a dona do
+# ritmo. Ler: qualquer um com a caixa (o gerente vê o que falta na frente
+# dele e avalia pelo painel do projeto, que marca o item sozinho).
+
+
+@router.get("/rodadas")
+def listar_rodadas(db: Session = Depends(get_db)):
+    return ListRodadasUseCase(db).execute()
+
+
+@router.get("/rodadas/atual")
+def rodada_atual(db: Session = Depends(get_db)):
+    return GetRodadaAtualUseCase(db).execute()
+
+
+@router.post("/rodadas", status_code=201)
+def abrir_rodada(current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+    try:
+        return AbrirRodadaUseCase(db).execute(current_user)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.post("/rodadas/{rodada_id}/concluir")
+def concluir_rodada(rodada_id: int, current_user=Depends(require_diretor_projetos), db: Session = Depends(get_db)):
+    try:
+        return ConcluirRodadaUseCase(db).execute(rodada_id, current_user)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.put("/rodadas/{rodada_id}/projetos/{projeto_id}/justificativa")
+def justificar_projeto(
+    rodada_id: int,
+    projeto_id: int,
+    request: JustificarRequest,
+    current_user=Depends(require_diretor_projetos),
+    db: Session = Depends(get_db),
+):
+    try:
+        return JustificarProjetoUseCase(db).execute(rodada_id, projeto_id, request, current_user)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.delete("/rodadas/{rodada_id}/projetos/{projeto_id}/justificativa")
+def desfazer_justificativa(
+    rodada_id: int, projeto_id: int, _=Depends(require_diretor_projetos), db: Session = Depends(get_db)
+):
+    try:
+        return DesfazerJustificativaUseCase(db).execute(rodada_id, projeto_id)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
 
 
 @router.get("/pilares")
