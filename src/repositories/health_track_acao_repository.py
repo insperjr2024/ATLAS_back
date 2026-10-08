@@ -21,6 +21,21 @@ class HealthTrackAcaoRepository(BaseRepository[HealthTrackAcaoModel]):
             .all()
         )
 
+    def get_por_responsavel(self, usuario_id: int) -> List[HealthTrackAcaoModel]:
+        """As ações de UMA pessoa, abertas primeiro: é o que ela vê no projeto
+        dela, sem ter acesso ao Health Track."""
+        return (
+            self.db.query(HealthTrackAcaoModel)
+            .filter(HealthTrackAcaoModel.responsavel_id == usuario_id)
+            .order_by(
+                HealthTrackAcaoModel.concluida_em.isnot(None),
+                HealthTrackAcaoModel.prazo.is_(None),
+                HealthTrackAcaoModel.prazo,
+                HealthTrackAcaoModel.id.desc(),
+            )
+            .all()
+        )
+
     def get_abertas(self) -> List[HealthTrackAcaoModel]:
         return (
             self.db.query(HealthTrackAcaoModel)

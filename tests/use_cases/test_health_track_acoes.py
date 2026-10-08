@@ -81,3 +81,16 @@ def test_editar_e_apagar_so_dentro_do_projeto(db):
         ApagarAcaoUseCase(db).execute(11, acao["id"])
     ApagarAcaoUseCase(db).execute(10, acao["id"])
     assert ListAcoesDoProjetoUseCase(db).execute(10) == []
+
+
+def test_minhas_acoes_e_concluir_a_propria(db):
+    from src.use_cases.health_track.acoes import ConcluirMinhaAcaoUseCase, ListMinhasAcoesUseCase
+
+    acao = CriarAcaoUseCase(db).execute(10, pedido(), EU)
+    coord = SimpleNamespace(id=2, posicao="coordenador")
+    assert [a["id"] for a in ListMinhasAcoesUseCase(db).execute(2)] == [acao["id"]]
+    assert ListMinhasAcoesUseCase(db).execute(1) == []
+    with pytest.raises(RegraDeNegocioError):
+        ConcluirMinhaAcaoUseCase(db).execute(acao["id"], True, EU)
+    feita = ConcluirMinhaAcaoUseCase(db).execute(acao["id"], True, coord)
+    assert feita["concluida_por_nome"] == "Coord"

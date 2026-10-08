@@ -148,6 +148,33 @@ class ConcluirAcaoUseCase(_Base):
         return self.serializar_varias([acao])[0]
 
 
+class ListMinhasAcoesUseCase(_Base):
+    """O que foi atribuído a MIM, em qualquer projeto. Não passa pela caixa
+    do Health Track: o responsável costuma ser coordenador, que não a tem.
+    Leva só a ação, nunca as cores."""
+
+    def execute(self, usuario_id: int) -> List[dict]:
+        return self.serializar_varias(self.repository.get_por_responsavel(usuario_id))
+
+
+class ConcluirMinhaAcaoUseCase(_Base):
+    """O responsável marca a própria ação como feita (ou desfaz)."""
+
+    def execute(self, acao_id: int, concluida: bool, current_user) -> dict:
+        acao = self.repository.get_by_id(acao_id)
+        if not acao or acao.responsavel_id != getattr(current_user, "id", None):
+            raise RegraDeNegocioError("Esta ação não está atribuída a você.")
+        quem = current_user.id
+        acao = self.repository.update(
+            acao.id,
+            concluida_em=agora_utc() if concluida else None,
+            concluida_por=quem if concluida else None,
+        )
+        if concluida:
+            notificar_acao_concluida(self.db, acao, self._nome_projeto(acao.projeto_id), quem, self._nome(quem))
+        return self.serializar_varias([acao])[0]
+
+
 class ApagarAcaoUseCase(_Base):
     def execute(self, projeto_id: int, acao_id: int) -> None:
         self._ou_erro(acao_id, projeto_id)

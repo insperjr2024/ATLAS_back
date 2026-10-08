@@ -33,6 +33,8 @@ from src.use_cases.health_track.acoes import (
     AcaoRequest,
     ApagarAcaoUseCase,
     ConcluirAcaoUseCase,
+    ConcluirMinhaAcaoUseCase,
+    ListMinhasAcoesUseCase,
     CriarAcaoUseCase,
     EditarAcaoUseCase,
     ListAcoesAbertasUseCase,
@@ -142,6 +144,33 @@ def desfazer_justificativa(
 ):
     try:
         return DesfazerJustificativaUseCase(db).execute(rodada_id, projeto_id)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+# ---------------------------------------------------------------- minhas ações
+#
+# Router à parte, SEM a caixa: o responsável por uma ação costuma ser
+# coordenador, que não vê o Health Track. Ele vê a ação dele (problema,
+# próxima ação, prazo) e marca como feita. As cores dos pilares não passam
+# por aqui.
+
+router_pessoal = APIRouter(
+    prefix="/health-track/minhas-acoes", tags=["health track"], dependencies=[Depends(get_current_user)]
+)
+
+
+@router_pessoal.get("")
+def minhas_acoes(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    return ListMinhasAcoesUseCase(db).execute(current_user.id)
+
+
+@router_pessoal.post("/{acao_id}/concluir")
+def concluir_minha_acao(
+    acao_id: int, concluida: bool = True, current_user=Depends(get_current_user), db: Session = Depends(get_db)
+):
+    try:
+        return ConcluirMinhaAcaoUseCase(db).execute(acao_id, concluida, current_user)
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)
 
