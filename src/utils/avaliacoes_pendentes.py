@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import Dict, List, Optional
 from src.models.candidatura_model import CandidaturaModel
 from src.models.avaliacao_model import AvaliacaoModel
 from src.models.banca_model import BancaModel
@@ -11,6 +11,34 @@ from src.utils.banca_status import banca_ja_ocorreu, calcular_status_banca
 #: dia" (`rodar_lembrete_prazo_avaliacao`) é relativo a este prazo, então
 #: acompanha a mudança sozinho.
 PRAZO_AVALIACAO_DIAS = 7
+
+
+def prazo_avaliacao(banca) -> Optional[datetime]:
+    """Até quando a avaliação desta banca aceita envio pelo relógio: a
+    realização mais `PRAZO_AVALIACAO_DIAS`. Nulo se a banca não aconteceu."""
+    if not getattr(banca, "realizado_em", None):
+        return None
+    return banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+
+
+def avaliacao_aberta(banca, agora: Optional[datetime] = None) -> bool:
+    """A avaliação desta banca aceita envio agora?
+
+    Segue o prazo, salvo quando a diretoria forçou pela tela do Dashboard
+    (`prazo_avaliacao_override`, 2026-10-06, a pedido): "aberto" reabre por
+    exceção pra quem esqueceu; "fechado" encerra antes da hora. É a MESMA
+    régua pra submeter, criar avaliação e adicionar avaliador numa banca já
+    realizada, pra uma exceção aberta aqui valer em todas as portas.
+    """
+    override = getattr(banca, "prazo_avaliacao_override", None)
+    if override == "aberto":
+        return True
+    if override == "fechado":
+        return False
+    prazo = prazo_avaliacao(banca)
+    if prazo is None:
+        return False
+    return (agora or datetime.now()) <= prazo
 
 
 def calcular_avaliacoes_pendentes(
@@ -47,13 +75,13 @@ def calcular_avaliacoes_pendentes(
         sessao = sessao_por_banca.get(banca.id, 1)
         if (banca.id, c.usuario_id, sessao) in submetidas:
             continue
-        prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
+        prazo = prazo_avaliacao(banca)
         resultado.append({
             "usuario_id": c.usuario_id,
             "banca_id": banca.id,
             "nome_projeto": banca.nome_projeto,
             "data_hora": banca.data_hora,
             "prazo_avaliacao": prazo,
-            "prazo_expirado": datetime.now() > prazo,
+            "prazo_expirado": not avaliacao_aberta(banca),
         })
     return resultado

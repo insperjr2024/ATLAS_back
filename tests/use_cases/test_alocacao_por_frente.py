@@ -225,3 +225,31 @@ class TestDiretoriaForaDasTabelas:
         com vagas que ninguém vai ocupar."""
         r = uc.execute(quem)
         assert "Diretora" not in nomes(r["coordenadores"]) | nomes(r["consultores"])
+
+
+class TestFiltroDeStatusMedeACarga:
+    """Status é o filtro que muda COMO se conta, não quem aparece
+    (diretoria, 2026-10-07). O único projeto do cenário está Em andamento."""
+
+    def totais(self, r):
+        return {l["nome"]: l["total"] for l in r["consultores"]}
+
+    def test_status_que_bate_conta_o_projeto(self, uc):
+        r = uc.execute(DIRETORA, status=["em_andamento"])
+        assert self.totais(r)["Cons Tech Alocado"] == 1
+
+    def test_status_que_nao_bate_zera_a_carga_e_mantem_a_pessoa(self, uc):
+        """Quem só tem projeto fora dos status pedidos aparece com 0: é a
+        pessoa disponível que a diretoria quer achar com esse filtro."""
+        r = uc.execute(DIRETORA, status=["ambientacao"])
+        assert self.totais(r)["Cons Tech Alocado"] == 0
+
+    def test_status_nao_estreita_a_populacao(self, uc):
+        """Sem filtro de frente, a diretoria continua vendo o núcleo inteiro,
+        inclusive quem nunca entrou em projeto."""
+        r = uc.execute(DIRETORA, status=["ambientacao"])
+        assert nomes(r["consultores"]) == {"Cons Tech Alocado", "Cons Tech Livre", "Cons Business"}
+
+    def test_combinado_com_frente_a_frente_escolhe_quem_e_o_status_quanto(self, uc):
+        r = uc.execute(DIRETORA, frente_id=TECH, status=["ambientacao"])
+        assert self.totais(r) == {"Cons Tech Alocado": 0, "Cons Tech Livre": 0}

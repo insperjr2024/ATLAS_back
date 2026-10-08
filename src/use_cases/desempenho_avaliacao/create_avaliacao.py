@@ -9,6 +9,7 @@ from src.repositories.desempenho_avaliacao_repository import DesempenhoAvaliacao
 from src.repositories.desempenho_criterio_repository import DesempenhoCriterioRepository
 from src.repositories.desempenho_formulario_repository import DesempenhoFormularioRepository
 from src.repositories.desempenho_lote_projeto_repository import DesempenhoLoteProjetoRepository
+from src.repositories.desempenho_lote_formulario_repository import DesempenhoLoteFormularioRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
@@ -20,6 +21,7 @@ from src.utils.desempenho_escopo import (
     escopos_da_pessoa,
     formulario_escopo_do_lote,
 )
+from src.utils.desempenho_formulario_lote import formulario_do_lote
 from src.utils.desempenho_fila import calcular_pares_lote, deduplicar_pares
 from src.utils.desempenho_lote import esta_aberto
 from src.utils.exceptions import RegraDeNegocioError
@@ -53,6 +55,7 @@ class CreateDesempenhoAvaliacaoUseCase:
         self.avaliacao_nota_repo = DesempenhoAvaliacaoNotaRepository(db)
         self.formulario_repo = DesempenhoFormularioRepository(db)
         self.criterio_repo = DesempenhoCriterioRepository(db)
+        self.lote_formulario_repo = DesempenhoLoteFormularioRepository(db)
         self.projeto_escopo_repo = ProjetoEscopoRepository(db)
         self.banca_escopo_repo = BancaEscopoRepository(db)
         self.usuario_frente_repo = UsuarioFrenteRepository(db)
@@ -75,7 +78,9 @@ class CreateDesempenhoAvaliacaoUseCase:
         # critérios completos).
         eh_escopo = avaliador_id == request.avaliado_id
         if eh_escopo:
-            if not formulario_escopo_do_lote(lote, self.formulario_repo, self.criterio_repo):
+            if not formulario_escopo_do_lote(
+            lote, self.formulario_repo, self.criterio_repo, self.lote_formulario_repo
+        ):
                 raise RegraDeNegocioError("Você não pode avaliar a si mesmo")
             if request.projeto_escopo_id is None:
                 raise RegraDeNegocioError("Diga qual escopo você está avaliando.")
@@ -111,7 +116,7 @@ class CreateDesempenhoAvaliacaoUseCase:
         if not 1 <= request.nota_geral <= 5:
             raise RegraDeNegocioError("A nota geral deve estar entre 1 e 5")
 
-        formulario = self.formulario_repo.first_by(tipo=lote.tipo, papel=form_type)
+        formulario = formulario_do_lote(self.formulario_repo, self.lote_formulario_repo, lote, form_type)
         if not formulario:
             raise RegraDeNegocioError(f"Nenhum formulário configurado para {lote.tipo}/{form_type}")
 

@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
@@ -12,7 +12,7 @@ from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.frente_repository import FrenteRepository
-from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS
+from src.utils.avaliacoes_pendentes import PRAZO_AVALIACAO_DIAS, avaliacao_aberta
 from src.utils.banca_status import aceita_inscricao, calcular_status_banca
 from src.utils.teto_banca import calcular_vagas_banca
 from src.utils.composicao_banca import ComposicaoBancaChecker
@@ -84,8 +84,7 @@ class CreateCandidaturaUseCase:
         # que continua liberado pra gestão não importa há quanto tempo a
         # banca aconteceu.
         if eh_gestao and status == "realizada" and banca.realizado_em:
-            prazo = banca.realizado_em + timedelta(days=PRAZO_AVALIACAO_DIAS)
-            if datetime.now() > prazo:
+            if not avaliacao_aberta(banca):
                 raise RegraDeNegocioError(
                     f"Não é possível adicionar: o prazo de {PRAZO_AVALIACAO_DIAS} dias para "
                     "avaliar esta banca já passou, então não há mais o que essa pessoa fazer aqui."

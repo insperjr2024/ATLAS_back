@@ -26,6 +26,8 @@ por conta própria.
 
 from typing import Dict, Iterable, List, Optional, Set
 
+from src.utils.desempenho_formulario_lote import formulario_do_lote
+
 #: Papel "de mentira" do formulário da Avaliação do Escopo. Não é papel de
 #: pessoa; entra na fila como auto-avaliação (avaliador == avaliado).
 FORM_TYPE_ESCOPO = "escopo"
@@ -37,15 +39,19 @@ TIPOS_COM_AVALIACAO_DE_ESCOPO = ("finalizacao", "periodico")
 STATUS_ESCOPO_EM_ANDAMENTO = "em_andamento"
 
 
-def formulario_escopo_do_lote(lote, formulario_repo, criterio_repo):
+def formulario_escopo_do_lote(lote, formulario_repo, criterio_repo, lote_formulario_repo=None):
     """O formulário da Avaliação do Escopo que vale para `lote`, ou `None`
     quando o lote não a inclui, o formulário não existe ou ainda não tem
-    critério nenhum."""
+    critério nenhum. Com `lote_formulario_repo`, respeita a versão congelada
+    do lote (`utils/desempenho_formulario_lote.py`)."""
     if lote.tipo not in TIPOS_COM_AVALIACAO_DE_ESCOPO:
         return None
     if not getattr(lote, "inclui_avaliacao_de_escopo", True):
         return None
-    formulario = formulario_repo.first_by(tipo=lote.tipo, papel=FORM_TYPE_ESCOPO)
+    if lote_formulario_repo is not None:
+        formulario = formulario_do_lote(formulario_repo, lote_formulario_repo, lote, FORM_TYPE_ESCOPO)
+    else:
+        formulario = formulario_repo.vigente(lote.tipo, FORM_TYPE_ESCOPO)
     if not formulario or not criterio_repo.get_by_formulario(formulario.id):
         return None
     return formulario
@@ -103,15 +109,10 @@ def nome_do_escopo_vendido(escopo, catalogo_por_id: Dict[int, str]) -> str:
 
 
 def ids_dos_formularios_de_escopo(formulario_repo) -> Set[int]:
-    """Os ids de TODOS os formulários `papel="escopo"`, de qualquer tipo. É o
-    que relatório e listagem usam pra separar a auto-avaliação do escopo das
-    avaliações entre pessoas."""
-    ids: Set[int] = set()
-    for tipo in TIPOS_COM_AVALIACAO_DE_ESCOPO:
-        formulario = formulario_repo.first_by(tipo=tipo, papel=FORM_TYPE_ESCOPO)
-        if formulario:
-            ids.add(formulario.id)
-    return ids
+    """Os ids de TODOS os formulários `papel="escopo"`, de qualquer tipo,
+    vigentes ou congelados. É o que relatório e listagem usam pra separar a
+    auto-avaliação do escopo das avaliações entre pessoas."""
+    return {f.id for f in formulario_repo.get_por_papel(FORM_TYPE_ESCOPO)}
 
 
 def catalogo_de_escopos(escopo_repo, escopos: List) -> Dict[int, str]:

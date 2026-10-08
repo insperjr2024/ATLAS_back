@@ -93,3 +93,23 @@ from src.models.identidade_institucional_model import IdentidadeInstitucionalMod
 from src.models.health_track_pilar_model import HealthTrackPilarModel
 from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
 from src.models.health_track_regra_model import HealthTrackRegraModel
+
+# Sabatina: o processo eleitoral (eleições, candidatos, votos ponderados e o
+# peso de cada posição). Ver `sabatina_model.py`.
+from src.models.sabatina_model import (
+    SabatinaCandidatoModel,
+    SabatinaEleicaoModel,
+    SabatinaPesoModel,
+    SabatinaVotoModel,
+)
+
+# Qual versão de formulário cada lote aberto ficou usando quando o vigente
+# foi editado "só pra futuros". Ver `desempenho_formulario_model.py`.
+from src.models.desempenho_lote_formulario_model import DesempenhoLoteFormularioModel
+
+# Modelo base (.docx) de documento jurídico trocado pela diretoria; sem linha,
+# vale o arquivo do deploy. Ver `documento_modelo_model.py`.
+from src.models.documento_modelo_model import DocumentoModeloModel
+
+# Arquivo de contratos: a pasta compartilhada. Ver `arquivo_contratos_model.py`.
+from src.models.arquivo_contratos_model import ArquivoContratosItemModel, ArquivoContratosPastaModel

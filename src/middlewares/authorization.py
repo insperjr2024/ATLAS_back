@@ -221,6 +221,19 @@ require_pode_gerir_calendarios_base = _dependencia_permissao(
 
 # ---------------------------------------------------------------- § Contratos
 
+# Sabatina (2026-10-06): montar, abrir, fechar e apurar eleição. Caixa que
+# nasce marcada pra diretoria; votar não passa por aqui.
+require_pode_acessar_configuracoes_sabatina = _dependencia_permissao(
+    "pode_acessar_configuracoes_sabatina",
+    "Você não tem permissão para acessar as configurações de sabatina",
+)
+
+# Arquivo de contratos (2026-10-07): a pasta compartilhada dos contratos.
+require_pode_acessar_arquivo_contratos = _dependencia_permissao(
+    "pode_acessar_arquivo_contratos",
+    "Você não tem permissão para acessar o arquivo de contratos",
+)
+
 require_pode_aprovar_contrato_internamente = _dependencia_permissao(
     "pode_aprovar_contrato_internamente",
     "Você não tem permissão para aprovar contratos internamente",

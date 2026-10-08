@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from src.database.database import Base
 
 
@@ -33,7 +33,9 @@ class AvaliacaoModel(Base):
     #: (toda avaliação existente é da sessão 1) e a apuração filtra com
     #: comparação de inteiro, sem join.
     sessao = Column(Integer, nullable=False, default=1, server_default="1")
-    comentario_feedback = Column(String(1000), nullable=True)
+    #: Texto livre, sem limite (2026-10-06): era `String(1000)` e um comentário
+    #: mais longo derrubava a submissão com 500 em vez de salvar.
+    comentario_feedback = Column(Text, nullable=True)
     submetida_em = Column(DateTime, nullable=True)
     nome_avaliador = Column(String(150), nullable=True)
     #: "consultor" ou "lideranca" — a resposta livre da pergunta, não o

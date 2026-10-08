@@ -27,6 +27,9 @@ from src.models.projeto_model import ProjetoModel
 from src.models.tarefa_model import ReuniaoSemanalModel
 from src.repositories.banca_escopo_repository import BancaEscopoRepository
 from src.repositories.escopo_repository import EscopoRepository
+from src.models.desempenho_lote_model import DesempenhoLoteModel
+from src.use_cases.banca.get_bancas_para_avaliar import GetBancasParaAvaliarUseCase
+from src.use_cases.desempenho_avaliacao.get_fila import GetFilaUsuarioUseCase
 from src.utils.banca_status import calcular_status_banca
 
 
@@ -175,6 +178,49 @@ class GetEventosCalendarioUseCase:
         # E `frente` também não é o mesmo que `curso`: uma frente cobre vários
         # cursos. Falta a plataforma ter de onde tirar o curso de cada usuário
         # antes de este bloco voltar a existir.
+
+        # Prazos PESSOAIS (2026-10-07, a pedido): até quando EU tenho que
+        # responder. Não seguem o recorte de projetos: são da pessoa logada,
+        # e levam `rota` pra tela certa.
+        uid = getattr(current_user, "id", None)
+        if uid is not None and quer("prazo_avaliacao_banca"):
+            for pendencia in GetBancasParaAvaliarUseCase(self.db).execute(uid):
+                prazo = pendencia["prazo_avaliacao"]
+                if prazo is None or not (inicio <= prazo.date() <= fim):
+                    continue
+                eventos.append(
+                    {
+                        "tipo": "prazo_avaliacao_banca",
+                        "data": prazo,
+                        "projeto_id": None,
+                        "projeto_nome": pendencia["nome_projeto"],
+                        "titulo": f"Prazo: avaliar a banca de {pendencia['nome_projeto']}",
+                        "referencia_id": pendencia["banca_id"],
+                        "status": "expirado" if pendencia["prazo_expirado"] else "aberto",
+                        "rota": "/bancas?aba=avaliacao",
+                    }
+                )
+        if uid is not None and quer("prazo_desempenho"):
+            lotes_vistos = set()
+            for item in GetFilaUsuarioUseCase(self.db).execute(uid):
+                if item["lote_id"] in lotes_vistos:
+                    continue
+                lotes_vistos.add(item["lote_id"])
+                lote = self.db.get(DesempenhoLoteModel, item["lote_id"])
+                if not lote or not (inicio <= lote.data_fim.date() <= fim):
+                    continue
+                eventos.append(
+                    {
+                        "tipo": "prazo_desempenho",
+                        "data": lote.data_fim,
+                        "projeto_id": None,
+                        "projeto_nome": lote.nome,
+                        "titulo": f"Prazo: {lote.nome}",
+                        "referencia_id": lote.id,
+                        "status": "aberto" if item["aberto"] else "fechado",
+                        "rota": "/avaliacao-desempenho",
+                    }
+                )
 
         eventos.sort(key=lambda e: (str(e["data"]), e["tipo"]))
         return eventos

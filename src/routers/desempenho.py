@@ -31,6 +31,7 @@ from src.use_cases.desempenho_avaliacao.get_fila import GetFilaUsuarioUseCase
 from src.use_cases.desempenho_avaliacao.get_relatorio import GetRelatorioDesempenhoUseCase
 from src.use_cases.desempenho_formulario.get_formulario import GetDesempenhoFormularioUseCase
 from src.use_cases.desempenho_formulario.update_formulario import (
+    ListLotesAbertosDoFormularioUseCase,
     UpdateDesempenhoFormularioRequest,
     UpdateDesempenhoFormularioUseCase,
 )
@@ -52,11 +53,13 @@ from src.use_cases.desempenho_pdi.get_envio import ListEnviosDoUsuarioUseCase
 from src.use_cases.desempenho_pdi.get_item import ListItensDaPastaUseCase
 from src.use_cases.desempenho_pdi.get_pasta import ListPdiPastasUseCase
 from src.use_cases.desempenho_pdi.get_pendencias import ListPendenciasPdiUseCase
+from src.use_cases.desempenho_pdi.get_resultados import ListResultadosPastaPdiUseCase
 from src.use_cases.desempenho_pdi.update_item import UpdatePdiItemRequest, UpdatePdiItemUseCase
 from src.use_cases.desempenho_pdi.update_pasta import UpdatePdiPastaRequest, UpdatePdiPastaUseCase
 from src.use_cases.desempenho_pdi.upload_envio import UploadPdiEnvioUseCase
 from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioRepository
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
+from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
 
 router = APIRouter(tags=["avaliação de desempenho"], dependencies=[Depends(get_current_user)])
@@ -131,11 +134,18 @@ def get_pendencias(lote_id: int, _=Depends(require_pode_administrar_desempenho),
 # ---------------------------------------------------------------- formulários
 
 @router.get("/desempenho/formularios/{tipo}/{papel}")
-def get_formulario(tipo: str, papel: str, db: Session = Depends(get_db)):
-    result = GetDesempenhoFormularioUseCase(db).execute(tipo, papel)
+def get_formulario(tipo: str, papel: str, lote_id: Optional[int] = None, db: Session = Depends(get_db)):
+    result = GetDesempenhoFormularioUseCase(db).execute(tipo, papel, lote_id)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
     return result
+
+
+@router.get("/desempenho/formularios/{tipo}/{papel}/lotes-abertos")
+def get_lotes_abertos_do_formulario(
+    tipo: str, papel: str, _=Depends(require_pode_editar_formularios_desempenho), db: Session = Depends(get_db)
+):
+    return ListLotesAbertosDoFormularioUseCase(db).execute(tipo, papel)
 
 
 @router.put("/desempenho/formularios/{tipo}/{papel}")
@@ -146,7 +156,10 @@ def update_formulario(
     _=Depends(require_pode_editar_formularios_desempenho),
     db: Session = Depends(get_db),
 ):
-    result = UpdateDesempenhoFormularioUseCase(db).execute(tipo, papel, request)
+    try:
+        result = UpdateDesempenhoFormularioUseCase(db).execute(tipo, papel, request)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
     if not result:
         raise HTTPException(status_code=404, detail="Formulário não encontrado")
     return result
@@ -294,6 +307,16 @@ def delete_pdi_item(item_id: int, _=Depends(require_pode_administrar_desempenho)
 @router.get("/desempenho/pdi/itens/{item_id}/pendencias")
 def get_pendencias_pdi(item_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
     return ListPendenciasPdiUseCase(db).execute(item_id)
+
+
+@router.get("/desempenho/pdi/pastas/{pasta_id}/resultados")
+def get_resultados_pasta_pdi(
+    pasta_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)
+):
+    try:
+        return ListResultadosPastaPdiUseCase(db).execute(pasta_id)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
 
 
 # ---------------------------------------------------------------- usuário-escopado

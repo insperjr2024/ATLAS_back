@@ -39,6 +39,8 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_elaborar_contratos_proprios": registro.pode_elaborar_contratos_proprios,
         "pode_elaborar_qualquer_contrato": registro.pode_elaborar_qualquer_contrato,
         "pode_ver_health_track": registro.pode_ver_health_track,
+        "pode_acessar_configuracoes_sabatina": registro.pode_acessar_configuracoes_sabatina,
+        "pode_acessar_arquivo_contratos": registro.pode_acessar_arquivo_contratos,
     }
 
 

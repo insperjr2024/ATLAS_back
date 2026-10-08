@@ -14,6 +14,8 @@ tem como levar o projeto junto, mesmo sendo o TEP/Contrato que o originou;
 quem quiser excluir o projeto em si usa a rota própria dele.
 """
 
+import logging
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,8 +29,12 @@ from src.repositories.solicitacao_alteracao_contratual_repository import (
 from src.repositories.token_aprovacao_contratual_repository import (
     TokenAprovacaoContratualRepository,
 )
+from src.use_cases.arquivo_contratos.arquivar import marcar_documento_deletado
 from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
 
+
+
+logger = logging.getLogger(__name__)
 
 class HardDeletarDocumentoContratualUseCase:
     def __init__(self, db: Session):
@@ -53,6 +59,12 @@ class HardDeletarDocumentoContratualUseCase:
             self.db.delete(token)
         for versao in self.versoes.list_by_documento(documento_id):
             self.db.delete(versao)
+        # O arquivo de contratos guarda o PDF com "[DELETADO] " no nome; se
+        # isso falhar, não pode travar a exclusão em si.
+        try:
+            marcar_documento_deletado(self.db, documento.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Falha ao marcar o documento como deletado no arquivo de contratos")
         self.db.delete(documento)
 
         try:

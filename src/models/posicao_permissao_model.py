@@ -162,6 +162,15 @@ class PosicaoPermissaoModel(Base):
     #: ⭐ 2026-09-21 — a pedido: quem assina PELA Insper Jr era só diretoria
     #: de projetos, hardcoded (`eh_diretoria_de_projetos`). Vira delegável.
     pode_editar_identidade_institucional = Column(Boolean, default=False, nullable=False)
+    #: Sabatina (2026-10-06, a pedido): abre "Configuração de Sabatina" e
+    #: tudo que vai nela (pesos, montar/abrir/fechar/excluir eleição, ver
+    #: apuração e quem votou em quem). Nasce marcada pros três cargos de
+    #: diretoria; gerente não. Votar não depende disto.
+    pode_acessar_configuracoes_sabatina = Column(Boolean, default=False, nullable=False)
+    #: Arquivo de contratos (2026-10-07, a pedido): a pasta compartilhada com
+    #: os contratos assinados e o que for importado. Nasce desmarcada; a
+    #: diretoria escolhe quem entra.
+    pode_acessar_arquivo_contratos = Column(Boolean, default=False, nullable=False)
     #: Acessar a aba Contratos (vê TODOS os documentos, igual `pode_ver_
     #: painel_contratos`) e elaborar (abrir, preencher, confirmar, gerar) os
     #: documentos jurídicos dos projetos em que a PRÓPRIA pessoa consta como

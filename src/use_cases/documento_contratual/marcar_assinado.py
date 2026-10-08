@@ -13,6 +13,8 @@ pra "semestre corrente") — não se reimplementa `calcular_gestao()` do sistema
 antigo.
 """
 
+import logging
+
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -24,9 +26,12 @@ from src.repositories.documento_contratual_versao_repository import (
 from src.repositories.semestre_repository import SemestreRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.mudar_status_projeto_automatico import mudar_status_projeto_automaticamente
+from src.use_cases.arquivo_contratos.arquivar import arquivar_documento_assinado
 from src.utils.notificar_documento_contratual import documento_assinado
 from src.utils.notificar_projeto import projeto_vendido, vagas_abertas
 from src.utils.status_documento_contratual import PRAZO_ACEITE_TACITO_TEP_DIAS
+
+logger = logging.getLogger(__name__)
 
 
 def dias_restantes_aceite_tacito(documento) -> int | None:
@@ -93,6 +98,13 @@ class MarcarAssinadoDocumentoContratualUseCase:
         atualizado = self.documentos.update(
             documento.id, status="assinado_e_arquivado", gestao_id=gestao_id
         )
+
+        # Arquivo de contratos (2026-10-07): o PDF da última versão vai pra
+        # Gestão/Projeto sozinho. Não derruba o fluxo se algo falhar aqui.
+        try:
+            arquivar_documento_assinado(self.db, atualizado)
+        except Exception:  # noqa: BLE001
+            logger.exception("Falha ao arquivar o documento %s no arquivo de contratos", documento.id)
 
         # 🤖 2026-09-23 — a pedido: avisa o(s) gerente(s) da(s) frente(s) do
         # projeto — é a segunda (e última) etapa em que o gerente recebe

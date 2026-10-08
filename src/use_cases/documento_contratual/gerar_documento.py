@@ -29,6 +29,7 @@ import tempfile
 from sqlalchemy.orm import Session
 
 from src.documentos_contratuais.render_template import TEMPLATE_POR_TIPO, renderizar
+from src.repositories.documento_modelo_repository import DocumentoModeloRepository
 from src.repositories.documento_contratual_repository import DocumentoContratualRepository
 from src.repositories.documento_contratual_versao_repository import (
     DocumentoContratualVersaoRepository,
@@ -65,7 +66,13 @@ class GerarDocumentoContratualUseCase:
             raise erro_campos_faltando(faltando)
 
         identidade = identidade_de_configuracao(self.identidade.get())
-        doc = renderizar(documento.tipo, documento.dados, identidade)
+        personalizado = DocumentoModeloRepository(self.db).get_por_tipo(documento.tipo)
+        doc = renderizar(
+            documento.tipo,
+            documento.dados,
+            identidade,
+            template_bytes=bytes(personalizado.arquivo_conteudo) if personalizado else None,
+        )
 
         with tempfile.TemporaryDirectory() as pasta_temp:
             docx_path = os.path.join(pasta_temp, f"{documento.tipo}.docx")

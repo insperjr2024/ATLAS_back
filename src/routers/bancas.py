@@ -27,6 +27,7 @@ from src.use_cases.banca.create_banca import CreateBancaUseCase, CreateBancaRequ
 from src.use_cases.banca.get_banca import GetBancaUseCase, ListBancasUseCase
 from src.use_cases.banca.get_banca_detalhes import GetBancaDetalhesUseCase
 from src.use_cases.banca.get_historico_bancas import GetHistoricoBancasUseCase
+from src.use_cases.banca.prazo_avaliacao import DefinirPrazoAvaliacaoUseCase, PrazoAvaliacaoRequest
 from src.use_cases.banca.get_carga_bancas import GetCargaBancasUseCase, FiltroCargaBancas
 from src.use_cases.banca.get_notas_por_pergunta import GetNotasPorPerguntaUseCase
 from src.use_cases.banca.local_e_entrega import (
@@ -251,6 +252,20 @@ def remover_entrega_banca(
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return None
+
+
+@router.put("/bancas/{banca_id}/prazo-avaliacao")
+def definir_prazo_avaliacao(
+    banca_id: int,
+    request: PrazoAvaliacaoRequest,
+    _=Depends(require_pode_ver_dashboard_bancas),
+    db: Session = Depends(get_db),
+):
+    """Abrir ou fechar a avaliação da banca na mão (exceção pontual)."""
+    try:
+        return DefinirPrazoAvaliacaoUseCase(db).execute(banca_id, request)
+    except RegraDeNegocioError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/bancas/{banca_id}/notas-por-pergunta")

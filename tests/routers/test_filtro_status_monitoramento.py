@@ -122,7 +122,7 @@ class TestProjetosVisiveisAplicaOStatus:
         assert "status IN" not in query.sql_dos_filtros
 
     def test_com_status_filtra_no_banco(self, base):
-        """No banco, e não em Python depois: a Alocação recorta a população
+        """No banco, e não em Python depois: as abas recortam os projetos
         por esta mesma lista, e um filtro aplicado só na saída de uma aba
         divergiria da outra."""
         instancia, query = base
