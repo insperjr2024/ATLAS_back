@@ -115,3 +115,5 @@ from src.models.documento_modelo_model import DocumentoModeloModel
 
 # Arquivo de contratos: a pasta compartilhada. Ver `arquivo_contratos_model.py`.
 from src.models.arquivo_contratos_model import ArquivoContratosItemModel, ArquivoContratosPastaModel
+# Institucional: ex-membros em destaque do site (2026-10-09).
+from src.models.ex_membro_model import ExMembroModel

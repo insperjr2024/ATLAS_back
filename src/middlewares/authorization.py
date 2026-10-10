@@ -248,6 +248,14 @@ require_pode_ver_health_track = _dependencia_permissao(
     "Você não tem permissão para ver o Health Track",
 )
 
+# Institucional (2026-10-09, a pedido): a aba do que a diretoria publica no
+# site da Insper Jr (ex-membros em destaque, por enquanto). Nasce marcada só
+# pra diretoria. A LEITURA pelo site é pública — não passa por aqui.
+require_pode_acessar_institucional = _dependencia_permissao(
+    "pode_acessar_institucional",
+    "Você não tem permissão para acessar o Institucional",
+)
+
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):

@@ -20,6 +20,7 @@ from src.routers import (
     documentos_contratuais,
     health_track,
     arquivo_contratos,
+    institucional,
     sabatina,
     monitoramento,
     notificacoes,
@@ -713,7 +714,14 @@ app.add_middleware(
     # wildcard: um curinga tipo `atlasijr.*\.vercel\.app` também deixaria
     # passar o projeto de outra conta chamado "atlasijr-qualquercoisa" —
     # o Vercel só garante unicidade do nome completo, não do prefixo.
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+|https://atlasijr\.vercel\.app",
+    # + o site institucional (2026-10-09): ele lê `/publico/ex-membros` direto
+    # do navegador do visitante, então precisa passar no CORS. Só o domínio
+    # final, sem os previews da Vercel do site — eles usam a lista estática.
+    allow_origin_regex=(
+        r"http://(localhost|127\.0\.0\.1):\d+"
+        r"|https://atlasijr\.vercel\.app"
+        r"|https://(www\.)?insperjunior\.com(\.br)?"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -728,6 +736,10 @@ def health_check():
 app.include_router(auth.router_publico)
 app.include_router(auth.router)
 app.include_router(aprovacao_contratual.router_publico)
+# Institucional (2026-10-09): a pública é o que o SITE da Insper Jr lê
+# (só leitura, só publicados); a outra é a aba da diretoria.
+app.include_router(institucional.router_publico)
+app.include_router(institucional.router)
 app.include_router(catalogo.router)
 app.include_router(usuarios.router)
 app.include_router(grade_horaria.router)

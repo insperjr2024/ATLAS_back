@@ -47,6 +47,7 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_ver_health_track: Optional[bool] = None
     pode_acessar_configuracoes_sabatina: Optional[bool] = None
     pode_acessar_arquivo_contratos: Optional[bool] = None
+    pode_acessar_institucional: Optional[bool] = None
 
 
 class UpdatePosicaoPermissaoUseCase:

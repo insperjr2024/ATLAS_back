@@ -191,3 +191,9 @@ class PosicaoPermissaoModel(Base):
     #: da frente (`exigir_pode_preencher_health_track`), e editar a regra
     #: continua só da diretoria de projetos.
     pode_ver_health_track = Column(Boolean, default=False, nullable=False)
+    #: Institucional (2026-10-09, a pedido): a aba do que a diretoria publica
+    #: no SITE da Insper Jr — hoje os ex-membros em destaque; outras seções
+    #: do site entram aqui depois. Nasce marcada só pros três cargos de
+    #: diretoria. A leitura pelo site é pública e não passa por esta caixa
+    #: (ver `routers/institucional.py`).
+    pode_acessar_institucional = Column(Boolean, default=False, nullable=False)
