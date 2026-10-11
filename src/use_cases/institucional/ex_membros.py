@@ -300,11 +300,36 @@ PASTA_INICIAIS = Path(__file__).resolve().parents[2] / "institucional" / "ex_mem
 
 class ImportarIniciaisUseCase:
     """Botão "Importar lista inicial", pra ninguém precisar redigitar 13
-    depoimentos nem 19 cadastros. Pula quem já existe (pelo nome), então
-    rodar de novo depois de um lote novo só traz quem falta e não duplica."""
+    depoimentos nem 19 cadastros. Quem já existe (pelo nome) não duplica:
+    só ganha o que ainda estiver VAZIO no cadastro e o lote tem (LinkedIn,
+    foto) — o lote dos 19 foi importado em produção antes de os links
+    entrarem nele. Nunca sobrescreve o que a diretoria já editou."""
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ExMembroRepository(db)
+
+    @staticmethod
+    def _foto_do_lote(item: dict) -> Optional[bytes]:
+        nome_foto = item.get("foto")
+        if not nome_foto:
+            return None
+        caminho = PASTA_INICIAIS / "fotos" / nome_foto
+        return caminho.read_bytes() if caminho.exists() else None
+
+    def _completar(self, registro: ExMembroModel, item: dict) -> bool:
+        """Preenche só os campos vazios. Devolve se mudou algo."""
+        mudou = False
+        if not registro.linkedin and item.get("linkedin"):
+            registro.linkedin = item["linkedin"]
+            mudou = True
+        if registro.foto is None:
+            foto = self._foto_do_lote(item)
+            if foto:
+                registro.foto = foto
+                registro.foto_versao = (registro.foto_versao or 0) + 1
+                mudou = True
+        return mudou
 
     def execute(self, criado_por: Optional[int]) -> dict:
         arquivo = PASTA_INICIAIS / "dados.json"
@@ -312,18 +337,17 @@ class ImportarIniciaisUseCase:
             raise RegraDeNegocioError("Os dados iniciais não estão disponíveis neste servidor.")
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
 
-        importados, pulados = 0, 0
+        importados, atualizados, pulados = 0, 0, 0
         ordem = self.repository.proxima_ordem()
         for item in sorted(dados, key=lambda d: d.get("ordem", 0)):
-            if self.repository.existe_nome(item["nome"]):
-                pulados += 1
+            existente = self.repository.buscar_por_nome(item["nome"])
+            if existente:
+                if self._completar(existente, item):
+                    atualizados += 1
+                else:
+                    pulados += 1
                 continue
-            foto = None
-            nome_foto = item.get("foto")
-            if nome_foto:
-                caminho = PASTA_INICIAIS / "fotos" / nome_foto
-                if caminho.exists():
-                    foto = caminho.read_bytes()
+            foto = self._foto_do_lote(item)
             self.repository.create(
                 nome=item["nome"],
                 cargo_pt=item["cargo_pt"],
@@ -343,4 +367,5 @@ class ImportarIniciaisUseCase:
             )
             ordem += 1
             importados += 1
-        return {"importados": importados, "pulados": pulados}
+        self.db.commit()
+        return {"importados": importados, "atualizados": atualizados, "pulados": pulados}

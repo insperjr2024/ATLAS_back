@@ -16,6 +16,7 @@ import src.models  # noqa: F401
 from src.database.database import Base
 from src.models.ex_membro_model import ExMembroModel
 from src.models.usuario_model import UsuarioModel
+from src.repositories.ex_membro_repository import ExMembroRepository
 from src.use_cases.institucional.ex_membros import (
     ApagarExMembroUseCase,
     AtualizarFotoUseCase,
@@ -144,7 +145,7 @@ class TestFoto:
 class TestImportacao:
     def test_importa_a_lista_inicial_e_nao_duplica(self, db):
         r = ImportarIniciaisUseCase(db).execute(criado_por=None)
-        assert r == {"importados": 32, "pulados": 0}
+        assert r == {"importados": 32, "atualizados": 0, "pulados": 0}
         todos = ListarTodosUseCase(db).execute()
         assert [t["nome"] for t in todos][:2] == ["Giovanna Fava Steinberg", "Fernando Mauad"]
         assert all(t["tem_foto"] for t in todos)
@@ -160,5 +161,26 @@ class TestImportacao:
         assert len(ListarPublicadosUseCase(db).execute()) == 13
 
         r = ImportarIniciaisUseCase(db).execute(criado_por=None)
-        assert r == {"importados": 0, "pulados": 32}
+        assert r == {"importados": 0, "atualizados": 0, "pulados": 32}
+        assert len(ListarTodosUseCase(db).execute()) == 32
+
+    def test_reimportar_completa_linkedin_e_foto_de_quem_ja_existe_sem_sobrescrever(self, db):
+        """Os 19 foram importados em produção antes de o lote ter os links:
+        rodar de novo preenche o que está vazio e não mexe no que foi editado."""
+        ImportarIniciaisUseCase(db).execute(criado_por=None)
+        repo = ExMembroRepository(db)
+        a = repo.buscar_por_nome("Clarice Barroso")
+        b = repo.buscar_por_nome("Lucca Foguel")
+        a.linkedin = None
+        a.foto = None
+        b.linkedin = "https://www.linkedin.com/in/editado-pela-diretoria/"
+        b.cargo_pt = "Cargo editado"
+        db.commit()
+
+        r = ImportarIniciaisUseCase(db).execute(criado_por=None)
+        assert r == {"importados": 0, "atualizados": 1, "pulados": 31}
+        a = repo.buscar_por_nome("Clarice Barroso")
+        b = repo.buscar_por_nome("Lucca Foguel")
+        assert a.linkedin == "https://www.linkedin.com/in/claricebarroso/" and a.foto is not None
+        assert b.linkedin == "https://www.linkedin.com/in/editado-pela-diretoria/" and b.cargo_pt == "Cargo editado"
         assert len(ListarTodosUseCase(db).execute()) == 32

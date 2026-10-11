@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.orm import Session, defer
 
@@ -33,3 +33,6 @@ class ExMembroRepository(BaseRepository[ExMembroModel]):
 
     def existe_nome(self, nome: str) -> bool:
         return self.db.query(ExMembroModel.id).filter(ExMembroModel.nome == nome).first() is not None
+
+    def buscar_por_nome(self, nome: str) -> Optional[ExMembroModel]:
+        return self.db.query(ExMembroModel).filter(ExMembroModel.nome == nome).first()
