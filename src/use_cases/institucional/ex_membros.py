@@ -286,18 +286,22 @@ class RemoverFotoUseCase:
         return serializar_admin(registro)
 
 
-# ─── Importação dos 13 que já estavam no site ───────────────────────────────
+# ─── Importação da lista inicial (site + formulário da 51ª) ─────────────────
 
-#: Os ex-membros que o site tinha hardcoded quando esta aba nasceu, com as
-#: fotos já no tamanho final. Gerado a partir do repositório do site
-#: (Consulting_front: alumniCarousel.tsx + i18n/pages/contactAlumni.ts).
+#: Lote inicial de ex-membros, com as fotos já no tamanho final:
+#: - os 13 que o site tinha hardcoded quando esta aba nasceu (publicados;
+#:   gerado de Consulting_front: alumniCarousel.tsx + i18n/pages/contactAlumni.ts);
+#: - os 19 do "Formulário de Mapeamento de Ex-membros - 51ª Gestão" que
+#:   anexaram foto pra seção Alumni (2026-10-11). Entram OCULTOS
+#:   (`"publicado": false`), sem depoimento/LinkedIn: a diretoria revisa
+#:   cargo/empresa na aba e publica um a um.
 PASTA_INICIAIS = Path(__file__).resolve().parents[2] / "institucional" / "ex_membros_iniciais"
 
 
 class ImportarIniciaisUseCase:
-    """Botão "Importar os ex-membros atuais do site", pra a aba não nascer
-    vazia e ninguém precisar redigitar 13 depoimentos. Pula quem já existe
-    (pelo nome), então rodar duas vezes não duplica."""
+    """Botão "Importar lista inicial", pra ninguém precisar redigitar 13
+    depoimentos nem 19 cadastros. Pula quem já existe (pelo nome), então
+    rodar de novo depois de um lote novo só traz quem falta e não duplica."""
 
     def __init__(self, db: Session):
         self.repository = ExMembroRepository(db)
@@ -334,7 +338,7 @@ class ImportarIniciaisUseCase:
                 foto=foto,
                 foto_versao=1 if foto else 0,
                 ordem=ordem,
-                publicado=True,
+                publicado=bool(item.get("publicado", True)),
                 criado_por=criado_por,
             )
             ordem += 1

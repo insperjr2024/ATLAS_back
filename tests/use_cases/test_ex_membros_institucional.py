@@ -142,14 +142,23 @@ class TestFoto:
 
 
 class TestImportacao:
-    def test_importa_os_13_do_site_e_nao_duplica(self, db):
+    def test_importa_a_lista_inicial_e_nao_duplica(self, db):
         r = ImportarIniciaisUseCase(db).execute(criado_por=None)
-        assert r == {"importados": 13, "pulados": 0}
+        assert r == {"importados": 32, "pulados": 0}
         todos = ListarTodosUseCase(db).execute()
         assert [t["nome"] for t in todos][:2] == ["Giovanna Fava Steinberg", "Fernando Mauad"]
         assert all(t["tem_foto"] for t in todos)
-        assert all(t["cargo_pt"] and t["depoimento_pt"] and t["cargo_en"] for t in todos)
+        assert all(t["cargo_pt"] and t["cargo_en"] and t["empresa"] for t in todos)
+
+        # Os 13 do site entram publicados e com depoimento; os 19 do
+        # formulário da 51ª entram OCULTOS e sem depoimento (a diretoria
+        # revisa e publica pela aba).
+        do_site, do_formulario = todos[:13], todos[13:]
+        assert len(do_formulario) == 19
+        assert all(t["publicado"] and t["depoimento_pt"] for t in do_site)
+        assert all(not t["publicado"] and not t["depoimento_pt"] for t in do_formulario)
+        assert len(ListarPublicadosUseCase(db).execute()) == 13
 
         r = ImportarIniciaisUseCase(db).execute(criado_por=None)
-        assert r == {"importados": 0, "pulados": 13}
-        assert len(ListarTodosUseCase(db).execute()) == 13
+        assert r == {"importados": 0, "pulados": 32}
+        assert len(ListarTodosUseCase(db).execute()) == 32
