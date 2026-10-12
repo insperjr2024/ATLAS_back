@@ -1,4 +1,4 @@
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.orm import Session
 
 from src.models.banca_escopo_model import BancaEscopoModel
@@ -8,6 +8,8 @@ from src.models.banca_model import BancaModel
 from src.models.cronograma_etapa_model import CronogramaEtapaModel, CronogramaMarcoModel
 from src.models.cronograma_reajuste_solicitacao_model import CronogramaReajusteSolicitacaoModel
 from src.models.desempenho_lote_projeto_model import DesempenhoLoteProjetoModel
+from src.models.documento_contratual_model import DocumentoContratualModel
+from src.models.health_track_avaliacao_model import HealthTrackAvaliacaoModel
 from src.models.justificativa_pedido_model import JustificativaPedidoModel
 from src.models.notificacao_model import NotificacaoModel
 from src.models.projeto_justificativa_atraso_model import ProjetoJustificativaAtrasoModel
@@ -110,6 +112,28 @@ class DeleteProjetoPermanenteUseCase:
         self.db.execute(delete(ProjetoMembroModel).where(ProjetoMembroModel.projeto_id == projeto_id))
         self.db.execute(delete(ProjetoFrenteModel).where(ProjetoFrenteModel.projeto_id == projeto_id))
         self.db.execute(delete(TarefaColunaModel).where(TarefaColunaModel.projeto_id == projeto_id))
+
+        # 2026-10-12, corrigido: as duas abaixo entraram depois desta limpeza
+        # e seguravam a exclusao com violacao de chave (500 na tela).
+        #
+        # A avaliacao do Health Track e interna do projeto e sai com ele. As
+        # acoes e a participacao nas rodadas ja cascateiam pelo banco.
+        self.db.execute(
+            delete(HealthTrackAvaliacaoModel).where(HealthTrackAvaliacaoModel.projeto_id == projeto_id)
+        )
+        # O documento contratual NAO se apaga: e registro juridico, pode estar
+        # assinado. Vira documento avulso, o mesmo estado do contrato
+        # institucional, com nome e cliente guardados como texto pra continuar
+        # identificavel na aba Contratos.
+        self.db.execute(
+            update(DocumentoContratualModel)
+            .where(DocumentoContratualModel.projeto_id == projeto_id)
+            .values(
+                projeto_id=None,
+                nome_projeto_externo=projeto.nome,
+                cliente_externo=projeto.cliente,
+            )
+        )
 
         # Pedidos de aprovação do §13 (fora da janela, exceção de choque) e do
         # reajuste de cronograma: todos guardam `projeto_escopo_id` obrigatório
