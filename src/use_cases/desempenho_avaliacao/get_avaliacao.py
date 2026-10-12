@@ -19,7 +19,7 @@ from src.utils.desempenho_escopo import (
 )
 
 
-def serializar_avaliacao_resumo(a, escopo: Optional[dict] = None) -> dict:
+def serializar_avaliacao_resumo(a, escopo: Optional[dict] = None, eh_escopo: bool = False) -> dict:
     d = {
         "id": a.id,
         "lote_id": a.lote_id,
@@ -30,6 +30,12 @@ def serializar_avaliacao_resumo(a, escopo: Optional[dict] = None) -> dict:
         "nota_geral": a.nota_geral,
         "comentarios": a.comentarios,
         "criado_em": a.criado_em,
+        # 2026-10-12, corrigido: a Avaliação do Escopo e a pessoa avaliando a
+        # si mesma pelo formulário de escopo. Antes, so `escopo` dizia isso,
+        # e ele fica `None` quando nao da pra saber QUAL escopo foi. Ai a
+        # linha caia na visao por pessoa como "Laura avaliou Laura". Esta
+        # marca vem sempre que o formulario e de escopo, resolvido ou nao.
+        "eh_escopo": eh_escopo,
     }
     # ⭐ Preenchido só na Avaliação do Escopo (auto-avaliação): QUAL escopo a
     # pessoa avaliou. Desde 2026-10-05 a avaliação guarda isso
@@ -39,6 +45,10 @@ def serializar_avaliacao_resumo(a, escopo: Optional[dict] = None) -> dict:
     if escopo is not None:
         d["escopo"] = escopo
     return d
+
+
+def _normalizar(nome: str) -> str:
+    return " ".join(nome.split()).casefold()
 
 
 def _sem_frente(e: dict) -> dict:
@@ -84,27 +94,64 @@ class ListDesempenhoAvaliacoesUseCase:
             casam = [e for e in opcoes if e["frente_id"] in do_avaliador]
             return _sem_frente(casam[0]) if len(casam) == 1 else None
 
-        return [serializar_avaliacao_resumo(a, escopo=atribuir(a)) for a in avaliacoes]
+        return [
+            serializar_avaliacao_resumo(
+                a, escopo=atribuir(a), eh_escopo=a.formulario_id in escopo_form_ids
+            )
+            for a in avaliacoes
+        ]
 
     def _escopo_do_catalogo(self, projeto_escopo_id: int) -> Optional[dict]:
-        """O escopo vendido já conhecido, traduzido pro catálogo (é por ele
-        que o painel agrupa, misturando os projetos)."""
+        """O escopo vendido já conhecido, no formato que o painel agrupa."""
         pe = self.projeto_escopo_repo.get_by_id(projeto_escopo_id)
-        if not pe or not pe.escopo_id:
+        if not pe:
             return None
-        cat = self.escopo_repo.get_by_id(pe.escopo_id)
-        if not cat:
-            return None
+        rotulo = self._rotulo_do_escopo_vendido(pe)
+        return _sem_frente(rotulo) if rotulo else None
+
+    def _rotulo_do_escopo_vendido(self, pe) -> Optional[dict]:
+        """`{escopo_id, nome, frente_id, projeto_nome}` de um escopo vendido.
+
+        O painel agrupa pelo CATÁLOGO, misturando os projetos. Escopo vendido
+        como "Outro" (nome digitado, sem `escopo_id`) era descartado aqui, e a
+        avaliação dele ficava sem escopo (2026-10-12: Pesquisa Legislativa de
+        CONEXÕES I). Agora:
+
+        - com catálogo: o do catálogo, como sempre;
+        - "Outro" com o mesmo nome de uma entrada do catálogo: vale essa
+          entrada, pra cair no mesmo grupo dos outros projetos;
+        - "Outro" sem par no catálogo: `escopo_id` nulo e o nome digitado (o
+          painel agrupa esses pelo nome).
+        """
         projeto = self.projeto_repo.get_by_id(pe.projeto_id)
+        projeto_nome = projeto.nome if projeto else None
+        cat = self.escopo_repo.get_by_id(pe.escopo_id) if pe.escopo_id else None
+        if cat is None and getattr(pe, "nome_customizado", None):
+            cat = self._catalogo_por_nome().get(_normalizar(pe.nome_customizado))
+            if cat is None:
+                return {
+                    "escopo_id": None,
+                    "nome": pe.nome_customizado.strip(),
+                    "frente_id": pe.frente_id,
+                    "projeto_nome": projeto_nome,
+                }
+        if cat is None:
+            return None
         return {
             "escopo_id": cat.id,
             "nome": cat.nome,
-            "projeto_nome": projeto.nome if projeto else None,
+            "frente_id": cat.frente_id,
+            "projeto_nome": projeto_nome,
         }
+
+    def _catalogo_por_nome(self) -> dict:
+        if getattr(self, "_cache_catalogo_por_nome", None) is None:
+            self._cache_catalogo_por_nome = {_normalizar(e.nome): e for e in self.escopo_repo.get_all()}
+        return self._cache_catalogo_por_nome
 
     def _escopos_por_lote(self, lote_ids: set) -> dict[int, list]:
         """`lote_id -> [{escopo_id, nome, frente_id, projeto_nome}]` — os
-        escopos do CATÁLOGO sobre os quais a avaliação falou.
+        escopos sobre os quais a avaliação falou (ver `_rotulo_do_escopo_vendido`).
 
         Lote com banca (finalização automática): os escopos que a banca
         cobriu. Sem banca (periódica, ou finalização aberta à mão): os
@@ -131,20 +178,9 @@ class ListDesempenhoAvaliacoesUseCase:
                     if pe.status == STATUS_ESCOPO_EM_ANDAMENTO
                 ]
             for pe in escopos_vendidos:
-                if not pe.escopo_id:
-                    continue
-                cat = self.escopo_repo.get_by_id(pe.escopo_id)
-                if not cat:
-                    continue
-                projeto = self.projeto_repo.get_by_id(pe.projeto_id)
-                out.setdefault(lid, []).append(
-                    {
-                        "escopo_id": cat.id,
-                        "nome": cat.nome,
-                        "frente_id": cat.frente_id,
-                        "projeto_nome": projeto.nome if projeto else None,
-                    }
-                )
+                rotulo = self._rotulo_do_escopo_vendido(pe)
+                if rotulo:
+                    out.setdefault(lid, []).append(rotulo)
         return out
 
 
