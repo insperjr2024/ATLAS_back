@@ -24,6 +24,7 @@ Estas funções são a fonte única pra `get_fila`, `get_pendencias` e
 por conta própria.
 """
 
+from datetime import date, datetime
 from typing import Dict, Iterable, List, Optional, Set
 
 from src.utils.desempenho_formulario_lote import formulario_do_lote
@@ -72,11 +73,88 @@ def escopos_avaliaveis_no_lote(
         return projeto_escopo_repo.get_by_ids(banca_escopo_repo.get_escopo_ids(lote.banca_id))
     if not ids:
         return []
-    return [
-        pe
-        for pe in projeto_escopo_repo.get_by_projetos(ids)
-        if pe.status == STATUS_ESCOPO_EM_ANDAMENTO
-    ]
+    escopos = projeto_escopo_repo.get_by_projetos(ids)
+    # Periódica: em andamento NA DATA DO LOTE, a mesma régua de
+    # `membros_da_periodica` (2026-10-12). A finalização aberta à mão segue
+    # pelo status de hoje, como sempre foi.
+    if getattr(lote, "tipo", None) == "periodico":
+        referencia = data_de_referencia(lote)
+        return [pe for pe in escopos if em_andamento_em(pe, referencia)]
+    return [pe for pe in escopos if pe.status == STATUS_ESCOPO_EM_ANDAMENTO]
+
+
+def data_de_referencia(lote) -> date:
+    """O dia em que a periódica olha os escopos: a abertura do lote. Congelar
+    num dia é o que impede a fila de mudar no meio do lote (um escopo que
+    começa ou termina depois não muda quem avalia quem) e o que deixa limpar
+    lotes antigos sem apagar resposta que valia quando foi dada."""
+    quando = getattr(lote, "data_inicio", None) or getattr(lote, "criado_em", None) or datetime.now()
+    return quando.date() if isinstance(quando, datetime) else quando
+
+
+def em_andamento_em(escopo, quando: date) -> bool:
+    """O escopo vendido estava rodando em `quando`?
+
+    Começou: tem `data_inicio` (a primeira reunião) até esse dia. Não
+    terminou: sem `data_entrega_real` (nem confirmação de entrega) até esse
+    dia. Cancelado nunca conta. Escopo com zero dias úteis não tem
+    `data_inicio`, então fica de fora sozinho.
+    """
+    if escopo.status in ("cancelado", "nao_iniciado"):
+        return False
+    inicio = getattr(escopo, "data_inicio", None)
+    if not inicio or inicio > quando:
+        return False
+    fim = getattr(escopo, "data_entrega_real", None)
+    if fim is None and escopo.status == "entregue":
+        confirmado = getattr(escopo, "entrega_confirmada_em", None)
+        fim = confirmado.date() if isinstance(confirmado, datetime) else confirmado
+        if fim is None:
+            # Entregue sem data nenhuma: terminou, só não se sabe quando.
+            return False
+    return not (fim and fim <= quando)
+
+
+def membros_da_periodica(lote, membros: list, escopos: list, frentes: Dict[int, Set[int]]) -> list:
+    """Quem entra na avaliação periódica de `lote` (2026-10-12, a pedido).
+
+    Na periódica só se avalia o trabalho de quem está num escopo EM
+    ANDAMENTO (`em_andamento_em`, na data do lote). Escopo que não começou ou
+    que já foi entregue não gera avaliação, e a frente dele sai da conta:
+    ninguém da frente avalia nem é avaliado por esse projeto. Ex.: CONEXÕES I
+    com o escopo de Tech parado em zero dias, o pessoal de Tech some da fila
+    e das pendências; quem é de Business e de Tech continua, por Business.
+
+    Por projeto:
+    - sem escopo cadastrado: todo mundo continua (não há como saber);
+    - nenhum escopo em andamento: ninguém do projeto entra;
+    - senão, fica quem tem pelo menos uma frente com escopo em andamento, ou
+      quem não tem frente ligada a escopo nenhum do projeto (alocado de
+      outra frente, ou sem frente cadastrada), que não tem por que sumir.
+
+    Outros tipos de lote (finalização) passam direto, sem filtro.
+    """
+    if getattr(lote, "tipo", None) != "periodico":
+        return membros
+    referencia = data_de_referencia(lote)
+    do_projeto: Dict[int, Set[int]] = {}
+    ativas: Dict[int, Set[int]] = {}
+    for pe in escopos:
+        do_projeto.setdefault(pe.projeto_id, set()).add(pe.frente_id)
+        if em_andamento_em(pe, referencia):
+            ativas.setdefault(pe.projeto_id, set()).add(pe.frente_id)
+
+    def entra(membro) -> bool:
+        frentes_do_projeto = do_projeto.get(membro.projeto_id)
+        if not frentes_do_projeto:
+            return True
+        ativas_do_projeto = ativas.get(membro.projeto_id, set())
+        if not ativas_do_projeto:
+            return False
+        minhas = (frentes.get(membro.usuario_id) or set()) & frentes_do_projeto
+        return not minhas or bool(minhas & ativas_do_projeto)
+
+    return [m for m in membros if entra(m)]
 
 
 def frentes_por_usuario(usuario_frente_repo) -> Dict[int, Set[int]]:

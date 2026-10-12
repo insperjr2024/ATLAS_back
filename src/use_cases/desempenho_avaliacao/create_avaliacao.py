@@ -20,6 +20,8 @@ from src.utils.desempenho_escopo import (
     escopos_avaliaveis_no_lote,
     escopos_da_pessoa,
     formulario_escopo_do_lote,
+    frentes_por_usuario,
+    membros_da_periodica,
 )
 from src.utils.desempenho_formulario_lote import formulario_do_lote
 from src.utils.desempenho_fila import calcular_pares_lote, deduplicar_pares
@@ -69,6 +71,15 @@ class CreateDesempenhoAvaliacaoUseCase:
 
         projeto_ids = self.lote_projeto_repo.get_projeto_ids(lote.id)
         membros = self.membro_repo.get_by_projetos(projeto_ids, apenas_atuais=True)
+        # Periódica: só quem está em frente com escopo em andamento
+        # (2026-10-12, ver `membros_da_periodica`).
+        if lote.tipo == "periodico":
+            membros = membros_da_periodica(
+                lote,
+                membros,
+                self.projeto_escopo_repo.get_by_projetos(projeto_ids),
+                frentes_por_usuario(self.usuario_frente_repo),
+            )
 
         # ⭐ Avaliação do Escopo (2026-09-09): auto-avaliação (avaliador ==
         # avaliado), uma POR ESCOPO da frente da pessoa (2026-10-05). Na

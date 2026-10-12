@@ -14,7 +14,7 @@ os escopos EM ANDAMENTO; e, nos dois tipos, é uma resposta POR ESCOPO, só dos
 escopos da frente da pessoa (`utils/desempenho_escopo.py`).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -171,6 +171,10 @@ def _escopo(id, projeto_id, frente_id, status="em_andamento", escopo_id=None, no
         status=status,
         escopo_id=escopo_id,
         nome_customizado=nome_customizado,
+        # Como no sistema: escopo que começou tem a data da reunião inicial.
+        data_inicio=None if status == "nao_iniciado" else date(2026, 9, 1),
+        data_entrega_real=None,
+        entrega_confirmada_em=None,
     )
     return ESCOPOS[id]
 
