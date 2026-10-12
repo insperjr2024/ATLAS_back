@@ -11,6 +11,9 @@ from src.utils.exceptions import RegraDeNegocioError
 class LoginRequest(BaseModel):
     email_insper: str
     senha: str
+    #: O front avisa quando está num celular: aí a sessão é longa
+    #: (`ACCESS_TOKEN_CELULAR_DIAS`). Ver `utils/token.py`.
+    celular: bool = False
 
 
 #: Travessões que um cliente de e-mail troca pelo hífen ASCII no
@@ -70,5 +73,5 @@ class LoginUseCase:
         if not usuario.ativo:
             raise RegraDeNegocioError("Este usuário está desativado")
 
-        token = criar_access_token(usuario.id)
+        token = criar_access_token(usuario.id, celular=request.celular)
         return {"access_token": token, "token_type": "bearer"}

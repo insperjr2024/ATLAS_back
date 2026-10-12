@@ -1,3 +1,6 @@
+from typing import Optional
+
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -107,8 +110,16 @@ def definir_senha(
         raise HTTPException(status_code=422, detail=str(e))
 
 
+class RenovarRequest(BaseModel):
+    #: Mesmo aviso do login: no celular o token novo também é longo.
+    celular: bool = False
+
+
 @router_publico.post("/auth/renovar")
-def renovar(current_user=Depends(get_current_user_em_definicao_de_senha)):
+def renovar(
+    request: Optional[RenovarRequest] = None,
+    current_user=Depends(get_current_user_em_definicao_de_senha),
+):
     """Devolve um token novo, com o prazo cheio, para quem já está logado.
 
     ⭐ É o que faz a sessão ser deslizante: o front chama isto toda vez que a
@@ -127,7 +138,7 @@ def renovar(current_user=Depends(get_current_user_em_definicao_de_senha)):
     token expirado não chega aqui, o `get_current_user` recusa antes.
     """
     return {
-        "access_token": criar_access_token(current_user.id),
+        "access_token": criar_access_token(current_user.id, celular=bool(request and request.celular)),
         "token_type": "bearer",
     }
 

@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     #: a próxima chamada à API vira 401. Foi um troca consciente: segurança
     #: de sessão curta em vez de nunca incomodar quem está ativo.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    #: No celular a sessão é longa (2026-10-12, a pedido): o aparelho já tem
+    #: a própria senha de desbloqueio, e o push precisa da pessoa logada pra
+    #: saber de quem é o aparelho. Como o app renova o token toda vez que
+    #: abre, na prática quem usa o celular não é deslogado. No computador
+    #: segue o ACCESS_TOKEN_EXPIRE_MINUTES.
+    ACCESS_TOKEN_CELULAR_DIAS: int = 365
 
     # ─── Recuperação de senha ────────────────────────────────────────────
     # Tudo com default para o `.env` de quem já clonou continuar valendo. Sem
