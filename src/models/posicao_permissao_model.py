@@ -197,3 +197,9 @@ class PosicaoPermissaoModel(Base):
     #: diretoria. A leitura pelo site é pública e não passa por esta caixa
     #: (ver `routers/institucional.py`).
     pode_acessar_institucional = Column(Boolean, default=False, nullable=False)
+    #: Comunicados (2026-10-11, a pedido): mandar sino + e-mail pra um
+    #: recorte de pessoas (0 bancas, pendentes de um lote, inscritos de uma
+    #: banca, por posicao, todo mundo, escolhidos a mao). Disparar e-mail
+    #: em massa e poder distinto de ver o dashboard, por isso caixa propria.
+    #: Nasce marcada pros tres cargos de diretoria.
+    pode_enviar_comunicados = Column(Boolean, default=False, nullable=False)

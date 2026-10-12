@@ -48,6 +48,7 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     pode_acessar_configuracoes_sabatina: Optional[bool] = None
     pode_acessar_arquivo_contratos: Optional[bool] = None
     pode_acessar_institucional: Optional[bool] = None
+    pode_enviar_comunicados: Optional[bool] = None
 
 
 class UpdatePosicaoPermissaoUseCase:

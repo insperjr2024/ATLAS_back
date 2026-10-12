@@ -15,6 +15,7 @@ from src.routers import (
     avaliacoes,
     bancas,
     catalogo,
+    comunicados,
     cronograma,
     desempenho,
     documentos_contratuais,
@@ -752,6 +753,7 @@ app.include_router(bancas.router)
 app.include_router(avaliacoes.router)
 app.include_router(desempenho.router)
 app.include_router(notificacoes.router)
+app.include_router(comunicados.router)
 app.include_router(solicitacoes_troca.router)
 app.include_router(documentos_contratuais.router)
 app.include_router(health_track.router)

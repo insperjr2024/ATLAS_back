@@ -5,6 +5,8 @@ clientes de e-mail — mesmo padrão visual usado no GP2 (Gestão de Pessoas),
 para manter a identidade da Insper Jr. consistente entre as duas plataformas.
 """
 
+import html
+
 # Cores da marca Insper Jr (vermelho principal) — mesmas do theme.ts do front
 PRIMARY_COLOR = "#DC2626"  # hsl(0, 72%, 51%)
 TEXT_COLOR = "#1F2937"
@@ -107,8 +109,14 @@ def get_recuperacao_senha_html(nome: str, link: str, minutos: int) -> str:
 
 
 def get_notificacao_html(nome: str, titulo: str, corpo: str | None, link: str) -> str:
-    """Template do e-mail espelho de uma notificação do sino do ATLAS."""
-    bloco_corpo = f'<p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: {TEXT_COLOR};">{corpo}</p>' if corpo else ""
+    """Template do e-mail espelho de uma notificação do sino do ATLAS.
+
+    O corpo e texto puro vindo do banco: escapado pra HTML e com a quebra de
+    linha preservada (2026-10-11). Antes, um corpo com varios paragrafos (o
+    comunicado manual, a acao do Health Track) virava um bloco so.
+    """
+    corpo_html = html.escape(corpo).replace("\n", "<br>") if corpo else ""
+    bloco_corpo = f'<p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: {TEXT_COLOR};">{corpo_html}</p>' if corpo_html else ""
     conteudo = f"""
                                         <p style="margin: 0 0 24px 0; font-size: 18px; font-weight: 600; color: {TEXT_COLOR};">Olá, {nome}!</p>
                                         <p style="margin: 0 0 24px 0; font-size: 16px; line-height: 1.6; color: {TEXT_COLOR};"><strong>{titulo}</strong></p>

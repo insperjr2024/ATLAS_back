@@ -256,6 +256,13 @@ require_pode_acessar_institucional = _dependencia_permissao(
     "Você não tem permissão para acessar o Institucional",
 )
 
+# Comunicados (2026-10-11, a pedido): sino + e-mail pra um recorte de pessoas
+# escolhido pela diretoria. Nasce marcada so pra diretoria.
+require_pode_enviar_comunicados = _dependencia_permissao(
+    "pode_enviar_comunicados",
+    "Você não tem permissão para enviar comunicados",
+)
+
 
 def require_self_or_admin(usuario_id: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.id != usuario_id and not usuario_tem_permissao(current_user, db, "pode_gerir_membros"):

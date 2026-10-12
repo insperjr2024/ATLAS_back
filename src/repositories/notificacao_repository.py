@@ -77,6 +77,16 @@ class NotificacaoRepository(BaseRepository[NotificacaoModel]):
             .first()
         )
 
+    def get_por_tipo(self, tipo: str) -> List[NotificacaoModel]:
+        """Todas as linhas de um tipo, de todo mundo. Usado pelo histórico de
+        comunicados, que agrupa por `payload.comunicado_id`."""
+        return (
+            self.db.query(NotificacaoModel)
+            .filter(NotificacaoModel.tipo == tipo)
+            .order_by(NotificacaoModel.criado_em.desc())
+            .all()
+        )
+
     def get_pendentes_de_email(self, desde: datetime) -> List[NotificacaoModel]:
         """Eventos recentes cujo e-mail nunca saiu — nem tentativa registrada
         no Resend, nem carimbo aqui (ver `reenviar_pendentes.py`).

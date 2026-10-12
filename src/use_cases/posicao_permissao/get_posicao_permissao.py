@@ -42,6 +42,7 @@ def serializar_posicao_permissao(registro) -> dict:
         "pode_acessar_configuracoes_sabatina": registro.pode_acessar_configuracoes_sabatina,
         "pode_acessar_arquivo_contratos": registro.pode_acessar_arquivo_contratos,
         "pode_acessar_institucional": registro.pode_acessar_institucional,
+        "pode_enviar_comunicados": registro.pode_enviar_comunicados,
     }
 
 

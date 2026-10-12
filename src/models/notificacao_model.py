@@ -6,6 +6,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
@@ -107,6 +108,10 @@ TIPO_NOTIFICACAO_ENUM = Enum(
     #: `e5b9c3d7a241`.
     "rodada_health_track_aberta",
     "rodada_health_track_pendente",
+    #: Comunicado manual (2026-10-11): a diretoria escolhe o recorte de
+    #: pessoas e escreve o texto. Fica fora dos opcionais de proposito.
+    #: Migration `b8e4c2a6d930`.
+    "comunicado",
     name="tipo_notificacao",
 )
 
@@ -210,7 +215,9 @@ class NotificacaoModel(Base):
     tipo = Column(TIPO_NOTIFICACAO_ENUM, nullable=False)
     origem = Column(ORIGEM_NOTIFICACAO_ENUM, nullable=False)
     titulo = Column(String(255), nullable=False)
-    corpo = Column(String(500), nullable=True)
+    #: TEXT desde `b8e4c2a6d930`: a mensagem de um comunicado manual nao
+    #: cabia nos 500 caracteres de antes.
+    corpo = Column(Text, nullable=True)
     #: Para abrir direto na rota do problema. Nulo em alerta que não é de
     #: projeto — banca, por exemplo, que o §8 proíbe a equipe de assistir.
     projeto_id = Column(Integer, ForeignKey("projeto.id"), nullable=True, index=True)
