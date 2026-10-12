@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from src.database.database import get_db
 from src.middlewares.authorization import require_pode_enviar_comunicados
 from src.use_cases.comunicado.enviar_comunicado import (
+    ApagarComunicadoUseCase,
     ComunicadoRequest,
     EnviarComunicadoUseCase,
     FiltroComunicado,
@@ -52,5 +53,14 @@ def enviar(
 ):
     try:
         return EnviarComunicadoUseCase(db).execute(request, current_user)
+    except RegraDeNegocioError as e:
+        raise erro_de_regra(e)
+
+
+@router.delete("/{comunicado_id}")
+def apagar(comunicado_id: str, db: Session = Depends(get_db)):
+    """Tira do histórico e do sino de quem recebeu. E-mail enviado não volta."""
+    try:
+        return {"apagadas": ApagarComunicadoUseCase(db).execute(comunicado_id)}
     except RegraDeNegocioError as e:
         raise erro_de_regra(e)

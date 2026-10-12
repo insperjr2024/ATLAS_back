@@ -266,7 +266,10 @@ class TestHistorico:
         assert antigo["total"] == 3
         assert antigo["emails_enviados"] == 2
         assert antigo["lidas"] == 1
-        assert antigo["destinatarios"] == ["Ana", "Bia", "Caio"]
+        assert [d["nome"] for d in antigo["destinatarios"]] == ["Ana", "Bia", "Caio"]
+        ana = antigo["destinatarios"][0]
+        assert ana == {"usuario_id": ANA.id, "nome": "Ana", "email": "ana@x.com", "email_enviado": True, "lida": True}
+        assert antigo["destinatarios"][2]["email_enviado"] is False
         # Disparo antigo sem `remetente_nome` no payload resolve pelo id.
         assert antigo["remetente_nome"] == "Diretor"
 
@@ -275,3 +278,31 @@ class TestHistorico:
         linha.payload = {}
 
         assert self._uc([linha]).execute() == []
+
+
+class TestApagar:
+    def test_apaga_so_as_linhas_do_comunicado(self):
+        from src.use_cases.comunicado.enviar_comunicado import ApagarComunicadoUseCase
+
+        linhas = [
+            SimpleNamespace(id=1, payload={"comunicado_id": "a"}),
+            SimpleNamespace(id=2, payload={"comunicado_id": "a"}),
+            SimpleNamespace(id=3, payload={"comunicado_id": "b"}),
+        ]
+        apagadas = []
+        uc = ApagarComunicadoUseCase.__new__(ApagarComunicadoUseCase)
+        uc.notificacao_repository = SimpleNamespace(get_por_tipo=lambda tipo: linhas)
+        uc.db = SimpleNamespace(delete=lambda linha: apagadas.append(linha.id), commit=lambda: None)
+
+        assert uc.execute("a") == 2
+        assert apagadas == [1, 2]
+
+    def test_comunicado_que_nao_existe_recusa(self):
+        from src.use_cases.comunicado.enviar_comunicado import ApagarComunicadoUseCase
+
+        uc = ApagarComunicadoUseCase.__new__(ApagarComunicadoUseCase)
+        uc.notificacao_repository = SimpleNamespace(get_por_tipo=lambda tipo: [])
+        uc.db = None
+
+        with pytest.raises(RegraDeNegocioError):
+            uc.execute("x")

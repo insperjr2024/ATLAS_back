@@ -263,22 +263,62 @@ class ListarComunicadosUseCase:
                     "emails_enviados": 0,
                     "lidas": 0,
                 }
-            item["destinatarios"].append(linha.usuario_id)
+            item["destinatarios"].append(
+                (linha.usuario_id, bool(linha.email_enviado_em), bool(linha.lida_em))
+            )
             item["emails_enviados"] += 1 if linha.email_enviado_em else 0
             item["lidas"] += 1 if linha.lida_em else 0
             # A mais antiga do grupo é o instante do disparo.
             if linha.criado_em and (item["enviado_em"] is None or linha.criado_em < item["enviado_em"]):
                 item["enviado_em"] = linha.criado_em
 
-        nomes = {u.id: u.nome for u in self.usuario_repository.get_all()}
+        usuarios = {u.id: u for u in self.usuario_repository.get_all()}
+        nomes = {uid: u.nome for uid, u in usuarios.items()}
         itens = sorted(por_id.values(), key=lambda i: i["enviado_em"] or 0, reverse=True)[: self.LIMITE]
         for item in itens:
-            ids = item.pop("destinatarios")
-            item["total"] = len(ids)
-            item["destinatarios"] = sorted(nomes.get(i, f"Usuário {i}") for i in ids)
+            entregas = item.pop("destinatarios")
+            item["total"] = len(entregas)
+            # Pra quem foi, com o e-mail usado e se chegou: é o que responde
+            # "fulano recebeu?" sem abrir o banco (2026-10-12).
+            item["destinatarios"] = sorted(
+                (
+                    {
+                        "usuario_id": uid,
+                        "nome": nomes.get(uid, f"Usuário {uid}"),
+                        "email": getattr(usuarios.get(uid), "email_insper", None),
+                        "email_enviado": enviado,
+                        "lida": lida,
+                    }
+                    for uid, enviado, lida in entregas
+                ),
+                key=lambda d: d["nome"],
+            )
             if not item["remetente_nome"] and item["remetente_id"]:
                 item["remetente_nome"] = nomes.get(item["remetente_id"])
         return itens
+
+
+class ApagarComunicadoUseCase:
+    """Tira um disparo do histórico (2026-10-12, a pedido). Como o histórico
+    É as notificações, apagar também tira o aviso do sino de quem recebeu. O
+    e-mail que já saiu não volta: isso a tela avisa antes de confirmar."""
+
+    def __init__(self, db: Session):
+        self.db = db
+        self.notificacao_repository = NotificacaoRepository(db)
+
+    def execute(self, comunicado_id: str) -> int:
+        linhas = [
+            linha
+            for linha in self.notificacao_repository.get_por_tipo(TIPO_COMUNICADO)
+            if (linha.payload or {}).get("comunicado_id") == comunicado_id
+        ]
+        if not linhas:
+            raise RegraDeNegocioError("Comunicado não encontrado.")
+        for linha in linhas:
+            self.db.delete(linha)
+        self.db.commit()
+        return len(linhas)
 
 
 def _plural(n: int, singular: str) -> str:
