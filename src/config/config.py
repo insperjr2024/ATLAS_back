@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     #: saber de quem é o aparelho. Como o app renova o token toda vez que
     #: abre, na prática quem usa o celular não é deslogado. No computador
     #: segue o ACCESS_TOKEN_EXPIRE_MINUTES.
-    ACCESS_TOKEN_CELULAR_DIAS: int = 365
+    ACCESS_TOKEN_CELULAR_DIAS: int = 180  # 6 meses
 
     # ─── Recuperação de senha ────────────────────────────────────────────
     # Tudo com default para o `.env` de quem já clonou continuar valendo. Sem
