@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     #: do servidor — nem sempre verdade (comum faltar em container/Windows).
     SOFFICE_PATH: str = "soffice"
 
+    # ─── Notificação push (Web Push) ─────────────────────────────────────
+    #: Par de chaves VAPID, que identifica este servidor pros serviços de push
+    #: dos navegadores. Gerar com `uv run python -m scripts.gerar_chaves_vapid`.
+    #: Vazias = push desligado: o front esconde a opção e nada é enviado.
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    #: Contato exigido pelo protocolo ("mailto:..."). Vazio = usa o SMTP_USER.
+    VAPID_SUBJECT: str = ""
+
     class Config:
         env_file = ".env"
 

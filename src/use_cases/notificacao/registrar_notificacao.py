@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from src.repositories.notificacao_repository import NotificacaoRepository
 from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
+from src.use_cases.notificacao.enviar_push_notificacao import enfileirar_push
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,15 @@ def registrar(
         if linha is not None and enviar_email:
             enfileirar(
                 notificacao_id=linha.id,
+                usuario_id=usuario_id,
+                tipo=tipo,
+                titulo=titulo,
+                corpo=corpo,
+                rota=dados.get("rota"),
+            )
+            # Push (2026-10-12): mesmo gatilho e mesma regra do e-mail. Sai
+            # só pros aparelhos que a pessoa ativou.
+            enfileirar_push(
                 usuario_id=usuario_id,
                 tipo=tipo,
                 titulo=titulo,

@@ -26,6 +26,7 @@ from src.routers import (
     monitoramento,
     notificacoes,
     projetos,
+    push,
     solicitacoes_troca,
     tarefas,
     grade_horaria,
@@ -44,6 +45,7 @@ from src.use_cases.banca.finalizacao_automatica import FinalizacaoAutomaticaBanc
 from src.use_cases.banca.push_alocacao_automatica import PushAlocacaoAutomaticaUseCase
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
 from src.use_cases.notificacao.enviar_email_notificacao import enfileirar
+from src.use_cases.notificacao.enviar_push_notificacao import enfileirar_push
 from src.use_cases.notificacao.reenviar_pendentes import reenviar_emails_pendentes
 from src.utils.fuso import agora_utc, hoje_local
 from src.use_cases.notificacao.eventos import (
@@ -405,6 +407,13 @@ def rodar_lembrete_condicoes() -> None:
                         corpo=None,
                         rota=condicao.rota,
                     )
+                    enfileirar_push(
+                        usuario_id=membro.usuario_id,
+                        tipo=condicao.tipo,
+                        titulo=condicao.titulo,
+                        corpo=None,
+                        rota=condicao.rota,
+                    )
                     enviados += 1
         if enviados:
             logger.info("Lembrete de condições: %d e-mail(s) enfileirado(s)", enviados)
@@ -754,6 +763,7 @@ app.include_router(avaliacoes.router)
 app.include_router(desempenho.router)
 app.include_router(notificacoes.router)
 app.include_router(comunicados.router)
+app.include_router(push.router)
 app.include_router(solicitacoes_troca.router)
 app.include_router(documentos_contratuais.router)
 app.include_router(health_track.router)

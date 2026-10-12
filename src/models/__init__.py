@@ -117,3 +117,4 @@ from src.models.documento_modelo_model import DocumentoModeloModel
 from src.models.arquivo_contratos_model import ArquivoContratosItemModel, ArquivoContratosPastaModel
 # Institucional: ex-membros em destaque do site (2026-10-09).
 from src.models.ex_membro_model import ExMembroModel
+from src.models.push_inscricao_model import PushInscricaoModel
