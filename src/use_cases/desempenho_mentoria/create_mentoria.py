@@ -16,7 +16,12 @@ class CreateMentoriaRequest(BaseModel):
 #: Quem pode ser mentor — liderança acima do consultor. Coordenador é o
 #: caso comum, mas gerente e diretor também assumem mentorado quando a
 #: diretoria decide (2026-08-06).
-POSICOES_ELEGIVEIS_MENTOR = ("coordenador", "gerente", *DIRETORIA)
+#:
+#: Vendas entrou em 2026-10-13, corrigido: o coordenador de vendas virou a
+#: posição própria "vendas" na migration bb255f970798, e quem já tinha
+#: mentorado como coordenador perdeu a aba Meus Mentorados sem perder os
+#: mentorados. Diretor de vendas entra pelo mesmo motivo que a diretoria.
+POSICOES_ELEGIVEIS_MENTOR = ("coordenador", "gerente", "vendas", "diretor_de_vendas", *DIRETORIA)
 
 
 class CreateMentoriaUseCase:
