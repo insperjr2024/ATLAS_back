@@ -40,6 +40,7 @@ from src.use_cases.desempenho_lote.create_lote import CreateDesempenhoLoteReques
 from src.use_cases.desempenho_lote.delete_lote import DeleteDesempenhoLoteUseCase
 from src.use_cases.desempenho_lote.get_lote import ListDesempenhoLotesUseCase
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
+from src.use_cases.desempenho_lote.pendencias_fechados import ListarPendenciasFechadosUseCase
 from src.use_cases.desempenho_lote.update_lote import UpdateDesempenhoLoteRequest, UpdateDesempenhoLoteUseCase
 from src.use_cases.desempenho_mentoria.create_mentoria import CreateMentoriaRequest, CreateMentoriaUseCase
 from src.use_cases.desempenho_mentoria.delete_mentoria import DeleteMentoriaUseCase
@@ -122,6 +123,13 @@ def seguir_datas_lote(lote_id: int, _=Depends(require_pode_administrar_desempenh
     if not result:
         raise HTTPException(status_code=404, detail="Lote não encontrado")
     return result
+
+
+@router.get("/desempenho/lotes/pendencias-fechados")
+def get_pendencias_fechados(_=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
+    """Quem ficou pendente em cada formulário já fechado, por pessoa
+    (2026-10-13). Rota fixa antes de `/{lote_id}/...`."""
+    return ListarPendenciasFechadosUseCase(db).execute()
 
 
 @router.get("/desempenho/lotes/{lote_id}/pendencias")
