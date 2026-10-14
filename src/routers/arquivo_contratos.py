@@ -30,6 +30,7 @@ from src.use_cases.arquivo_contratos.pastas import (
 )
 from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.content_disposition import content_disposition
 
 router = APIRouter(
     prefix="/arquivo-contratos",
@@ -100,11 +101,10 @@ def baixar_item(item_id: int, db: Session = Depends(get_db)):
         conteudo, nome, mime = BaixarItemUseCase(db).execute(item_id)
     except RegraDeNegocioError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    nome_ascii = nome.encode("ascii", "ignore").decode() or "arquivo"
     return Response(
         content=conteudo,
         media_type=mime,
-        headers={"Content-Disposition": f'attachment; filename="{nome_ascii}"'},
+        headers={"Content-Disposition": content_disposition(nome)},
     )
 
 

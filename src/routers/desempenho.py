@@ -61,6 +61,7 @@ from src.repositories.desempenho_pdi_envio_repository import DesempenhoPdiEnvioR
 from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
+from src.utils.content_disposition import content_disposition
 
 router = APIRouter(tags=["avaliação de desempenho"], dependencies=[Depends(get_current_user)])
 
@@ -389,7 +390,7 @@ def download_pdi_envio(
     return Response(
         content=envio.arquivo_conteudo,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{envio.arquivo_nome}"'},
+        headers={"Content-Disposition": content_disposition(envio.arquivo_nome)},
     )
 
 

@@ -107,6 +107,7 @@ from src.use_cases.documento_contratual.reanexar_documento import (
 )
 from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError, ResourceInUseError
+from src.utils.content_disposition import content_disposition
 
 router = APIRouter(tags=["documentos contratuais"], dependencies=[Depends(get_current_user)])
 
@@ -380,7 +381,7 @@ def baixar_modelo_contratual(tipo: str, usuario=Depends(get_current_user), db: S
     return Response(
         content=conteudo,
         media_type=MIME_DOCX,
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+        headers={"Content-Disposition": content_disposition(nome)},
     )
 
 
@@ -489,7 +490,7 @@ def download_arquivo(
     return Response(
         content=conteudo,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+        headers={"Content-Disposition": content_disposition(nome)},
     )
 
 

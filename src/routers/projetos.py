@@ -100,6 +100,7 @@ from src.use_cases.projeto.update_status import UpdateStatusRequest, UpdateStatu
 from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCase
 from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.content_disposition import content_disposition
 
 router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
@@ -552,7 +553,7 @@ def download_anexo_proposta(projeto_id: int, current_user=Depends(get_current_us
     return Response(
         content=projeto.anexo_proposta_conteudo,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+        headers={"Content-Disposition": content_disposition(nome)},
     )
 
 
