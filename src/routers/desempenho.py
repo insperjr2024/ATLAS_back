@@ -53,7 +53,7 @@ from src.use_cases.desempenho_pdi.delete_pasta import DeletePdiPastaUseCase
 from src.use_cases.desempenho_pdi.get_envio import ListEnviosDoUsuarioUseCase
 from src.use_cases.desempenho_pdi.get_item import ListItensDaPastaUseCase
 from src.use_cases.desempenho_pdi.get_pasta import ListPdiPastasUseCase
-from src.use_cases.desempenho_pdi.get_pendencias import ListPendenciasPdiUseCase
+from src.use_cases.desempenho_pdi.get_pendencias import ListPendenciasPastaPdiUseCase, ListPendenciasPdiUseCase
 from src.use_cases.desempenho_pdi.get_resultados import ListResultadosPastaPdiUseCase
 from src.use_cases.desempenho_pdi.update_item import UpdatePdiItemRequest, UpdatePdiItemUseCase
 from src.use_cases.desempenho_pdi.update_pasta import UpdatePdiPastaRequest, UpdatePdiPastaUseCase
@@ -311,6 +311,15 @@ def delete_pdi_item(item_id: int, _=Depends(require_pode_administrar_desempenho)
     if not deleted:
         raise HTTPException(status_code=404, detail="Item de PDI não encontrado")
     return None
+
+
+@router.get("/desempenho/pdi/pastas/{pasta_id}/pendencias")
+def get_pendencias_pasta_pdi(pasta_id: int, _=Depends(require_pode_administrar_desempenho), db: Session = Depends(get_db)):
+    """A pasta inteira, por mentorado (2026-10-13)."""
+    result = ListPendenciasPastaPdiUseCase(db).execute(pasta_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Pasta de PDI não encontrada")
+    return result
 
 
 @router.get("/desempenho/pdi/itens/{item_id}/pendencias")

@@ -41,6 +41,8 @@ def _resolver(
     banca=None,
     candidaturas=(),
     por_posicao=(),
+    pastas_pdi=(),
+    pendencias_pdi=None,
 ):
     uc = ResolverDestinatariosUseCase.__new__(ResolverDestinatariosUseCase)
     uc.usuario_repository = SimpleNamespace(
@@ -52,6 +54,11 @@ def _resolver(
     uc.lote_repository = SimpleNamespace(get_by_id=lambda lote_id: lote)
     uc.carga_use_case = SimpleNamespace(execute=lambda filtro="todas": list(carga))
     uc.pendencias_use_case = SimpleNamespace(execute=lambda lote_id: pendencias)
+    uc.pasta_pdi_repository = SimpleNamespace(
+        get_ordenadas=lambda: list(pastas_pdi),
+        get_by_id=lambda i: next((p for p in pastas_pdi if p.id == i), None),
+    )
+    uc.pendencias_pdi_use_case = SimpleNamespace(execute=lambda pasta_id: pendencias_pdi)
     return uc
 
 
@@ -134,6 +141,62 @@ class TestSegmentos:
         assert [d["usuario_id"] for d in todos["destinatarios"]] == [ANA.id, BIA.id, CAIO.id]
         # Ordenado por nome, nao pela ordem dos ids pedidos.
         assert [d["usuario_id"] for d in manual["destinatarios"]] == [ANA.id, CAIO.id]
+
+
+class TestPendentesDoPdi:
+    def _mundo(self):
+        from datetime import date
+
+        pastas = [
+            SimpleNamespace(id=1, nome="Encontro 1", prazo=date(2026, 9, 30)),
+            SimpleNamespace(id=2, nome="Encontro 2", prazo=date(2026, 10, 20)),
+            SimpleNamespace(id=3, nome="Encontro 3", prazo=date(2026, 11, 20)),
+        ]
+        pend = {
+            "pasta_id": 2,
+            "pessoas": [
+                {"mentorado_id": ANA.id, "mentorado_nome": "Ana", "mentor_id": CAIO.id, "mentor_nome": "Caio",
+                 "itens": [{"item_id": 1, "item_nome": "Planilha", "status": "pendente"}, {"item_id": 2, "item_nome": "Foto", "status": "pendente"}]},
+                {"mentorado_id": BIA.id, "mentorado_nome": "Bia", "mentor_id": CAIO.id, "mentor_nome": "Caio",
+                 "itens": [{"item_id": 1, "item_nome": "Planilha", "status": "atrasado"}]},
+            ],
+        }
+        return pastas, pend
+
+    def test_mentorado_e_mentor_de_quem_nao_enviou(self):
+        pastas, pend = self._mundo()
+        uc = _resolver(pastas_pdi=pastas, pendencias_pdi=pend)
+
+        r = uc.execute(FiltroComunicado(segmento="pendentes_do_pdi", pasta_pdi_id=2))
+
+        por_id = {d["usuario_id"]: d for d in r["destinatarios"]}
+        assert set(por_id) == {ANA.id, CAIO.id}, "Bia entregou atrasado: já entregou"
+        assert por_id[ANA.id]["detalhe"] == "2 itens pendentes"
+        assert por_id[CAIO.id]["detalhe"] == "mentor de Ana"
+        assert 'Encontro 2' in r["rotulo"] and "20/10" in r["rotulo"]
+
+    def test_sem_pasta_escolhida_usa_a_mais_proxima(self, monkeypatch):
+        import src.use_cases.comunicado.enviar_comunicado as mod
+        from datetime import date as _date
+
+        class Hoje(_date):
+            @classmethod
+            def today(cls):
+                return _date(2026, 10, 13)
+
+        monkeypatch.setattr(mod, "date", Hoje)
+        pastas, pend = self._mundo()
+        pedidas = []
+        uc = _resolver(pastas_pdi=pastas, pendencias_pdi=pend)
+        uc.pendencias_pdi_use_case = SimpleNamespace(execute=lambda pasta_id: pedidas.append(pasta_id) or pend)
+
+        uc.execute(FiltroComunicado(segmento="pendentes_do_pdi"))
+
+        assert pedidas == [2], "a mais próxima ainda não vencida"
+
+    def test_sem_pasta_cadastrada_recusa(self):
+        with pytest.raises(RegraDeNegocioError):
+            _resolver(pastas_pdi=[]).execute(FiltroComunicado(segmento="pendentes_do_pdi"))
 
 
 class TestFiltrosComuns:

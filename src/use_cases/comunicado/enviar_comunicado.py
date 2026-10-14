@@ -29,6 +29,7 @@ quem clicou. O tipo fica FORA de `TIPOS_NOTIFICACAO_OPCIONAIS`: e pedido
 direto de alguem da diretoria, so o desligamento total de e-mail silencia.
 """
 
+from datetime import date
 from typing import Literal, Optional
 from uuid import uuid4
 
@@ -38,10 +39,12 @@ from sqlalchemy.orm import Session
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.desempenho_lote_repository import DesempenhoLoteRepository
+from src.repositories.desempenho_pdi_pasta_repository import DesempenhoPdiPastaRepository
 from src.repositories.notificacao_repository import NotificacaoRepository
 from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.banca.get_carga_bancas import FiltroCargaBancas, GetCargaBancasUseCase
 from src.use_cases.desempenho_lote.get_pendencias import GetPendenciasLoteUseCase
+from src.use_cases.desempenho_pdi.get_pendencias import ListPendenciasPastaPdiUseCase
 from src.use_cases.notificacao.registrar_notificacao import registrar_varios
 from src.utils.exceptions import RegraDeNegocioError
 
@@ -49,6 +52,7 @@ SegmentoComunicado = Literal[
     "zero_bancas",
     "bancas_acima_de",
     "pendentes_do_lote",
+    "pendentes_do_pdi",
     "inscritos_da_banca",
     "por_posicao",
     "todos",
@@ -78,6 +82,9 @@ class FiltroComunicado(BaseModel):
     #: `bancas_acima_de`: "pelo menos N".
     minimo_bancas: Optional[int] = Field(default=None, ge=1)
     lote_id: Optional[int] = None
+    #: `pendentes_do_pdi`: qual pasta. Nula = a mais próxima (menor prazo
+    #: ainda não vencido; se todos venceram, a última).
+    pasta_pdi_id: Optional[int] = None
     banca_id: Optional[int] = None
     #: `inscritos_da_banca`: so quem confirmou presenca, em vez de todo inscrito.
     so_confirmados: bool = False
@@ -103,6 +110,8 @@ class ResolverDestinatariosUseCase:
         self.lote_repository = DesempenhoLoteRepository(db)
         self.carga_use_case = GetCargaBancasUseCase(db)
         self.pendencias_use_case = GetPendenciasLoteUseCase(db)
+        self.pasta_pdi_repository = DesempenhoPdiPastaRepository(db)
+        self.pendencias_pdi_use_case = ListPendenciasPastaPdiUseCase(db)
 
     def execute(self, filtro: FiltroComunicado) -> dict:
         rotulo, ids, detalhes = self._resolver(filtro)
@@ -162,6 +171,30 @@ class ResolverDestinatariosUseCase:
             detalhes = {uid: _plural(n, "pendência") for uid, n in contagem.items()}
             return f'Quem ainda não respondeu "{lote.nome}"', list(contagem), detalhes
 
+        if segmento == "pendentes_do_pdi":
+            pasta = self._pasta_pdi(filtro.pasta_pdi_id)
+            if pasta is None:
+                raise RegraDeNegocioError("Nenhuma pasta de PDI cadastrada.")
+            pendencias = self.pendencias_pdi_use_case.execute(pasta.id) or {"pessoas": []}
+            # Mentorado E mentor (2026-10-13, a pedido). Só quem ainda não
+            # enviou: quem entregou atrasado já entregou.
+            ids: list[int] = []
+            detalhes: dict[int, list[str]] = {}
+            for pessoa in pendencias["pessoas"]:
+                faltam = [i["item_nome"] for i in pessoa["itens"] if i["status"] == "pendente"]
+                if not faltam:
+                    continue
+                ids.append(pessoa["mentorado_id"])
+                detalhes.setdefault(pessoa["mentorado_id"], []).append(_plural(len(faltam), "item pendente", "itens pendentes"))
+                if pessoa["mentor_id"]:
+                    ids.append(pessoa["mentor_id"])
+                    detalhes.setdefault(pessoa["mentor_id"], []).append(f"mentor de {pessoa['mentorado_nome']}")
+            return (
+                f'Quem ainda não enviou "{pasta.nome}" (prazo {pasta.prazo:%d/%m}) e os mentores',
+                ids,
+                {uid: "; ".join(partes) for uid, partes in detalhes.items()},
+            )
+
         if segmento == "inscritos_da_banca":
             if filtro.banca_id is None:
                 raise RegraDeNegocioError("Informe a banca.")
@@ -189,6 +222,19 @@ class ResolverDestinatariosUseCase:
             return "Pessoas escolhidas à mão", list(filtro.usuario_ids), {}
 
         raise RegraDeNegocioError("Segmento desconhecido.")
+
+    def _pasta_pdi(self, pasta_id: Optional[int]):
+        if pasta_id is not None:
+            pasta = self.pasta_pdi_repository.get_by_id(pasta_id)
+            if pasta is None:
+                raise RegraDeNegocioError("Pasta de PDI não encontrada.")
+            return pasta
+        pastas = self.pasta_pdi_repository.get_ordenadas()
+        if not pastas:
+            return None
+        hoje = date.today()
+        futuras = [p for p in pastas if p.prazo >= hoje]
+        return min(futuras, key=lambda p: p.prazo) if futuras else max(pastas, key=lambda p: p.prazo)
 
 
 class EnviarComunicadoUseCase:
@@ -321,5 +367,5 @@ class ApagarComunicadoUseCase:
         return len(linhas)
 
 
-def _plural(n: int, singular: str) -> str:
-    return f"{n} {singular}" if n == 1 else f"{n} {singular}s"
+def _plural(n: int, singular: str, plural: Optional[str] = None) -> str:
+    return f"{n} {singular}" if n == 1 else f"{n} {plural or singular + 's'}"

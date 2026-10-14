@@ -60,3 +60,49 @@ class ListPendenciasPdiUseCase:
         # Pendentes primeiro, depois quem entregou atrasado; alfabético dentro.
         saida.sort(key=lambda p: (p["status"] != "pendente", (p["mentorado_nome"] or "").casefold()))
         return saida
+
+
+class ListPendenciasPastaPdiUseCase:
+    """As pendências da PASTA inteira, por mentorado (2026-10-13, a pedido):
+    cada item que a pessoa ainda não enviou, ou enviou depois do prazo. É o
+    botão "Pendências" ao lado de "Resultados"; a lista por item continua
+    dentro do "Editar". Mesma régua de `ListPendenciasPdiUseCase`."""
+
+    def __init__(self, db: Session):
+        self.pasta_repository = DesempenhoPdiPastaRepository(db)
+        self.item_repository = DesempenhoPdiItemRepository(db)
+        self.por_item = ListPendenciasPdiUseCase(db)
+
+    def execute(self, pasta_id: int) -> Optional[dict]:
+        pasta = self.pasta_repository.get_by_id(pasta_id)
+        if not pasta:
+            return None
+        itens = self.item_repository.get_da_pasta(pasta_id)
+        pessoas: dict[int, dict] = {}
+        for item in itens:
+            for p in self.por_item.execute(item.id):
+                pessoa = pessoas.setdefault(
+                    p["mentorado_id"],
+                    {
+                        "mentorado_id": p["mentorado_id"],
+                        "mentorado_nome": p["mentorado_nome"],
+                        "mentor_id": p["mentor_id"],
+                        "mentor_nome": p["mentor_nome"],
+                        "itens": [],
+                    },
+                )
+                pessoa["itens"].append(
+                    {"item_id": item.id, "item_nome": item.nome, "status": p["status"], "enviado_em": p["enviado_em"]}
+                )
+        # Quem ainda tem item sem enviar vem antes de quem só atrasou.
+        lista = sorted(
+            pessoas.values(),
+            key=lambda x: (all(i["status"] == "atrasado" for i in x["itens"]), (x["mentorado_nome"] or "").casefold()),
+        )
+        return {
+            "pasta_id": pasta.id,
+            "pasta_nome": pasta.nome,
+            "prazo": pasta.prazo,
+            "total_itens": len(itens),
+            "pessoas": lista,
+        }
