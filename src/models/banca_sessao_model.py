@@ -52,4 +52,8 @@ class BancaSessaoModel(Base):
     #: Não se deduz por `resultado`: uma sessão aprovada também está encerrada,
     #: só que sem sucessora.
     encerrada_em = Column(DateTime, nullable=True)
+    #: A tentativa foi CANCELADA e a banca marcada de novo (2026-10-13). Fica
+    #: aqui pra tentativa cancelada continuar no historico; a linha de
+    #: `banca` volta a ser uma banca aberta. Migration `d5a8b2c7e391`.
+    cancelada_em = Column(DateTime, nullable=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())

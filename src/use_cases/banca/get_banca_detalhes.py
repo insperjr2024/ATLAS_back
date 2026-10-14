@@ -266,6 +266,7 @@ class GetBancaDetalhesUseCase:
                 "realizado_em": s.realizado_em,
                 "resultado": s.resultado,
                 "encerrada_em": s.encerrada_em,
+                "cancelada_em": getattr(s, "cancelada_em", None),
             }
             for s in self.sessao_repository.get_by_banca(banca_id)
         ]

@@ -101,6 +101,13 @@ class MarcarBancaEscopoUseCase:
         # Precisa ser decidido ANTES dos gates: a 2ª banca (a que sucede uma
         # que já aconteceu) segue regras diferentes das do adiamento.
         eh_segunda_banca = bool(existente and existente.realizado_em is not None)
+        # Marcar de novo uma banca CANCELADA (2026-10-13, corrigido): e uma
+        # tentativa nova, nao um adiamento. Antes caia no caminho do adiamento,
+        # que so troca a data e nunca limpa `cancelada_em`: a banca remarcada
+        # continuava "cancelada" pra todo mundo.
+        eh_remarcacao_de_cancelada = bool(
+            existente and getattr(existente, "cancelada_em", None) is not None
+        )
 
         self._checar_choque(
             request.data_hora,
@@ -113,55 +120,29 @@ class MarcarBancaEscopoUseCase:
 
         if existente:
             data_anterior = existente.data_hora
-            # ⭐ Dois caminhos MUITO diferentes chegam aqui, e a régua que os
-            # separa é `realizado_em`:
-            #
-            # - a banca ainda não aconteceu → é ADIAMENTO, com os gates do §13;
-            # - a banca já aconteceu → é a 2ª BANCA do escopo, e os gates do
-            #   adiamento não fazem sentido nela (ver `_exigir_segunda_permitida`).
-            if data_anterior is not None and data_anterior != request.data_hora:
-                if eh_segunda_banca:
-                    # ⚠ **Apurar ANTES de julgar.** `_exigir_segunda_permitida`
-                    # lê `existente.resultado` para recusar a 2ª banca de uma
-                    # banca APROVADA — mas a apuração da sessão que está sendo
-                    # descartada só acontecia depois, dentro de
-                    # `_sincronizar_sessao`. A guarda nunca via a aprovação que
-                    # ela existe para barrar.
-                    #
-                    # O estrago era exatamente o que ela previne: a sessão era
-                    # arquivada como "aprovada", a 2ª banca nascia assim mesmo e
-                    # `_campos_da_remarcacao` zerava `banca.resultado` — a
-                    # coluna que a trava da entrega lê (§5.5). O escopo ficava
-                    # aprovado no histórico e travado na tela, e o próprio
-                    # histórico dizia "Segunda banca — a anterior foi reprovada"
-                    # ao lado de "Resultado: aprovada".
-                    existente = self._apurar_sessao_em_curso(existente)
-                    self._exigir_segunda_permitida(existente)
-                else:
-                    # §9: remarcação nunca é silenciosa — justificativa SEMPRE,
-                    # mesmo quando é livre. O que o §13 dispensa é a diretoria,
-                    # não o registro.
-                    self._exigir_remarcacao_permitida(
-                        existente, request, eh_diretor_projetos, escopo.projeto_id
-                    )
-
-            # ⚠ ANTES do update: `_campos_da_remarcacao` zera `realizado_em` e
-            # `resultado`, e é justamente isso que a sessão precisa arquivar.
-            # Invertida a ordem, a sessão guardaria campos já limpos e a
-            # reprovação se perderia de novo.
-            #
-            # ⚠ E SÓ quando a data muda. `_campos_da_remarcacao` faz early-return
-            # se a data é a mesma — a banca continua realizada. Sincronizar
-            # assim mesmo abriria uma sessão 2 fantasma numa banca que não foi
-            # remarcada, e os votos carimbados com `sessao=1` passariam a
-            # apontar para uma sessão encerrada: a apuração leria a sessão nova,
-            # vazia, e nunca fecharia.
-            if data_anterior != request.data_hora:
-                self._sincronizar_sessao(existente, request)
-
-            banca = self.repository.update(
-                existente.id, **self._campos_da_remarcacao(existente, request)
-            )
+            justificativa_padrao = "Segunda banca — a anterior foi reprovada"
+            if eh_remarcacao_de_cancelada:
+                # Sem os gates do adiamento: a gestao ja decidiu cancelar; marcar
+                # de novo e como marcar pela primeira vez (janela e choque ja
+                # foram checados acima). A tentativa cancelada fica arquivada
+                # em `banca_sessao` com `cancelada_em`, e a linha da banca volta
+                # a ser uma banca aberta. `push_executado_em` zera pra o rodizio
+                # de alocacao rodar de novo na data nova.
+                cancelada_em = existente.cancelada_em
+                self._arquivar_sessao_cancelada(existente, request)
+                banca = self.repository.update(
+                    existente.id,
+                    data_hora=request.data_hora,
+                    cancelada_em=None,
+                    realizado_em=None,
+                    resultado=None,
+                    push_executado_em=None,
+                )
+                justificativa_padrao = f"Marcada de novo depois de cancelada em {cancelada_em:%d/%m/%Y}"
+            else:
+                banca = self._remarcar(
+                    existente, request, eh_segunda_banca, eh_diretor_projetos, escopo, data_anterior
+                )
             # Depois do update e só se a data realmente mudou: salvar a mesma
             # data (por causa de outra edição na mesma request) não é remarcação.
             if data_anterior != banca.data_hora:
@@ -170,7 +151,7 @@ class MarcarBancaEscopoUseCase:
                         banca_id=banca.id,
                         data_anterior=data_anterior,
                         data_nova=banca.data_hora,
-                        justificativa=(request.justificativa or "").strip(),
+                        justificativa=(request.justificativa or "").strip() or justificativa_padrao,
                         remarcado_por=getattr(current_user, "id", None) or banca.coordenador_id,
                         autorizado_por=getattr(current_user, "id", None) if eh_diretor_projetos else None,
                     )
@@ -190,10 +171,7 @@ class MarcarBancaEscopoUseCase:
                     # O fallback não é enfeite: diz por que a linha existe sem
                     # justificativa, em vez de gravar vazio e deixar quem lê o
                     # Histórico achar que alguém esqueceu de preencher.
-                    justificativa=(
-                        (request.justificativa or "").strip()
-                        or "Segunda banca — a anterior foi reprovada"
-                    ),
+                    justificativa=(request.justificativa or "").strip() or justificativa_padrao,
                     registrado_por=registrado_por,
                 )
         else:
@@ -234,6 +212,81 @@ class MarcarBancaEscopoUseCase:
             "data_hora": banca.data_hora,
             "status": calcular_status_banca(banca.data_hora, banca.realizado_em, cancelada_em=getattr(banca, "cancelada_em", None)),
         }
+
+    def _remarcar(self, existente, request, eh_segunda_banca, eh_diretor_projetos, escopo, data_anterior):
+        """O adiamento (§13) ou a 2ª banca (§9) de uma banca que NAO foi
+        cancelada. Era o corpo do `if existente:` do `execute`; saiu pra
+        um metodo quando a remarcacao de banca cancelada ganhou caminho
+        proprio (2026-10-13)."""
+        # ⭐ Dois caminhos MUITO diferentes chegam aqui, e a régua que os
+        # separa é `realizado_em`:
+        #
+        # - a banca ainda não aconteceu → é ADIAMENTO, com os gates do §13;
+        # - a banca já aconteceu → é a 2ª BANCA do escopo, e os gates do
+        #   adiamento não fazem sentido nela (ver `_exigir_segunda_permitida`).
+        if data_anterior is not None and data_anterior != request.data_hora:
+            if eh_segunda_banca:
+                # ⚠ **Apurar ANTES de julgar.** `_exigir_segunda_permitida`
+                # lê `existente.resultado` para recusar a 2ª banca de uma
+                # banca APROVADA — mas a apuração da sessão que está sendo
+                # descartada só acontecia depois, dentro de
+                # `_sincronizar_sessao`. A guarda nunca via a aprovação que
+                # ela existe para barrar.
+                #
+                # O estrago era exatamente o que ela previne: a sessão era
+                # arquivada como "aprovada", a 2ª banca nascia assim mesmo e
+                # `_campos_da_remarcacao` zerava `banca.resultado` — a
+                # coluna que a trava da entrega lê (§5.5). O escopo ficava
+                # aprovado no histórico e travado na tela, e o próprio
+                # histórico dizia "Segunda banca — a anterior foi reprovada"
+                # ao lado de "Resultado: aprovada".
+                existente = self._apurar_sessao_em_curso(existente)
+                self._exigir_segunda_permitida(existente)
+            else:
+                # §9: remarcação nunca é silenciosa — justificativa SEMPRE,
+                # mesmo quando é livre. O que o §13 dispensa é a diretoria,
+                # não o registro.
+                self._exigir_remarcacao_permitida(
+                    existente, request, eh_diretor_projetos, escopo.projeto_id
+                )
+
+        # ⚠ ANTES do update: `_campos_da_remarcacao` zera `realizado_em` e
+        # `resultado`, e é justamente isso que a sessão precisa arquivar.
+        # Invertida a ordem, a sessão guardaria campos já limpos e a
+        # reprovação se perderia de novo.
+        #
+        # ⚠ E SÓ quando a data muda. `_campos_da_remarcacao` faz early-return
+        # se a data é a mesma — a banca continua realizada. Sincronizar
+        # assim mesmo abriria uma sessão 2 fantasma numa banca que não foi
+        # remarcada, e os votos carimbados com `sessao=1` passariam a
+        # apontar para uma sessão encerrada: a apuração leria a sessão nova,
+        # vazia, e nunca fecharia.
+        if data_anterior != request.data_hora:
+            self._sincronizar_sessao(existente, request)
+
+        return self.repository.update(
+            existente.id, **self._campos_da_remarcacao(existente, request)
+        )
+
+    def _arquivar_sessao_cancelada(self, banca, request: MarcarBancaEscopoRequest) -> None:
+        """A tentativa cancelada vira sessao arquivada (com `cancelada_em`) e
+        nasce a sessao seguinte, na data nova. E o que deixa a cancelada no
+        historico de tentativas do escopo sem precisar de uma segunda linha
+        em `banca` (uma banca por escopo continua valendo)."""
+        corrente = self.sessao_repository.get_corrente(banca.id)
+        agora = datetime.now()
+        if corrente is not None:
+            self.sessao_repository.update(
+                corrente.id,
+                data_hora=banca.data_hora,
+                cancelada_em=banca.cancelada_em,
+                encerrada_em=agora,
+            )
+        self.sessao_repository.create(
+            banca_id=banca.id,
+            numero=self.sessao_repository.proximo_numero(banca.id),
+            data_hora=request.data_hora,
+        )
 
     def _campos_da_remarcacao(self, existente, request: MarcarBancaEscopoRequest) -> dict:
         """O que muda na linha da banca ao remarcá-la.
