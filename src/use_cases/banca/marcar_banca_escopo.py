@@ -20,6 +20,7 @@ from src.repositories.banca_frente_repository import BancaFrenteRepository
 from src.repositories.banca_remarcacao_repository import BancaRemarcacaoRepository
 from src.repositories.banca_repository import BancaRepository
 from src.repositories.banca_sessao_repository import BancaSessaoRepository
+from src.repositories.candidatura_repository import CandidaturaRepository
 from src.repositories.configuracao_repository import ConfiguracaoRepository
 from src.repositories.dia_nao_letivo_repository import DiaNaoLetivoRepository
 from src.repositories.escopo_repository import EscopoRepository
@@ -70,6 +71,7 @@ class MarcarBancaEscopoUseCase:
         self.remarcacao_repository = ProjetoRemarcacaoBancaRepository(db)
         self.banca_remarcacao_repository = BancaRemarcacaoRepository(db)
         self.sessao_repository = BancaSessaoRepository(db)
+        self.candidatura_repository = CandidaturaRepository(db)
         self.dia_nao_letivo_repository = DiaNaoLetivoRepository(db)
         self.historico_repository = ProjetoStatusHistoricoRepository(db)
 
@@ -130,6 +132,10 @@ class MarcarBancaEscopoUseCase:
                 # de alocacao rodar de novo na data nova.
                 cancelada_em = existente.cancelada_em
                 self._arquivar_sessao_cancelada(existente, request)
+                # As inscricoes zeram (2026-10-13, a pedido): quem se inscreveu
+                # pra data antiga nao sabe mais se pode ir. Cada um e avisado
+                # pra se inscrever de novo, se puder.
+                desinscritos = self.candidatura_repository.remover_por_banca(existente.id)
                 banca = self.repository.update(
                     existente.id,
                     data_hora=request.data_hora,
@@ -139,6 +145,16 @@ class MarcarBancaEscopoUseCase:
                     push_executado_em=None,
                 )
                 justificativa_padrao = f"Marcada de novo depois de cancelada em {cancelada_em:%d/%m/%Y}"
+                for usuario_id in desinscritos:
+                    notificar(
+                        self.db,
+                        usuario_id,
+                        f"A banca de {projeto.nome}, que tinha sido cancelada, foi marcada de novo para "
+                        f"{para_hora_local(banca.data_hora):%d/%m às %H:%M}. Sua inscrição anterior foi "
+                        "desfeita: se puder ir, inscreva-se de novo.",
+                        banca_id=banca.id,
+                        chave=f"banca_reaberta:banca={banca.id}:usuario={usuario_id}:data={banca.data_hora:%Y%m%d%H%M}",
+                    )
             else:
                 banca = self._remarcar(
                     existente, request, eh_segunda_banca, eh_diretor_projetos, escopo, data_anterior

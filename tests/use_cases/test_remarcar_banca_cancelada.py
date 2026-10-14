@@ -9,7 +9,37 @@ aberta. Reaproveita o mundo de dublês de `test_banca_na_janela.py`.
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+
+from src.use_cases.banca import marcar_banca_escopo
 from tests.use_cases.test_banca_na_janela import ANA, DENTRO, marcar  # noqa: F401
+
+
+class CandidaturaFake:
+    """Os inscritos da banca cancelada. `INSCRITOS` são os ids devolvidos
+    (e apagados) por `remover_por_banca`."""
+
+    INSCRITOS = [21, 22]
+
+    def __init__(self, db): pass
+
+    def remover_por_banca(self, banca_id):
+        REMOVIDAS.append(banca_id)
+        return list(self.INSCRITOS)
+
+
+REMOVIDAS: list = []
+AVISOS: list = []
+
+
+@pytest.fixture(autouse=True)
+def _inscritos(monkeypatch):
+    REMOVIDAS.clear()
+    AVISOS.clear()
+    monkeypatch.setattr(marcar_banca_escopo, "CandidaturaRepository", CandidaturaFake)
+    monkeypatch.setattr(
+        marcar_banca_escopo, "notificar", lambda db, usuario_id, mensagem, **k: AVISOS.append((usuario_id, mensagem))
+    )
 
 CANCELADA_EM = datetime(2026, 9, 15, 18, 6)
 DATA_CANCELADA = datetime(2026, 9, 18, 19, 30)
@@ -54,3 +84,16 @@ def test_mesma_data_so_reabre(marcar):  # noqa: F811
     assert resposta["status"] != "cancelada" and banca.cancelada_em is None
     assert len(estado.sessoes) == 2 and estado.sessoes[0].cancelada_em == CANCELADA_EM
     assert estado.remarcacoes == [], "a data não mudou, não é remarcação"
+
+
+
+def test_inscricoes_zeram_e_cada_inscrito_e_avisado(marcar):  # noqa: F811
+    banca = banca_cancelada()
+    executar, estado = marcar(banca_existente=banca)
+    estado.sessoes.append(SimpleNamespace(id=1, banca_id=50, numero=1, data_hora=DATA_CANCELADA, realizado_em=None, resultado=None, encerrada_em=None))
+
+    executar(DENTRO, quem=ANA)
+
+    assert REMOVIDAS == [50]
+    assert [u for u, _ in AVISOS] == [21, 22]
+    assert "marcada de novo" in AVISOS[0][1] and "inscreva-se de novo" in AVISOS[0][1]

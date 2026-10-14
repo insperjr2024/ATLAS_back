@@ -94,6 +94,18 @@ class CandidaturaRepository:
         linhas = query.group_by(CandidaturaModel.usuario_id).all()
         return {usuario_id: qtd for usuario_id, qtd in linhas}
 
+    def remover_por_banca(self, banca_id: int) -> List[int]:
+        """Apaga todas as inscrições da banca e devolve quem estava inscrito.
+        Usado quando uma banca cancelada é marcada de novo (2026-10-13): um
+        mês depois ninguém sabe se ainda pode ir, então todo mundo se
+        inscreve de novo. `solicitacao_troca.candidatura_id` é SET NULL."""
+        inscricoes = self.get_by_banca(banca_id)
+        usuario_ids = [c.usuario_id for c in inscricoes]
+        for c in inscricoes:
+            self.db.delete(c)
+        self.db.commit()
+        return usuario_ids
+
     def get_by_usuario(self, usuario_id: int) -> List[CandidaturaModel]:
         return self.db.query(CandidaturaModel).filter(CandidaturaModel.usuario_id == usuario_id).all()
 
