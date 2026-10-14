@@ -12,6 +12,7 @@ def serializar_posicao_permissao(registro) -> dict:
         "e_padrao": registro.e_padrao,
         "sobreponivel": registro.sobreponivel,
         "pode_criar_projeto": registro.pode_criar_projeto,
+        "pode_criar_projeto_atalho": registro.pode_criar_projeto_atalho,
         "pode_editar_equipe": registro.pode_editar_equipe,
         "pode_gerir_membros": registro.pode_gerir_membros,
         "pode_marcar_kickoff": registro.pode_marcar_kickoff,

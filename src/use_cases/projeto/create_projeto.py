@@ -65,8 +65,8 @@ class CreateProjetoRequest(BaseModel):
     #: criação por diretor_projetos como atalho, inclusive vindo do fluxo
     #: certo (o aviso de atalho aparecia, e o projeto pulava "contrato em
     #: elaboração" mesmo quando a pessoa ia abrir o Contrato de PS depois).
-    #: Só o router decide se honra isto (`current_user.posicao ==
-    #: "diretor_projetos"` também precisa ser verdade).
+    #: Só o router decide se honra isto (a caixa `pode_criar_projeto_atalho`
+    #: também precisa ser verdade; até 2026-10-13 era o cargo).
     atalho_direto_vendido: bool = False
 
     @field_validator("frente_ids")
@@ -117,10 +117,10 @@ class CreateProjetoUseCase:
 
         validar_equipe(request.equipe, self.usuario_repository, request.max_consultores)
 
-        # ⭐ 2026-09-23 — a pedido: atalho SÓ pra diretoria de projetos
-        # (`direto_para_vendido`, decidido no router pela POSIÇÃO de quem
-        # chama, não pela caixa `pode_criar_projeto` — jurídico/gerente
-        # também têm a caixa, mas não este atalho). O fluxo correto continua
+        # 2026-09-23, a pedido: o atalho (`direto_para_vendido`, decidido
+        # no router pela caixa `pode_criar_projeto_atalho`, não por
+        # `pode_criar_projeto`, que jurídico/gerente também têm, pra outros
+        # fins). O fluxo correto continua
         # sendo abrir o Contrato de Prestação (a aba Contratos) e deixar ele
         # levar o projeto a "vendido" sozinho quando assinado — isto aqui é
         # a exceção pra quando isso não é viável, não o caminho normal.

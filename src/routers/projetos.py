@@ -20,6 +20,7 @@ from src.middlewares.authorization import (
     require_pode_editar_equipe,
     require_pode_marcar_kickoff,
     require_pode_ver_proprios_projetos,
+    usuario_tem_permissao,
 )
 from src.repositories.projeto_escopo_repository import ProjetoEscopoRepository
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
@@ -107,14 +108,14 @@ router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
 @router.post("/projetos")
 def create_projeto(request: CreateProjetoRequest, current_user=Depends(require_pode_criar_projeto), db: Session = Depends(get_db)):
-    # ⭐ 2026-09-23 — a pedido: atalho só pra diretoria de projetos — decidido
-    # pela POSIÇÃO de quem chama, não pela caixa `pode_criar_projeto` (que
-    # jurídico/gerente também têm, pra outros fins). E só quando o PRÓPRIO
-    # pedido marca `atalho_direto_vendido` — sem isto, uma diretora de
-    # projetos criando um projeto pelo fluxo NORMAL (via Contratos,
-    # "Projeto de entrega novo") também caía no atalho, sem nunca ter pedido
-    # isso. Ver o docstring do campo em `CreateProjetoRequest`.
-    direto_para_vendido = current_user.posicao == "diretor_projetos" and request.atalho_direto_vendido
+    # O atalho é a caixa `pode_criar_projeto_atalho` (2026-10-13, a pedido;
+    # até então era o cargo diretor_projetos), e só quando o PRÓPRIO pedido
+    # marca `atalho_direto_vendido`: quem cria pelo fluxo normal (via
+    # Contratos, "Projeto de entrega novo") não pode cair no atalho sem ter
+    # pedido. Ver o docstring do campo em `CreateProjetoRequest`.
+    direto_para_vendido = request.atalho_direto_vendido and usuario_tem_permissao(
+        current_user, db, "pode_criar_projeto_atalho"
+    )
     try:
         return CreateProjetoUseCase(db).execute(
             request, criado_por=current_user.id, direto_para_vendido=direto_para_vendido

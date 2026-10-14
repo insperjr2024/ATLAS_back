@@ -18,6 +18,7 @@ class UpdatePosicaoPermissaoRequest(BaseModel):
     #: perguntado na criação. Ver `posicao_permissao_model.py`.
     sobreponivel: Optional[bool] = None
     pode_criar_projeto: Optional[bool] = None
+    pode_criar_projeto_atalho: Optional[bool] = None
     pode_editar_equipe: Optional[bool] = None
     pode_gerir_membros: Optional[bool] = None
     pode_marcar_kickoff: Optional[bool] = None

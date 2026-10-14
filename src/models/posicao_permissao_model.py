@@ -65,6 +65,13 @@ class PosicaoPermissaoModel(Base):
 
     # 1. Criar projeto e alocar equipe
     pode_criar_projeto = Column(Boolean, default=False, nullable=False)
+    #: O botão "+ Novo projeto (atalho)" da lista de projetos (2026-10-13, a
+    #: pedido): o projeto nasce direto como "vendido", sem Contrato de
+    #: Prestação, e dias de ambientação e máximo de consultores ficam
+    #: opcionais no formulário. Antes o atalho era decidido pelo cargo
+    #: (diretor_projetos); agora é caixa, que nasce marcada só pra ele.
+    #: Soma-se a `pode_criar_projeto`, que continua sendo a porta da rota.
+    pode_criar_projeto_atalho = Column(Boolean, default=False, nullable=False)
     # 2. Editar a equipe de um projeto
     pode_editar_equipe = Column(Boolean, default=False, nullable=False)
     # 3. Gerir membros (posição e status)
