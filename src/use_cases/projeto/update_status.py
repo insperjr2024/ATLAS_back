@@ -16,7 +16,7 @@ from src.utils.status_projeto import (
 )
 
 
-def _erro_de_transicao(anterior: str, novo: str, tem_kickoff: bool) -> str:
+def _erro_de_transicao(anterior: str, novo: str, tem_kickoff: bool, livre_de_kickoff: bool = False) -> str:
     """A mensagem que a pessoa lê quando o arrasto (ou o seletor) é recusado.
 
     ⭐ Fala em ETAPAS, com o nome que está na tela — nunca com a chave da
@@ -45,14 +45,14 @@ def _erro_de_transicao(anterior: str, novo: str, tem_kickoff: bool) -> str:
             "parou — de Pausado não dá para ir direto para outra etapa."
         )
 
-    if anterior == "vendido" and not tem_kickoff:
+    if anterior == "vendido" and not tem_kickoff and not livre_de_kickoff:
         return (
             f"{de} só avança para {rotulo('ambientacao')}, e só depois do kickoff "
             "marcado: é ele que dá a data de início da ambientação. Marque o "
             "kickoff na página do projeto e tente de novo."
         )
 
-    destinos = destinos_validos(anterior, tem_kickoff)
+    destinos = destinos_validos(anterior, tem_kickoff, livre_de_kickoff)
     if not destinos:
         return f"Um projeto em {de} não pode mudar de etapa."
 
@@ -88,6 +88,8 @@ class UpdateStatusUseCase:
 
         anterior = projeto.status
         tem_kickoff = projeto.data_kickoff is not None
+        # Projeto do atalho (2026-10-14): kickoff opcional, Vendido sai livre.
+        livre = bool(getattr(projeto, "criado_pelo_atalho", False))
 
         if request.status_novo == "pausado":
             novo_status, status_a_guardar = pausar(anterior)
@@ -97,13 +99,13 @@ class UpdateStatusUseCase:
             novo_status = retomar(projeto.status_antes_pausa)
             self.repository.update(projeto_id, status=novo_status, status_antes_pausa=None)
 
-        elif transicao_manual_valida(anterior, request.status_novo, tem_kickoff):
+        elif transicao_manual_valida(anterior, request.status_novo, tem_kickoff, livre):
             novo_status = request.status_novo
             self.repository.update(projeto_id, status=novo_status)
 
         else:
             raise RegraDeNegocioError(
-                _erro_de_transicao(anterior, request.status_novo, tem_kickoff)
+                _erro_de_transicao(anterior, request.status_novo, tem_kickoff, livre)
             )
 
         self.historico_repository.create(

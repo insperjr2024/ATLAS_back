@@ -222,3 +222,16 @@ class TestContratoEmElaboracao:
     def test_e_o_primeiro_da_ordem(self):
         assert STATUS_ORDEM[0] == "contrato_em_elaboracao"
         assert STATUS_ORDEM[1] == "vendido"
+
+
+class TestProjetoDoAtalho:
+    """Nascido pelo atalho (2026-10-14): kickoff opcional, Vendido sai livre."""
+
+    def test_vendido_vai_pra_qualquer_etapa_ativa_sem_kickoff(self):
+        assert transicao_manual_valida("vendido", "em_andamento", False, livre_de_kickoff=True)
+        assert transicao_manual_valida("vendido", "validacao_bancas", False, livre_de_kickoff=True)
+        assert destinos_validos("vendido", False, livre_de_kickoff=True) == STATUS_ORDEM[2:]
+
+    def test_fora_do_atalho_continua_exigindo_kickoff(self):
+        assert not transicao_manual_valida("vendido", "em_andamento", False)
+        assert destinos_validos("vendido", False) == []

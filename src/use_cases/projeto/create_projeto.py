@@ -16,7 +16,7 @@ from src.repositories.usuario_repository import UsuarioRepository
 from src.use_cases.notificacao.eventos import notificar_alocacao
 from src.use_cases.projeto.get_projeto import serializar_projeto_resumo
 from src.use_cases.tarefa.colunas import criar_colunas_padrao
-from src.utils.notificar_projeto import projeto_criado, projeto_vendido, vagas_abertas
+from src.utils.notificar_projeto import projeto_criado, projeto_vendido
 from src.use_cases.projeto_escopo.create_escopo_projeto import (
     EscopoVendidoRequest,
     validar_calendario_do_escopo,
@@ -137,7 +137,12 @@ class CreateProjetoUseCase:
             data_entrega_prevista_cliente=request.data_entrega_prevista_cliente,
             dia_reuniao_padrao=request.dia_reuniao_padrao,
             criado_por=criado_por,
-            vagas_abertas=direto_para_vendido,
+            # A declaração de interesse abre sozinha só quando o Contrato de
+            # PS é assinado (`marcar_assinado.py`). O atalho não abre
+            # (2026-10-14, a pedido): a diretoria abre na Visão geral quando
+            # quiser, e é nessa hora que os consultores são avisados.
+            vagas_abertas=False,
+            criado_pelo_atalho=direto_para_vendido,
         )
 
         # O board nasce com o conjunto padrão de colunas. Sem isto o kanban
@@ -188,11 +193,10 @@ class CreateProjetoUseCase:
         )
 
         if direto_para_vendido:
-            # Mesmo par de avisos que `marcar_assinado.py` dispara quando o
-            # Contrato de PS é assinado — este projeto nasce direto nesse
-            # estado, então recebe os mesmos dois eventos, só que na criação.
+            # O mesmo aviso de "vendido" que `marcar_assinado.py` dispara pra
+            # diretoria, gerentes e quem vendeu. O de vagas abertas não: a
+            # declaração de interesse fica fechada até alguém abrir à mão.
             projeto_vendido(self.db, projeto)
-            vagas_abertas(self.db, projeto)
         else:
             # ⭐ 2026-09-21 — a pedido: todo projeto nasce "Contrato em
             # elaboração" agora — diretoria, gerentes e quem vendeu precisam

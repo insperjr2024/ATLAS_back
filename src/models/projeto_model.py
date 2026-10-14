@@ -68,6 +68,13 @@ class ProjetoModel(Base):
     #: Monitoramento pra sempre (não só enquanto "contrato em elaboração"),
     #: pra não poluir os números de quem acompanha entrega de verdade.
     institucional = Column(Boolean, nullable=False, default=False)
+    #: Nasceu pelo botão "+ Novo projeto (atalho)" (2026-10-14, a pedido).
+    #: Nele nada além do cadastro é obrigatório: o kickoff não é cobrado
+    #: (sem pendência, sem alerta no sino, sem travar a saída de "vendido",
+    #: o cronograma e a banca), e a declaração de interesse não abre
+    #: sozinha, só quando a diretoria abrir na Visão geral. Serve pra criar
+    #: um projeto só pra gerar a banca dele. O fluxo normal segue igual.
+    criado_pelo_atalho = Column(Boolean, nullable=False, default=False, server_default="0")
     dias_ambientacao = Column(Integer, nullable=False, default=5, server_default="5")
     #: Teto de consultores do projeto — não conta o coordenador: ele entra
     #: pelo papel, não por vaga.

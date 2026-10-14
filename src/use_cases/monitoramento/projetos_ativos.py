@@ -103,7 +103,8 @@ class ProjetosAtivosUseCase:
                     # Sem kickoff, o projeto ainda não "está em execução" — é o
                     # alerta de kickoff pendente (§5.1), não zero dias.
                     "dias_em_execucao": (hoje - p.data_kickoff).days if p.data_kickoff else None,
-                    "kickoff_pendente": p.data_kickoff is None,
+                    # Nunca pendente no projeto do atalho: lá o kickoff é opcional.
+                    "kickoff_pendente": p.data_kickoff is None and not getattr(p, "criado_pelo_atalho", False),
                     # A banca mais próxima ainda não realizada, de qualquer escopo.
                     "proxima_banca": proxima.data_hora if proxima else None,
                 }

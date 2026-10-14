@@ -82,7 +82,9 @@ def pode_pausar(status_atual: str) -> bool:
     return status_atual in STATUS_PAUSAVEIS
 
 
-def transicao_manual_valida(status_atual: str, status_novo: str, tem_kickoff: bool) -> bool:
+def transicao_manual_valida(
+    status_atual: str, status_novo: str, tem_kickoff: bool, livre_de_kickoff: bool = False
+) -> bool:
     """Pode ir de `status_atual` pra `status_novo`?
 
     Contrato em elaboração normalmente vira Vendido sozinho, quando o
@@ -94,17 +96,23 @@ def transicao_manual_valida(status_atual: str, status_novo: str, tem_kickoff: bo
     aciona. Vendido só vira Ambientação, e só com `data_kickoff` já marcada.
     Qualquer etapa ativa (fora as duas acima e Pausado, que têm mecanismo
     próprio) vai pra qualquer outra ativa, livremente.
+
+    `livre_de_kickoff` é o projeto nascido pelo atalho (2026-10-14, a
+    pedido): nele o kickoff é opcional, então Vendido sai pra qualquer etapa
+    ativa sem data marcada.
     """
     if status_novo == status_atual:
         return False
     if status_atual == "contrato_em_elaboracao":
         return status_novo == "vendido"
     if status_atual == "vendido":
+        if livre_de_kickoff:
+            return status_novo in STATUS_ATIVOS
         return status_novo == "ambientacao" and tem_kickoff
     return status_atual in STATUS_ATIVOS and status_novo in STATUS_ATIVOS
 
 
-def destinos_validos(status_atual: str, tem_kickoff: bool) -> List[str]:
+def destinos_validos(status_atual: str, tem_kickoff: bool, livre_de_kickoff: bool = False) -> List[str]:
     """As etapas que o seletor mostra como opção — a mesma régua de
     `transicao_manual_valida`, mas devolvendo a lista em vez de validar um
     clique só. `pausado` não tem destino por aqui: sai pelo retomar."""
@@ -113,6 +121,8 @@ def destinos_validos(status_atual: str, tem_kickoff: bool) -> List[str]:
     if status_atual == "contrato_em_elaboracao":
         return ["vendido"]
     if status_atual == "vendido":
+        if livre_de_kickoff:
+            return list(STATUS_ORDEM[2:])
         return ["ambientacao"] if tem_kickoff else []
     return [s for s in STATUS_ORDEM[2:] if s != status_atual]
 

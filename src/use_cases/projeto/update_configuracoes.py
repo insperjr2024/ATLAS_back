@@ -12,6 +12,7 @@ from src.repositories.projeto_membro_repository import ProjetoMembroRepository
 from src.repositories.projeto_repository import ProjetoRepository
 from src.repositories.semestre_repository import SemestreRepository
 from src.use_cases.projeto.encerrar_ambientacao import EncerrarAmbientacaoUseCase
+from src.utils import notificar_projeto
 from src.utils.exceptions import RegraDeNegocioError
 
 
@@ -104,15 +105,26 @@ class UpdateVagasAbertasUseCase:
     interesse em Vagas em Projetos. Abre sozinho quando o Contrato de PS é
     assinado (`marcar_assinado.py`); esta rota é o botão pra abrir de novo
     depois de fechado, ou fechar antes da hora — sem regra de fechamento
-    automático ao bater no teto de consultores."""
+    automático ao bater no teto de consultores.
+
+    Abrir à mão avisa os consultores das frentes (2026-10-14, a pedido), o
+    mesmo aviso da assinatura do contrato. O projeto do atalho nasce com a
+    declaração fechada, então é só por aqui que ele chega em Vagas. Só na
+    virada de fechado pra aberto: clicar de novo em "aberto" não repete.
+    """
 
     def __init__(self, db: Session):
+        self.db = db
         self.repository = ProjetoRepository(db)
 
     def execute(self, projeto_id: int, request: UpdateVagasAbertasRequest):
-        atualizado = self.repository.update(projeto_id, vagas_abertas=request.vagas_abertas)
-        if not atualizado:
+        atual = self.repository.get_by_id(projeto_id)
+        if not atual:
             return None
+        abrindo = request.vagas_abertas and not atual.vagas_abertas
+        atualizado = self.repository.update(projeto_id, vagas_abertas=request.vagas_abertas)
+        if abrindo:
+            notificar_projeto.vagas_abertas(self.db, atualizado)
         return {"id": atualizado.id, "vagas_abertas": atualizado.vagas_abertas}
 
 

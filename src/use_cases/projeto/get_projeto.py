@@ -53,6 +53,9 @@ def serializar_projeto_resumo(
         # front usa isto pra tirar da lista/Kanban geral pra sempre, não só
         # enquanto "contrato em elaboração".
         "institucional": projeto.institucional,
+        # Nasceu pelo atalho (2026-10-14): kickoff opcional, e a saída de
+        # "vendido", o cronograma e a banca não dependem dele.
+        "criado_pelo_atalho": getattr(projeto, "criado_pelo_atalho", False),
         "frente_ids": [f.frente_id for f in frentes],
         "sinergico": len(frentes) > 1,
         # ⚠ `coordenador_id` (singular) é o PRIMEIRO da lista, mantido só
@@ -75,8 +78,10 @@ def serializar_projeto_resumo(
         # ⭐ 2026-09-21 — a pedido: kickoff só é "pendente" depois de VENDIDO —
         # antes disso (`contrato_em_elaboracao`) nem tem venda de verdade
         # ainda pra combinar data nenhuma com o cliente.
+        # E nunca no projeto do atalho, onde o kickoff é opcional.
         "kickoff_pendente": projeto.data_kickoff is None
-        and projeto.status not in ("finalizado", "contrato_em_elaboracao"),
+        and projeto.status not in ("finalizado", "contrato_em_elaboracao")
+        and not getattr(projeto, "criado_pelo_atalho", False),
         # `None` = ambientação começa no kickoff, o caso normal. Só não-nulo
         # quando o coordenador corrigiu que ela começou antes dele.
         "data_inicio_ambientacao": projeto.data_inicio_ambientacao,

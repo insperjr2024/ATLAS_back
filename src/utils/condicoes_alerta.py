@@ -197,7 +197,9 @@ def _do_projeto(
     nome = projeto.nome
 
     # ── Kickoff pendente (§5.2) ──────────────────────────────────────────
-    if not projeto.data_kickoff:
+    # Não no projeto do atalho (2026-10-14): lá o kickoff é opcional e não
+    # há o que cobrar de ninguém.
+    if not projeto.data_kickoff and not getattr(projeto, "criado_pelo_atalho", False):
         condicoes.append(
             Condicao(
                 tipo=KICKOFF_PENDENTE,
