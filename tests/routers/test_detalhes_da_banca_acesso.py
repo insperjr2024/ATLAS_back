@@ -32,7 +32,10 @@ class FakeGetBancaDetalhesUseCase:
         return {
             "id": banca_id,
             "projeto_id": 99,
-            "avaliadores": [],
+            "avaliadores": [
+                {"usuario_id": 7, "comentario_feedback": "da pessoa 7"},
+                {"usuario_id": 50, "comentario_feedback": "meu"},
+            ],
             "avaliacoes": [{"id": 1, "avaliador_id": 7}],
             "nota_final": 4.2,
         }
@@ -63,7 +66,11 @@ def test_sem_dashboard_a_ficha_vem_sem_as_avaliacoes(monkeypatch):
 
     assert detalhes["avaliacoes"] == []
     assert detalhes["nota_final"] is None
-    assert detalhes["avaliadores"] == []  # quem ESTÁ na banca continua vindo
+    # Quem ESTÁ na banca continua vindo; o comentário de cada um, só o meu
+    # (2026-10-16: `avaliadores[].comentario_feedback` ligava nome a texto).
+    assert [a["usuario_id"] for a in detalhes["avaliadores"]] == [7, 50]
+    assert detalhes["avaliadores"][0]["comentario_feedback"] is None
+    assert detalhes["avaliadores"][1]["comentario_feedback"] == "meu"
 
 
 def test_com_dashboard_a_ficha_traz_as_avaliacoes(monkeypatch):
@@ -74,6 +81,7 @@ def test_com_dashboard_a_ficha_traz_as_avaliacoes(monkeypatch):
 
     assert detalhes["avaliacoes"] == [{"id": 1, "avaliador_id": 7}]
     assert detalhes["nota_final"] == 4.2
+    assert detalhes["avaliadores"][0]["comentario_feedback"] == "da pessoa 7"
 
 
 def test_banca_inexistente_leva_404(monkeypatch):

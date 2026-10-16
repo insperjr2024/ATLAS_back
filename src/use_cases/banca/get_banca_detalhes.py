@@ -167,6 +167,11 @@ class GetBancaDetalhesUseCase:
             # ⭐ As notas e o feedback de quem avaliou — pedagógico, não decide
             # a banca (ver `aprovacao` abaixo).
             "avaliacoes": self._avaliacoes(banca_id),
+            # A ficha sai com autor em cada avaliação; é a rota que decide
+            # se o leitor recebe assim, sem autor ou sem nada (ver
+            # `utils/resultado_banca.py`). Ela vira esta flag quando tira
+            # o autor, pra tela rotular "Avaliação 1, 2, 3" sem adivinhar.
+            "avaliacoes_anonimas": False,
             # ⭐ Quem aprova a banca é diretoria de projetos ou gerente da
             # frente, não os avaliadores (§5.5, §8) — ver
             # `use_cases/banca/aprovar_banca.py`.

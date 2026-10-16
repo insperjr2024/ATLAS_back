@@ -102,6 +102,7 @@ from src.use_cases.projeto.upload_anexo_proposta import UploadAnexoPropostaUseCa
 from src.repositories.projeto_repository import ProjetoRepository
 from src.utils.exceptions import RegraDeNegocioError
 from src.utils.content_disposition import content_disposition
+from src.utils.resultado_banca import anonimizar_resultados, ocultar_resultados
 
 router = APIRouter(tags=["projetos"], dependencies=[Depends(get_current_user)])
 
@@ -252,8 +253,18 @@ def list_bancas_do_projeto(projeto_id: int, current_user=Depends(get_current_use
     nem uma coisa nem outra recebe 404, e não uma lista vazia que sugeriria
     "não há bancas".
     """
-    exigir_acesso_a_banca_do_projeto(projeto_id, current_user, db)
-    return ListBancasDoProjetoUseCase(db).execute(projeto_id)
+    visitante = exigir_acesso_a_banca_do_projeto(projeto_id, current_user, db)
+    bancas = ListBancasDoProjetoUseCase(db).execute(projeto_id)
+    # Quem tem o Dashboard de Bancas lê cada avaliação com o nome de quem
+    # escreveu, como lá. Quem é do projeto lê notas e comentários SEM autor
+    # (2026-10-16, a pedido: o grupo precisa absorver o feedback a tempo de
+    # ajustar o trabalho, e a avaliação continua anônima pra ele). O
+    # visitante, avaliador escalado que só entra pra votar, não lê nada.
+    if usuario_tem_permissao(current_user, db, "pode_ver_dashboard_bancas"):
+        return bancas
+    if visitante:
+        return [ocultar_resultados(b, current_user.id) for b in bancas]
+    return [anonimizar_resultados(b, current_user.id) for b in bancas]
 
 
 @router.patch("/projetos/{projeto_id}/entrega-prevista-cliente")

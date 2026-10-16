@@ -101,6 +101,7 @@ from src.use_cases.equipe_projeto.update_equipe_projeto import (
 )
 from src.utils.erro_http import erro_de_regra
 from src.utils.exceptions import RegraDeNegocioError
+from src.utils.resultado_banca import ocultar_resultados
 
 router = APIRouter(tags=["bancas"], dependencies=[Depends(get_current_user)])
 
@@ -203,13 +204,13 @@ def get_banca_detalhes(
     if not detalhes:
         raise HTTPException(status_code=404, detail="Banca não encontrada")
     # ⚠ As avaliações da banca (nota e feedback de CADA avaliador) e a nota
-    # final só para quem tem o Dashboard de Bancas (2026-09-10, a pedido: na
-    # aba do projeto ninguém vê avaliação de ninguém). O resto da ficha —
-    # quem está na banca, o veredito de aprovação, as tentativas — continua
-    # aberto a qualquer um da casa.
+    # final só para quem tem o Dashboard de Bancas (2026-09-10, a pedido).
+    # Esta rota é aberta a qualquer um da casa, então aqui não há versão
+    # anônima: quem é do projeto lê os resultados sem autor pela aba Banca
+    # (`GET /projetos/{id}/bancas`). O resto da ficha, quem está na banca,
+    # o veredito de aprovação, as tentativas, continua aberto a todos.
     if not usuario_tem_permissao(current_user, db, "pode_ver_dashboard_bancas"):
-        detalhes["avaliacoes"] = []
-        detalhes["nota_final"] = None
+        ocultar_resultados(detalhes, current_user.id)
     return detalhes
 
 
